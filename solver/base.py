@@ -1,6 +1,24 @@
 from abc import ABC, abstractmethod
 
 
+class CannotSolve(Exception):
+    pass
+
+
+class FilterFailed(Exception):
+    pass
+
+
+def ensure(cond: bool):
+    if not cond:
+        raise FilterFailed()
+
+
+def defined(x):
+    if x is None:
+        raise FilterFailed()
+
+
 class Task:
     """
     Базовый тип задачи
@@ -23,9 +41,6 @@ class Task:
 
         :returns: Ответ задачи
         """
-        if self._solver_state.global_params.get('trace_solution', False):
-            print(f'##########  Start solve task of type {self.__class__.__name__}  ##########')
-
         if rules is None:
             rules = self.rules
         else:
@@ -36,6 +51,9 @@ class Task:
 
         self._solver_state = solver_state
 
+        if self._solver_state.global_params.get('trace_solution', False):
+            print(f'##########  Start solve task of type {self.__class__.__name__}  ##########')
+
         nstate = self.prepare_state(state)
         if state is None:
             state = nstate
@@ -44,11 +62,17 @@ class Task:
         # state = State(task)
         pos = 0
         while not self.solved:
-            if self._solver_state.global_params.get('trace_solution', False):
-                print(f'    Apply rule {rules[pos].__class__.__name__} ')
-            if rules[pos].can_apply(self, self._state):
-                rules[pos].apply(self, self._state)
-            pos = (pos + 1) % len(rules)
+            applied = 0
+            for r in rules:
+                if r.can_apply(self, self._state):
+                    if self._solver_state.global_params.get('trace_solution', False):
+                        print(f'    Apply rule {r.__class__.__name__} ')
+                    r.apply(self, self._state)
+                    applied += 1
+            if not applied:
+                raise CannotSolve(self)
+
+            # pos = (pos + 1) % len(rules)
 
         if self._solver_state.global_params.get('trace_solution', False):
             print(f'##########  Finish solve task of type {self.__class__.__name__}  #########')
@@ -74,7 +98,7 @@ class Task:
 
     def run_subtask(self, subtask, state=None):
         """ Запуск решения подзадачи. Обёртка вокруг SolverState.run_subtask. """
-        return self.solver_state.run_sub_task(subtask, state)
+        return self.solver_state.run_subtask(subtask, state)
 
     def prepare_state(self, state):
         """
@@ -87,12 +111,13 @@ class Task:
     def rules(self):
         """ Правила, отнесённые к задачам данного типа, включая все правила для базовых классов задач """
         r = []
-        cls = self.__class__
-        while cls is not Task:
+        # cls = self.__class__
+        for cls in self.__class__.mro():
             if hasattr(cls, '_rules'):
                 r += cls._rules
-        if hasattr(cls, '_rules'):
-            r += cls._rules
+            # cls = super(cls)
+        # if hasattr(cls, '_rules'):
+        #    r += cls._rules
         return r
 
 
@@ -158,7 +183,7 @@ class Rule(ABC):
     """
 
     @abstractmethod
-    def can_apply(self, task: Task, state: SolverState):
+    def can_apply(self, task: Task, state: SolverState) -> bool:
         """
         Проверка целесообразности применения приёма
 
@@ -174,3 +199,26 @@ class Rule(ABC):
         Применение приёма
         """
         pass
+
+
+class RuleFL(Rule):
+    @abstractmethod
+    def filter(self, task, state) -> None:
+        """
+        Проверка целесообразности применения приёма в декларативном виде.
+        В случае невыполнения одного из условий должна бросать исключение FilterFailed
+        Успешное завершение этой функции означает, что приём можно применять
+        """
+        pass
+
+    def can_apply(self, task: Task, state: SolverState):
+        try:
+            self.filter(task, state)
+            return True
+        except FilterFailed:
+            return False
+
+
+class FinishTask(RuleFL):
+    def apply(self, task: Task, state):
+        task.solved = True

@@ -2,11 +2,11 @@ from typing import Dict, Any
 
 from solver.base import *
 
-import keras
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+import keras
 import pandas as pd
 from matplotlib import pyplot as plt
-
 
 keras.backend.set_image_data_format('channels_last')
 
@@ -15,12 +15,15 @@ class NNState:
     def __init__(self):
         self.data = None
         self.model = None
+        self.test_result = None
         self.core_architecture = None
         self.model_name = None
         self.model_path = None
         self.aug_param_names = None
         self.parameters = None
         self.trained = False
+        self.plotted = False
+        self.trained_plotted = False
 
 
 class DataPrepare(Task):
@@ -42,11 +45,11 @@ class LoadData(Rule):
 
     def apply(self, task: DataPrepare, nn: NNState):
         os_symbol = "/"
-        nn.data = {}  # dictionary with information about the database
+        # dictionary with information about the database
         # full paths to  data folders
-        nn.data['train_catalog_name'] = task.data_base_address + os_symbol + "train"  # full paths to  data folders
-        nn.data['test_catalog_name'] = task.data_base_address + os_symbol + "test"
-        nn.data['validation_catalog_name'] = task.data_base_address + os_symbol + "validation"
+        nn.data = {'train_catalog_name':      task.data_base_address + os_symbol + "train",
+                   'test_catalog_name':       task.data_base_address + os_symbol + "test",
+                   'validation_catalog_name': task.data_base_address + os_symbol + "validation"}
 
         info = pd.read_csv(task.data_base_address + os_symbol + 'Info.csv', sep=',')  # loading database information
         nn.data['classes_list'] = list(info.classes)
@@ -80,7 +83,7 @@ class DefaultAugmentation(Rule):
 
 class NNInit(Task):
     def __init__(self, file_name_of_h5_type, goals=()):
-        super().__init__(list(goals)+['plot_model'])
+        super().__init__(list(goals) + ['plot_model'])
         self.file_name_of_h5_type = file_name_of_h5_type
 
     def prepare_state(self, nn: NNState):
@@ -92,12 +95,13 @@ class NNInit(Task):
 
 
 @rule(NNInit)
-class LoadPretrained(Rule):
-    def can_apply(self, task: NNInit, nn: NNState):
-        return nn.core_architecture is None and task.file_name_of_h5_type is not None
+class LoadPretrained(RuleFL):
+    def filter(self, task: NNInit, nn: NNState):
+        defined(task.file_name_of_h5_type)
+        ensure(nn.core_architecture is None)
 
     def apply(self, task: NNInit, nn: NNState):  # (self, file_name_of_h5_type):
-        task.core_architecture = keras.models.load_model(task.file_name_of_h5_type)
+        nn.core_architecture = keras.models.load_model(task.file_name_of_h5_type)
 
 
 @rule(NNInit)
@@ -117,30 +121,31 @@ class NNDefaultTrainParams(Rule):
         nn.parameters['loss'] = func
         nn.parameters['metrics'] = 'accuracy'
         nn.parameters['batch_size'] = 32
-        nn.parameters['epoch'] = 15
+        nn.parameters['epoch'] = 1
 
 
 @rule(NNInit)
 class NNPrepareDirectories(Rule):
-    def can_apply(self, task: NNInit, state: SolverState):
-        return self.model_path is None
+    def can_apply(self, task: NNInit, state: NNState):
+        return state.model_path is None
 
-    def apply(self, task: NNInit, state: SolverState):
+    def apply(self, task: NNInit, state: NNState):
         # creating a model folder with information about it
         model_name = 'New_Network'
-        task.model_path = "./TrainedNN" + '/' + model_name
-        task.model_name = task.model_path + '/' + model_name
-        if not os.path.exists(task.model_path):
-            os.makedirs(task.model_path)
+        state.model_path = "./TrainedNN" + '/' + model_name
+        state.model_name = state.model_path + '/' + model_name
+        if not os.path.exists(state.model_path):
+            os.makedirs(state.model_path)
 
 
 @rule(NNInit)
-class NNUpgradeModel(Rule):
-    def can_apply(self, task: NNInit, nn: NNState):
-        return nn.parameters is not None \
-               and nn.model_path is not None \
-               and nn.core_architecture is not None \
-               and nn.data is not None
+class NNUpgradeModel(RuleFL):
+    def filter(self, task: NNInit, nn: NNState):
+        ensure(nn.model is None)
+        defined(nn.parameters)
+        defined(nn.model_path)
+        defined(nn.core_architecture)
+        defined(nn.data)
 
     def apply(self, task: NNInit, nn: NNState):
         # model creating
@@ -156,19 +161,29 @@ class NNUpgradeModel(Rule):
         y = keras.layers.Activation(func)(y1)
 
         # model saving
-        task.model = keras.models.Model(inputs=x, outputs=y)
-        task.model.summary()
-        task.model.save(nn.model_name + '.h5')
+        nn.model = keras.models.Model(inputs=x, outputs=y)
+        nn.model.summary()
+        nn.model.save(nn.model_name + '.h5')
+        nn.plotted = False
 
 
 @rule(NNInit)
-class NNPlotModel(Rule):
-    def can_apply(self, task: NNInit, nn: NNState):
-        return nn.model is not None \
-               and 'plot_model' in task.goals
+class NNPlotModel(RuleFL):
+    def filter(self, task: NNInit, nn: NNState):
+        ensure(nn.model is not None)
+        ensure('plot_model' in task.goals and not nn.plotted)
 
     def apply(self, task: NNInit, nn: NNState):
         keras.utils.plot_model(nn.model, to_file=(nn.model_name + '.png'), rankdir='TB', show_shapes=True)
+        nn.plotted = True
+
+
+@rule(NNInit)
+class FinishNNInit(FinishTask):
+    def filter(self, task: NNInit, nn: NNState):
+        if 'plot_model' in task.goals:
+            ensure(nn.plotted)
+        defined(nn.model)
 
 
 class NNTraining(Task):
@@ -187,44 +202,44 @@ class TrainNN(Rule):
 
     def apply(self, task: NNTraining, nn: NNState):
         print('\n' + 'Training' + '\n')
-        if len(self.data['classes_list']) == 2:
+        if len(nn.data['classes_list']) == 2:
             mode = 'binary'
         else:
             mode = 'categorical'
 
         # creating generators
-        DataGenerator = keras.preprocessing.image.ImageDataGenerator(rescale=nn.aug_param_names['rescale'],
-                                                                     preprocessing_function=nn.aug_param_names[
-                                                                         'preprocessing_function'])
+        data_generator = keras.preprocessing.image.ImageDataGenerator(rescale=nn.aug_param_names['rescale'],
+                                                                      preprocessing_function=nn.aug_param_names[
+                                                                          'preprocessing_function'])
 
-        Train_generator = DataGenerator.flow_from_directory(directory=nn.data['train_catalog_name'],
-                                                            target_size=nn.data['Image_resol'], class_mode=mode,
-                                                            batch_size=nn.parameters['batch_size'])
-        Validation_generator = DataGenerator.flow_from_directory(directory=nn.data['validation_catalog_name'],
-                                                                 target_size=nn.data['Image_resol'], class_mode=mode,
-                                                                 batch_size=nn.parameters['batch_size'])
+        train_generator = data_generator.flow_from_directory(directory=nn.data['train_catalog_name'],
+                                                             target_size=nn.data['Image_resol'], class_mode=mode,
+                                                             batch_size=nn.parameters['batch_size'])
+        validation_generator = data_generator.flow_from_directory(directory=nn.data['validation_catalog_name'],
+                                                                  target_size=nn.data['Image_resol'], class_mode=mode,
+                                                                  batch_size=nn.parameters['batch_size'])
 
         # preparation for training
-        nn.model.compile(optimizer=nn.parameters['optimizer'], loss=task.parameters['loss'],
-                           metrics=[nn.parameters['metrics']])
+        nn.model.compile(optimizer=nn.parameters['optimizer'], loss=nn.parameters['loss'],
+                         metrics=[nn.parameters['metrics']])
 
         C_Log = keras.callbacks.CSVLogger(nn.model_name + '.csv')
         C_Ch = keras.callbacks.ModelCheckpoint(nn.model_path + '/weights' + '-{epoch:02d}.h5', monitor='val_accuracy',
                                                save_best_only=True, save_weights_only=True, verbose=1)
         # training
-        nn.model.fit_generator(generator=Train_generator,
-                                 steps_per_epoch=(len(Train_generator.filenames) // nn.parameters['batch_size']),
-                                 epochs=nn.parameters['epoch'], validation_data=Validation_generator,
-                                 validation_steps=(
-                                             len(Validation_generator.filenames) // nn.parameters['batch_size']),
-                                 callbacks=[C_Log, C_Ch])
-        task.trained = True
+        nn.model.fit(train_generator,
+                     steps_per_epoch=(len(train_generator.filenames) // nn.parameters['batch_size']),
+                     epochs=nn.parameters['epoch'], validation_data=validation_generator,
+                     validation_steps=(len(validation_generator.filenames) // nn.parameters['batch_size']),
+                     callbacks=[C_Log, C_Ch])
+        nn.trained = True
+        nn.trained_plotted = False
 
 
 @rule(NNTraining)
 class DrawProcessPlot(Rule):
     def can_apply(self, task: NNTraining, nn: NNState):
-        return nn.trained and 'training_plot' in task.goals
+        return nn.trained and 'training_plot' in task.goals and not nn.trained_plotted
 
     # TODO: Продумать возможность задавать параметр show извне
     def apply(self, task: Task, nn: NNState):  # training_process_plot(self, show=True):
@@ -236,7 +251,7 @@ class DrawProcessPlot(Rule):
         plt.legend(fontsize=15)
         plt.xlabel('Epoch', fontsize=15)
         plt.ylabel('Loss function value', fontsize=15)
-        #if show:
+        # if show:
         #    plt.show()
         fig.savefig(nn.model_name + ' Loss.png')
 
@@ -248,9 +263,10 @@ class DrawProcessPlot(Rule):
         plt.legend(fontsize=15)
         plt.xlabel('Epoch', fontsize=15)
         plt.ylabel('Accuracy value', fontsize=15)
-        #if show:
+        # if show:
         #    plt.show()
         fig.savefig(nn.model_name + ' Accuracy.png')
+        nn.trained_plotted = True
 
 
 @rule(NNTraining)
@@ -264,24 +280,36 @@ class TestTrainedNN(Rule):
             mode = 'binary'
         else:
             mode = 'categorical'
-        DataGenerator = keras.preprocessing.image.ImageDataGenerator(rescale=nn.aug_param_names['rescale'],
-                                                                     preprocessing_function=nn.aug_param_names[
-                                                                         'preprocessing_function'])
-        Test_generator = DataGenerator.flow_from_directory(nn.data['test_catalog_name'],
-                                                           target_size=nn.data['Image_resol'],
-                                                           class_mode=mode, batch_size=nn.parameters['batch_size'])
+        data_generator = keras.preprocessing.image.ImageDataGenerator(rescale=nn.aug_param_names['rescale'],
+                                                                      preprocessing_function=nn.aug_param_names[
+                                                                          'preprocessing_function'])
+        test_generator = data_generator.flow_from_directory(nn.data['test_catalog_name'],
+                                                            target_size=nn.data['Image_resol'],
+                                                            class_mode=mode, batch_size=nn.parameters['batch_size'])
 
         nn.model.compile(optimizer=nn.parameters['optimizer'], loss=nn.parameters['loss'],
-                           metrics=[nn.parameters['metrics']])
-        scores = nn.model.evaluate_generator(Test_generator, steps=None, verbose=1)
+                         metrics=[nn.parameters['metrics']])
+        scores = nn.model.evaluate(test_generator, steps=None, verbose=1)
 
         # saving testing results
-        result = pd.DataFrame({'loss': [scores[0]], 'accuracy': [scores[1]]})
-        result.to_csv(nn.model_name + ' Result_scores.csv')
+        nn.test_result = pd.DataFrame({'loss': [scores[0]], 'accuracy': [scores[1]]})
+        nn.test_result.to_csv(nn.model_name + ' Result_scores.csv')
+
+
+@rule(NNTraining)
+class FinishTrain(FinishTask):
+    def filter(self, task, nn: NNState) -> None:
+        if 'nn_train' in task.goals:
+            defined(nn.trained)
+        if 'training_plot' in task.goals:
+            ensure(nn.trained_plotted)
+        if 'nn_test' in task.goals:
+            defined(nn.test_result)
 
 
 class NNTask(Task):
     """ Общая задача создания и обучения нейронной сети """
+
     def __init__(self, data_catalog_name, file_name_of_h5_type, goals=()):
         super().__init__(goals)
         self.data_catalog_name = data_catalog_name
@@ -308,7 +336,7 @@ def main():
     data_catalog_name = './Databases/Kaggle_CatsVSDogs'
     file_name_of_h5_type = './Architectures/ResNet50.h5'
     nn_task = NNTask(data_catalog_name, file_name_of_h5_type, goals=['training_plot', 'nn_train', 'nn_test'])
-    P = nn_task.solve(solver_state=SolverState(global_params={'trace_solution': True}))
+    p = nn_task.solve(solver_state=SolverState(global_params={'trace_solution': True}))
 
 
 if __name__ == '__main__':
