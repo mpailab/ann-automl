@@ -170,7 +170,7 @@ class NNUpgradeModel(RuleFL):
 @rule(NNInit)
 class NNPlotModel(RuleFL):
     def filter(self, task: NNInit, nn: NNState):
-        ensure(nn.model is not None)
+        defined(nn.model)
         ensure('plot_model' in task.goals and not nn.plotted)
 
     def apply(self, task: NNInit, nn: NNState):
@@ -270,9 +270,12 @@ class DrawProcessPlot(Rule):
 
 
 @rule(NNTraining)
-class TestTrainedNN(Rule):
-    def can_apply(self, task: NNTraining, nn: NNState):
-        return nn.trained and 'nn_test' in task.goals
+class TestTrainedNN(RuleFL):
+    def filter(self, task: NNTraining, nn: NNState):
+        ensure('nn_test' in task.goals)
+        defined(nn.model)
+        if 'nn_train' in task.goals:
+            defined(nn.trained)
 
     def apply(self, task: NNTraining, nn: NNState):
         print('\n' + 'Testing' + '\n')
@@ -335,6 +338,7 @@ class NNProcess(Rule):
 def main():
     data_catalog_name = './Databases/Kaggle_CatsVSDogs'
     file_name_of_h5_type = './Architectures/ResNet50.h5'
+    # nn_task = NNTask(data_catalog_name, file_name_of_h5_type, goals=['nn_test'])
     nn_task = NNTask(data_catalog_name, file_name_of_h5_type, goals=['training_plot', 'nn_train', 'nn_test'])
     p = nn_task.solve(solver_state=SolverState(global_params={'trace_solution': True}))
 
