@@ -131,7 +131,7 @@ class CheckingModelHistory(Rule):
     print('Checking')
     state.df = pd.read_csv('./ModelTrainingHistory.csv', sep=',')
     for i in range(len(state.df)):
-       if df.iloc[i]['TaskType']==state.task.taskType:
+       if state.df.iloc[i]['TaskType']==state.task.taskType:
          state.task.model['pipeline']=state.df.iloc[i]['pipeline']
          state.task.augmen_params=state.df.iloc[i]['augmen_params']
 
