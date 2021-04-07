@@ -36,7 +36,7 @@ from keras import Sequential
 import pandas as pd
 
 
-# Взодные данные для задачи
+# Входные данные для задачи
 data = { 'address': './Databases/Kaggle_CatsVSDogs', 'classes': ('cats','dogs')}
 
 # Глобал rules задаёт список приёмов
@@ -112,10 +112,7 @@ class Rule(ABC):
 
 @rule
 class IsDatabaseAvailable(Rule):
-  '''
-  есть тип задачи = классификция
-  есть набор объектов интереса = количество классов
-  '''
+
   def can_apply(self, state):
     return('train' or 'test' in state.task.goals)
 
@@ -134,7 +131,7 @@ class CheckingModelHistory(Rule):
     print('Checking')
     state.df = pd.read_csv('./ModelTrainingHistory.csv', sep=',')
     for i in range(len(state.df)):
-       if df.iloc[i]['TaskType']==state.task.taskType:
+       if state.df.iloc[i]['TaskType']==state.task.taskType:
          state.task.model['pipeline']=state.df.iloc[i]['pipeline']
          state.task.augmen_params=state.df.iloc[i]['augmen_params']
 
@@ -240,5 +237,4 @@ def solve(task: Task, rules):
 
 # Создаём и решаем задачу создания модели нейронной сети
 task = ModelTask(data, Ttype='classification', goals={'train', '0.9'})
-print('*')
 model = solve(task, rules)
