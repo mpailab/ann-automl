@@ -346,14 +346,13 @@ class FitModel(Rule):
       C_Ch = keras.callbacks.ModelCheckpoint( './TrainedNN/' + state.task.modelName + '/' + state.task.curTrainingSubFolder + '/weights'  +'-{epoch:02d}.h5',
                                               monitor='val_'+state.task.trainParams['Metrics'], save_best_only=True,  save_weights_only=False, verbose=1)
 
-      #state.task.model.fit_generator(generator=state.task.generators[0], steps_per_epoch=(len(state.task.generators[0].filenames) // state.task.trainParams['Batch_size']), 
-      #          epochs=state.task.trainParams['Epochs'], validation_data=state.task.generators[1], callbacks=[C_Log,C_Ch],
-      #          validation_steps=(len(state.task.generators[1].filenames) // state.task.trainParams['Batch_size']) )
+      state.task.model.fit_generator(generator=state.task.generators[0], steps_per_epoch=(len(state.task.generators[0].filenames) // state.task.trainParams['Batch_size']), 
+                epochs=state.task.trainParams['Epochs'], validation_data=state.task.generators[1], callbacks=[C_Log,C_Ch],
+                validation_steps=(len(state.task.generators[1].filenames) // state.task.trainParams['Batch_size']) )
       
       
-      #scores = state.task.model.evaluate_generator(state.task.generators[2], steps=None,verbose=1 )
-      scores=[0,0.0]
-      scores[1]=0.95
+      scores = state.task.model.evaluate_generator(state.task.generators[2], steps=None,verbose=1 )
+      
       if scores[1]>=state.task.goal[list(state.task.goal.keys())[0]]:
         state.curState='UserDec'
         state.message='Our system trained a model that achieved its goal. Would you like to train an another model? "No" - 0; "Yes" - 1. '
