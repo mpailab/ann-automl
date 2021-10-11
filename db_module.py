@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Float, create_engine
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Float, create_engine
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
 import pandas as pd
@@ -10,6 +10,8 @@ from pathlib import Path
 from pycocotools.coco import COCO
 import skimage.io as io
 import numpy as np
+import datetime
+import os
 
 Base = declarative_base()
 
@@ -103,7 +105,7 @@ class dbModule:
         category_id = Column(Integer, ForeignKey("category.ID"))
         bbox = Column(String)
         segmentation = Column(String)
-        isCrowd = Column(Integer)
+        is_crowd = Column(Integer)
         area = Column(Float)
         aux = Column(String)
         def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id = None, aux = ''):
@@ -111,12 +113,63 @@ class dbModule:
             self.category_id = category_id
             self.bbox = bbox
             self.segmentation = segmentation
-            self.isCrowd = isCrowd
+            self.is_crowd = isCrowd
             self.area = area
             if _id != None:
                 self.ID = _id
             self.aux = aux
     
+    class Metric(Base):
+        __tablename__ = "metric"
+        ID = Column(Integer, primary_key=True)
+        metric_name = Column(String)
+        aux = Column(String)
+        def __init__(self, metricName, aux = '', _id = None):
+            self.metric_name = metricName
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
+
+    class MetricToModel(Base):
+        __tablename__ = "metricToModel"
+        ID = Column(Integer, primary_key=True)
+        metric_id = Column(Integer, ForeignKey("metric.ID"))
+        model_id = Column(Integer, ForeignKey("model.ID"))
+        metricValue = Column(Float) #TODO - this maybe not true, maybe will require casting to Float
+        aux = Column(String)
+        created_date = Column(DateTime, default=datetime.datetime.utcnow)
+        def __init__(self, metric_id, model_id, aux = '', _id = None):
+            self.metric_id = metric_id
+            self.model_id = model_id
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
+    
+    class CategoryToGlobalRecord(Base):
+        __tablename__ = "categoryToGlobalRecord"
+        ID = Column(Integer, primary_key=True)
+        category_id = Column(Integer, ForeignKey("category.ID"))
+        global_record_id = Column(Integer, ForeignKey("metricToModel.ID"))
+        aux = Column(String)
+        def __init__(self, category_id, global_record_id, aux = '', _id = None):
+            self.category_id = category_id
+            self.global_record_id = global_record_id
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
+
+    class Model(Base):
+        __tablename__ = "model"
+        ID = Column(Integer, primary_key=True)
+        model_address = Column(String)
+        task_type = Column(String) #TODO - this is very bad from DB perspective, but I'll leave for later
+        aux = Column(String)
+        def __init__(self, modelAddress, taskType, aux = '', _id = None):
+            self.model_address = modelAddress
+            self.task_type = taskType
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
     ############################################################
     ##########        DB Module methods      ###################
     ############################################################
@@ -155,7 +208,7 @@ class dbModule:
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
     
-    def fill_coco(self, annoFileName, ds_info = None):
+    def fill_coco(self, annoFileName, firstTime = False, ds_info = None):
         '''Method to fill COCOdataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -164,11 +217,12 @@ class dbModule:
         OUTPUT:
             None
         '''
-        coco=COCO(annFile)
+        coco=COCO(annoFileName)
         cats = coco.loadCats(coco.getCatIds())
-        ##TODO: CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - MAKE A CHECK
-        self.add_categories(cats, True)
-        self.add_default_licences()
+        ##CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
+        if firstTime:
+            self.add_categories(cats, True)
+            self.add_default_licences()
         #######################################################################
         if ds_info == None:
             ds_info = {"description": "COCO 2017 Dataset","url": "http://cocodataset.org","version": "1.0","year": 2017,"contributor": "COCO Consortium","date_created": "2017/09/01"}
@@ -177,6 +231,7 @@ class dbModule:
         imgs = coco.loadImgs(imgIds)
         annIds = coco.getAnnIds()
         anns = coco.loadAnns(annIds)
+        print('Adding '+ str(len(anns)) + ' annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, dsID)
         return
     
@@ -216,11 +271,14 @@ class dbModule:
                 files_dir = kwargs['files_dir']
             for index, row in df.iterrows():
                 bbox = ast.literal_eval(row['bbox'])
+                if len(bbox) != 4:
+                    buf_df = buf_df.append(row['file_name'], row['category_id']) #nothing to cut
+                    continue
                 image = cv2.imread(files_dir + row['file_name'])
                 crop = image[int(bbox[1]):int(bbox[1] + bbox[3]), int(bbox[0]):int(bbox[0] + bbox[2])]
                 buf_name = row["file_name"].split('.')
                 cv2.imwrite(cropped_dir + buf_name[-2] + "-" + str(index) + "." + buf_name[-1] ,crop)
-                newRow = pd.DataFrame([[buf_name[-2] + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
+                newRow = pd.DataFrame([['.'.join(buf_name[:-2]) + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
                 buf_df = buf_df.append(newRow)
             df = buf_df
         train, validate, test = np.split(df.sample(frac=1, random_state=42), [int(.6*len(df)), int(.8*len(df))]) #TODO Split in scpecific sizes
@@ -297,7 +355,7 @@ class dbModule:
         print('Done adding images, adding annotations')
         counter = 0
         for an_data in annotations:
-            print(counter)
+            #print(counter)
             counter+=1
             anno_id = None
             if respect_ids == True:
@@ -308,3 +366,52 @@ class dbModule:
             annotation = self.Annotation(cur_image_id, an_data['category_id'], bbox_str, seg_str, an_data['iscrowd'], an_data['area'], anno_id)
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
+    
+    def add_global_history_record(self, task_type, categories, model_address, metrics):
+        if not isinstance(task_type, str):
+            print('ERROR: Bad input for global history record, expected string as task_type')
+            return
+        if not isinstance(categories, list):
+            print('ERROR: Bad input for global history record, expected list of objects')
+            return
+        if not isinstance(model_address, str):
+            print('ERROR: Bad input for global history record, expected string for model_address')
+            return
+        if not isinstance(metrics, dict):
+            print('ERROR: Bad input for global history record, expected dictionary with merics')
+            return
+
+        abs_model_address = os.path.abspath(model_address)
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).filter(self.Model.task_type == task_type).first()
+        if modelFromDB is None:
+            #Model not in DB - add it (that's OK)
+            new_model = self.Model(abs_model_address, task_type)
+            self.sess.add(new_model)
+            self.sess.commit()
+            modelFromDB = new_model
+        
+        metricsFromDB = {}
+        for key, value in metrics.items():
+            metricsFromDB[key] = self.sess.query(self.Metric).filter(self.Metric.metric_name == key).first()
+            if metricsFromDB[key] is None:
+                #Metric not in DB - add it (that's OK)
+                new_metric = self.Metric(key)
+                self.sess.add(new_metric)
+                self.sess.commit()
+                metricsFromDB[key] = new_metric
+            #Add new record in global history
+            new_record = self.MetricToModel(metricsFromDB[key].ID, modelFromDB.ID)
+            self.sess.add(new_record)
+            self.sess.commit()
+
+            for cat_name in categories:
+                categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
+                if categoryFromDB is None:
+                    #That's a very bad case - we cannot simply add new category, DB may become inconsistent
+                    print("ERROR: No category " + cat_name + " in DB")
+                    return
+                new_cat_record = self.CategoryToGlobalRecord(categoryFromDB.ID, new_record.ID)
+                self.sess.add(new_record)
+                self.sess.commit()
+            #print(new_record.ID, new_record.metric_id, new_record.model_id)        
+        return
