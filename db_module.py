@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Float, create_engine
+from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
 import pandas as pd
@@ -20,7 +20,34 @@ class dbModule:
     ############################################################
     ##########        DB ORM description     ###################
     ############################################################
-    
+
+    class Image(Base):
+        __tablename__ = "image"
+        ID = Column(Integer, primary_key=True)
+        dataset_id = Column(Integer, ForeignKey("dataset.ID"))
+        license_id = Column(Integer, ForeignKey("license.ID"))
+        file_name = Column(String)
+        coco_url = Column(String)
+        height = Column(Integer)
+        width = Column(Integer)
+        date_captured = Column(String)
+        flickr_url = Column(String)
+        aux = Column(String)
+        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url = '' ,flickr_url = '', license_id = -1, _id = None, aux = ''):
+            self.width = width
+            self.height = height
+            self.file_name = file_name
+            self.date_captured = date_captured
+            self.dataset_id = dataset_id
+            self.coco_url = coco_url
+            self.flickr_url = flickr_url
+            if license_id == -1:
+                license_id = 1
+            self.license_id = license_id
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
+
     class Dataset(Base):
         __tablename__ = "dataset"
         ID = Column(Integer, primary_key=True)
@@ -50,6 +77,7 @@ class dbModule:
         name = Column(String)
         aux = Column(String)
         images = relationship("Annotation", backref=backref("category"))
+        records = relationship("CategoryToModel")  
         def __init__(self, supercategory, name, _id = None, aux = ''):
             self.supercategory = supercategory
             self.name = name
@@ -63,37 +91,10 @@ class dbModule:
         name = Column(String)
         url = Column(String)
         aux = Column(String)
-        images = relationship("Image", backref=backref("license"))
+        images = relationship("Image")
         def __init__(self, name, url, _id = None, aux = ''):
             self.url = url
             self.name = name
-            if _id != None:
-                self.ID = _id
-            self.aux = aux
-        
-    class Image(Base):
-        __tablename__ = "image"
-        ID = Column(Integer, primary_key=True)
-        dataset_id = Column(Integer, ForeignKey("dataset.ID"))
-        license_id = Column(Integer, ForeignKey("license.ID"))
-        file_name = Column(String)
-        coco_url = Column(String)
-        height = Column(Integer)
-        width = Column(Integer)
-        date_captured = Column(String)
-        flickr_url = Column(String)
-        aux = Column(String)
-        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url = '' ,flickr_url = '', license_id = -1, _id = None, aux = ''):
-            self.width = width
-            self.height = height
-            self.file_name = file_name
-            self.date_captured = date_captured
-            self.dataset_id = dataset_id
-            self.coco_url = coco_url
-            self.flickr_url = flickr_url
-            if license_id == -1:
-                license_id = 1
-            self.license_id = license_id
             if _id != None:
                 self.ID = _id
             self.aux = aux
@@ -119,44 +120,30 @@ class dbModule:
                 self.ID = _id
             self.aux = aux
     
-    class Metric(Base):
-        __tablename__ = "metric"
+    class TrainResult(Base):
+        __tablename__ = "trainResult"
         ID = Column(Integer, primary_key=True)
         metric_name = Column(String)
+        metric_value = Column(Float)
+        model_id = Column(Integer, ForeignKey("model.ID")) 
+        history_address = Column(String)
         aux = Column(String)
-        def __init__(self, metricName, aux = '', _id = None):
+        def __init__(self, metricName, metricValue, modelID, historyAddress = '', aux = '', _id = None):
             self.metric_name = metricName
-            if _id != None:
-                self.ID = _id
-            self.aux = aux
-
-    class MetricToModel(Base):
-        __tablename__ = "metricToModel"
-        ID = Column(Integer, primary_key=True)
-        metric_id = Column(Integer, ForeignKey("metric.ID"))
-        model_id = Column(Integer, ForeignKey("model.ID"))
-        metricValue = Column(Float) #TODO - this maybe not true, maybe will require casting to Float
-        aux = Column(String)
-        created_date = Column(DateTime, default=datetime.datetime.utcnow)
-        def __init__(self, metric_id, model_id, aux = '', _id = None):
-            self.metric_id = metric_id
-            self.model_id = model_id
+            self.metric_value = metricValue
+            self.history_address = historyAddress
+            self.model_id = modelID
             if _id != None:
                 self.ID = _id
             self.aux = aux
     
-    class CategoryToGlobalRecord(Base):
-        __tablename__ = "categoryToGlobalRecord"
-        ID = Column(Integer, primary_key=True)
-        category_id = Column(Integer, ForeignKey("category.ID"))
-        global_record_id = Column(Integer, ForeignKey("metricToModel.ID"))
-        aux = Column(String)
-        def __init__(self, category_id, global_record_id, aux = '', _id = None):
+    class CategoryToModel(Base):
+        __tablename__ = "categoryToModel"
+        category_id = Column(Integer, ForeignKey("category.ID"), primary_key = True)
+        model_id = Column(Integer, ForeignKey("model.ID"), primary_key = True) 
+        def __init__(self, category_id, model_id):
             self.category_id = category_id
-            self.global_record_id = global_record_id
-            if _id != None:
-                self.ID = _id
-            self.aux = aux
+            self.model_id = model_id
 
     class Model(Base):
         __tablename__ = "model"
@@ -164,6 +151,8 @@ class dbModule:
         model_address = Column(String)
         task_type = Column(String) #TODO - this is very bad from DB perspective, but I'll leave for later
         aux = Column(String)
+        train_results = relationship("TrainResult", backref=backref("model"))
+        categories = relationship("CategoryToModel") 
         def __init__(self, modelAddress, taskType, aux = '', _id = None):
             self.model_address = modelAddress
             self.task_type = taskType
@@ -367,7 +356,7 @@ class dbModule:
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
     
-    def add_global_history_record(self, task_type, categories, model_address, metrics):
+    def add_model_record(self, task_type, categories, model_address, metrics, history_address = ''):
         if not isinstance(task_type, str):
             print('ERROR: Bad input for global history record, expected string as task_type')
             return
@@ -382,6 +371,7 @@ class dbModule:
             return
 
         abs_model_address = os.path.abspath(model_address)
+        abs_history_address = os.path.abspath(history_address)
         modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).filter(self.Model.task_type == task_type).first()
         if modelFromDB is None:
             #Model not in DB - add it (that's OK)
@@ -390,19 +380,14 @@ class dbModule:
             self.sess.commit()
             modelFromDB = new_model
         
-        metricsFromDB = {}
+        trainResultFromDB = {}
+        #We do not check is metric is valid - module user should keep track on consistency of these records
         for key, value in metrics.items():
-            metricsFromDB[key] = self.sess.query(self.Metric).filter(self.Metric.metric_name == key).first()
-            if metricsFromDB[key] is None:
-                #Metric not in DB - add it (that's OK)
-                new_metric = self.Metric(key)
-                self.sess.add(new_metric)
-                self.sess.commit()
-                metricsFromDB[key] = new_metric
-            #Add new record in global history
-            new_record = self.MetricToModel(metricsFromDB[key].ID, modelFromDB.ID)
-            self.sess.add(new_record)
+             #Metric not in DB - add it (that's OK)
+            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
+            self.sess.add(new_train_result)
             self.sess.commit()
+            trainResultFromDB[key] = new_train_result
 
             for cat_name in categories:
                 categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
@@ -410,8 +395,35 @@ class dbModule:
                     #That's a very bad case - we cannot simply add new category, DB may become inconsistent
                     print("ERROR: No category " + cat_name + " in DB")
                     return
-                new_cat_record = self.CategoryToGlobalRecord(categoryFromDB.ID, new_record.ID)
-                self.sess.add(new_record)
+                new_cat_record = self.CategoryToModel(categoryFromDB.ID, trainResultFromDB[key].ID)
+                self.sess.add(new_cat_record)
                 self.sess.commit()
             #print(new_record.ID, new_record.metric_id, new_record.model_id)        
         return
+
+    def get_models_by_filter(self, filter_dict, exact_category_match = False):
+        '''
+        filter_dict is a dictionary which contains params for model search. 
+        Specification for this structure can be changed in time.
+        Possible key-value pairs:
+            'min_metrics':
+                {
+                    'metric_name': min_value
+                }
+            'categories': ['list','of','categories','names']
+        
+        returns pd with models info
+        '''
+        model_query = self.sess.query(self.Model, self.TrainResult)
+        if('categories' in filter_dict):
+            model_query = model_query.join(self.CategoryToModel).join(self.Category).filter(self.Category.name.in_(filter_dict['categories']))
+            #TODO: exact category matches
+        if('min_metrics' in filter_dict):   
+            if not isinstance(filter_dict['min_metrics'], dict):
+                print('ERROR: Bad input for min_metrics - should be dict')
+                return
+            model_query = model_query.join(self.TrainResult)
+            for key, value in filter_dict['min_metrics'].items():
+                model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
+        df = pd.read_sql(model_query.statement, model_query.session.bind)
+        return df
