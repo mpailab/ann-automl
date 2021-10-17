@@ -271,9 +271,10 @@ class dbModule:
                 buf_df = buf_df.append(newRow)
             df = buf_df
         train, validate, test = np.split(df.sample(frac=1, random_state=42), [int(.6*len(df)), int(.8*len(df))]) #TODO Split in scpecific sizes
-        np.savetxt("train.csv", train, delimiter=",")
-        np.savetxt("test.csv", test, delimiter=",")
-        np.savetxt("validate.csv", validate, delimiter=",")
+        print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
+        np.savetxt("train.csv", train, delimiter=",", fmt='%s')
+        np.savetxt("test.csv", test, delimiter=",", fmt='%s')
+        np.savetxt("validate.csv", validate, delimiter=",", fmt='%s')
         return df, {'train':'train.csv', 'test':'test.csv', 'validate':'validate.csv'}, av_width, av_height
     
     def load_specific_images_annotations(self, image_names):
