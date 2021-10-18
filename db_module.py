@@ -223,6 +223,11 @@ class dbModule:
         print('Adding '+ str(len(anns)) + ' annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, dsID)
         return
+
+    def get_all_datasets(self):
+        query = self.sess.query(self.Dataset)
+        df = pd.read_sql(query.statement, query.session.bind)
+        return df
     
     def load_specific_datasets_annotations(self, datasets_ids):
         '''Method to load annotations from specific datasets, given their IDs.
@@ -234,17 +239,22 @@ class dbModule:
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
         return df
+
+    def get_all_categories(self):
+        query = self.sess.query(self.Category)
+        df = pd.read_sql(query.statement, query.session.bind)
+        return df
     
-    def load_specific_categories_annotations(self, cat_ids, **kwargs):
+    def load_specific_categories_annotations(self, cat_names, **kwargs):
         '''Method to load annotations from specific categories, given their IDs.
         INPUT:
-            cat_ids - list of categories IDs to get annotations from
+            cat_names - list of categories IDs to get annotations from
         OUTPUT:
             pandas dataframe with full annotations for given cat_ids
             dictionary with train, test, val files
             average width, height of images
         '''
-        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).filter(self.Annotation.category_id.in_(cat_ids))
+        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
         av_height = df['height'].mean()
