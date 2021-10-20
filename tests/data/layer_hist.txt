@@ -1,0 +1,5 @@
+ModelLastLayers: [{Type: Dense, units: 64},
+                  {Type: Activation, activation: 'relu'},
+                  {Type: Dropout, rate: 0.5},
+                  {Type: Dense, units: 1},
+                  {Type: Activation, activation: 'sigmoid'}]
