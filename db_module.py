@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Float, create_engine
+from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
 import pandas as pd
@@ -10,6 +10,8 @@ from pathlib import Path
 from pycocotools.coco import COCO
 import skimage.io as io
 import numpy as np
+import datetime
+import os
 
 Base = declarative_base()
 
@@ -18,7 +20,34 @@ class dbModule:
     ############################################################
     ##########        DB ORM description     ###################
     ############################################################
-    
+
+    class Image(Base):
+        __tablename__ = "image"
+        ID = Column(Integer, primary_key=True)
+        dataset_id = Column(Integer, ForeignKey("dataset.ID"))
+        license_id = Column(Integer, ForeignKey("license.ID"))
+        file_name = Column(String)
+        coco_url = Column(String)
+        height = Column(Integer)
+        width = Column(Integer)
+        date_captured = Column(String)
+        flickr_url = Column(String)
+        aux = Column(String)
+        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url = '' ,flickr_url = '', license_id = -1, _id = None, aux = ''):
+            self.width = width
+            self.height = height
+            self.file_name = file_name
+            self.date_captured = date_captured
+            self.dataset_id = dataset_id
+            self.coco_url = coco_url
+            self.flickr_url = flickr_url
+            if license_id == -1:
+                license_id = 1
+            self.license_id = license_id
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
+
     class Dataset(Base):
         __tablename__ = "dataset"
         ID = Column(Integer, primary_key=True)
@@ -48,6 +77,7 @@ class dbModule:
         name = Column(String)
         aux = Column(String)
         images = relationship("Annotation", backref=backref("category"))
+        records = relationship("CategoryToModel")  
         def __init__(self, supercategory, name, _id = None, aux = ''):
             self.supercategory = supercategory
             self.name = name
@@ -61,37 +91,10 @@ class dbModule:
         name = Column(String)
         url = Column(String)
         aux = Column(String)
-        images = relationship("Image", backref=backref("license"))
+        images = relationship("Image")
         def __init__(self, name, url, _id = None, aux = ''):
             self.url = url
             self.name = name
-            if _id != None:
-                self.ID = _id
-            self.aux = aux
-        
-    class Image(Base):
-        __tablename__ = "image"
-        ID = Column(Integer, primary_key=True)
-        dataset_id = Column(Integer, ForeignKey("dataset.ID"))
-        license_id = Column(Integer, ForeignKey("license.ID"))
-        file_name = Column(String)
-        coco_url = Column(String)
-        height = Column(Integer)
-        width = Column(Integer)
-        date_captured = Column(String)
-        flickr_url = Column(String)
-        aux = Column(String)
-        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url = '' ,flickr_url = '', license_id = -1, _id = None, aux = ''):
-            self.width = width
-            self.height = height
-            self.file_name = file_name
-            self.date_captured = date_captured
-            self.dataset_id = dataset_id
-            self.coco_url = coco_url
-            self.flickr_url = flickr_url
-            if license_id == -1:
-                license_id = 1
-            self.license_id = license_id
             if _id != None:
                 self.ID = _id
             self.aux = aux
@@ -103,7 +106,7 @@ class dbModule:
         category_id = Column(Integer, ForeignKey("category.ID"))
         bbox = Column(String)
         segmentation = Column(String)
-        isCrowd = Column(Integer)
+        is_crowd = Column(Integer)
         area = Column(Float)
         aux = Column(String)
         def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id = None, aux = ''):
@@ -111,12 +114,51 @@ class dbModule:
             self.category_id = category_id
             self.bbox = bbox
             self.segmentation = segmentation
-            self.isCrowd = isCrowd
+            self.is_crowd = isCrowd
             self.area = area
             if _id != None:
                 self.ID = _id
             self.aux = aux
     
+    class TrainResult(Base):
+        __tablename__ = "trainResult"
+        ID = Column(Integer, primary_key=True)
+        metric_name = Column(String)
+        metric_value = Column(Float)
+        model_id = Column(Integer, ForeignKey("model.ID")) 
+        history_address = Column(String)
+        aux = Column(String)
+        def __init__(self, metricName, metricValue, modelID, historyAddress = '', aux = '', _id = None):
+            self.metric_name = metricName
+            self.metric_value = metricValue
+            self.history_address = historyAddress
+            self.model_id = modelID
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
+    
+    class CategoryToModel(Base):
+        __tablename__ = "categoryToModel"
+        category_id = Column(Integer, ForeignKey("category.ID"), primary_key = True)
+        model_id = Column(Integer, ForeignKey("model.ID"), primary_key = True) 
+        def __init__(self, category_id, model_id):
+            self.category_id = category_id
+            self.model_id = model_id
+
+    class Model(Base):
+        __tablename__ = "model"
+        ID = Column(Integer, primary_key=True)
+        model_address = Column(String)
+        task_type = Column(String) #TODO - this is very bad from DB perspective, but I'll leave for later
+        aux = Column(String)
+        train_results = relationship("TrainResult", backref=backref("model"))
+        categories = relationship("CategoryToModel") 
+        def __init__(self, modelAddress, taskType, aux = '', _id = None):
+            self.model_address = modelAddress
+            self.task_type = taskType
+            if _id != None:
+                self.ID = _id
+            self.aux = aux
     ############################################################
     ##########        DB Module methods      ###################
     ############################################################
@@ -155,7 +197,7 @@ class dbModule:
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
     
-    def fill_coco(self, annoFileName, ds_info = None):
+    def fill_coco(self, annoFileName, firstTime = False, ds_info = None):
         '''Method to fill COCOdataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -164,11 +206,12 @@ class dbModule:
         OUTPUT:
             None
         '''
-        coco=COCO(annFile)
+        coco=COCO(annoFileName)
         cats = coco.loadCats(coco.getCatIds())
-        ##TODO: CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - MAKE A CHECK
-        self.add_categories(cats, True)
-        self.add_default_licences()
+        ##CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
+        if firstTime:
+            self.add_categories(cats, True)
+            self.add_default_licences()
         #######################################################################
         if ds_info == None:
             ds_info = {"description": "COCO 2017 Dataset","url": "http://cocodataset.org","version": "1.0","year": 2017,"contributor": "COCO Consortium","date_created": "2017/09/01"}
@@ -177,8 +220,14 @@ class dbModule:
         imgs = coco.loadImgs(imgIds)
         annIds = coco.getAnnIds()
         anns = coco.loadAnns(annIds)
+        print('Adding '+ str(len(anns)) + ' annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, dsID)
         return
+
+    def get_all_datasets(self):
+        query = self.sess.query(self.Dataset)
+        df = pd.read_sql(query.statement, query.session.bind)
+        return df
     
     def load_specific_datasets_annotations(self, datasets_ids):
         '''Method to load annotations from specific datasets, given their IDs.
@@ -190,17 +239,22 @@ class dbModule:
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
         return df
+
+    def get_all_categories(self):
+        query = self.sess.query(self.Category)
+        df = pd.read_sql(query.statement, query.session.bind)
+        return df
     
-    def load_specific_categories_annotations(self, cat_ids, **kwargs):
+    def load_specific_categories_annotations(self, cat_names, **kwargs):
         '''Method to load annotations from specific categories, given their IDs.
         INPUT:
-            cat_ids - list of categories IDs to get annotations from
+            cat_names - list of categories IDs to get annotations from
         OUTPUT:
             pandas dataframe with full annotations for given cat_ids
             dictionary with train, test, val files
             average width, height of images
         '''
-        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).filter(self.Annotation.category_id.in_(cat_ids))
+        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
         av_height = df['height'].mean()
@@ -216,17 +270,21 @@ class dbModule:
                 files_dir = kwargs['files_dir']
             for index, row in df.iterrows():
                 bbox = ast.literal_eval(row['bbox'])
+                if len(bbox) != 4:
+                    buf_df = buf_df.append(row['file_name'], row['category_id']) #nothing to cut
+                    continue
                 image = cv2.imread(files_dir + row['file_name'])
                 crop = image[int(bbox[1]):int(bbox[1] + bbox[3]), int(bbox[0]):int(bbox[0] + bbox[2])]
                 buf_name = row["file_name"].split('.')
                 cv2.imwrite(cropped_dir + buf_name[-2] + "-" + str(index) + "." + buf_name[-1] ,crop)
-                newRow = pd.DataFrame([[buf_name[-2] + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
+                newRow = pd.DataFrame([['.'.join(buf_name[:-2]) + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
                 buf_df = buf_df.append(newRow)
             df = buf_df
         train, validate, test = np.split(df.sample(frac=1, random_state=42), [int(.6*len(df)), int(.8*len(df))]) #TODO Split in scpecific sizes
-        np.savetxt("train.csv", train, delimiter=",")
-        np.savetxt("test.csv", test, delimiter=",")
-        np.savetxt("validate.csv", validate, delimiter=",")
+        print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
+        np.savetxt("train.csv", train, delimiter=",", fmt='%s')
+        np.savetxt("test.csv", test, delimiter=",", fmt='%s')
+        np.savetxt("validate.csv", validate, delimiter=",", fmt='%s')
         return df, {'train':'train.csv', 'test':'test.csv', 'validate':'validate.csv'}, av_width, av_height
     
     def load_specific_images_annotations(self, image_names):
@@ -297,7 +355,7 @@ class dbModule:
         print('Done adding images, adding annotations')
         counter = 0
         for an_data in annotations:
-            print(counter)
+            #print(counter)
             counter+=1
             anno_id = None
             if respect_ids == True:
@@ -308,3 +366,75 @@ class dbModule:
             annotation = self.Annotation(cur_image_id, an_data['category_id'], bbox_str, seg_str, an_data['iscrowd'], an_data['area'], anno_id)
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
+    
+    def add_model_record(self, task_type, categories, model_address, metrics, history_address = ''):
+        if not isinstance(task_type, str):
+            print('ERROR: Bad input for global history record, expected string as task_type')
+            return
+        if not isinstance(categories, list):
+            print('ERROR: Bad input for global history record, expected list of objects')
+            return
+        if not isinstance(model_address, str):
+            print('ERROR: Bad input for global history record, expected string for model_address')
+            return
+        if not isinstance(metrics, dict):
+            print('ERROR: Bad input for global history record, expected dictionary with merics')
+            return
+
+        abs_model_address = os.path.abspath(model_address)
+        abs_history_address = os.path.abspath(history_address)
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).filter(self.Model.task_type == task_type).first()
+        if modelFromDB is None:
+            #Model not in DB - add it (that's OK)
+            new_model = self.Model(abs_model_address, task_type)
+            self.sess.add(new_model)
+            self.sess.commit()
+            modelFromDB = new_model
+        
+        trainResultFromDB = {}
+        #We do not check is metric is valid - module user should keep track on consistency of these records
+        for key, value in metrics.items():
+             #Metric not in DB - add it (that's OK)
+            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
+            self.sess.add(new_train_result)
+            self.sess.commit()
+            trainResultFromDB[key] = new_train_result
+
+            for cat_name in categories:
+                categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
+                if categoryFromDB is None:
+                    #That's a very bad case - we cannot simply add new category, DB may become inconsistent
+                    print("ERROR: No category " + cat_name + " in DB")
+                    return
+                new_cat_record = self.CategoryToModel(categoryFromDB.ID, trainResultFromDB[key].ID)
+                self.sess.add(new_cat_record)
+                self.sess.commit()
+            #print(new_record.ID, new_record.metric_id, new_record.model_id)        
+        return
+
+    def get_models_by_filter(self, filter_dict, exact_category_match = False):
+        '''
+        filter_dict is a dictionary which contains params for model search. 
+        Specification for this structure can be changed in time.
+        Possible key-value pairs:
+            'min_metrics':
+                {
+                    'metric_name': min_value
+                }
+            'categories': ['list','of','categories','names']
+        
+        returns pd with models info
+        '''
+        model_query = self.sess.query(self.Model, self.TrainResult)
+        if('categories' in filter_dict):
+            model_query = model_query.join(self.CategoryToModel).join(self.Category).filter(self.Category.name.in_(filter_dict['categories']))
+            #TODO: exact category matches
+        if('min_metrics' in filter_dict):   
+            if not isinstance(filter_dict['min_metrics'], dict):
+                print('ERROR: Bad input for min_metrics - should be dict')
+                return
+            model_query = model_query.join(self.TrainResult)
+            for key, value in filter_dict['min_metrics'].items():
+                model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
+        df = pd.read_sql(model_query.statement, model_query.session.bind)
+        return df
