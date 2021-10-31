@@ -438,3 +438,41 @@ class dbModule:
                 model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
         df = pd.read_sql(model_query.statement, model_query.session.bind)
         return df
+
+    def get_cat_IDs_by_names(self, cat_names):
+        '''
+        cat_names - list of names of categories. Returns list of IDs (one-to-one correspondence).
+        If category is not present, -1 is returned on its position.
+        In case of bad input empty list is returned.
+        '''
+        if not isinstance(cat_names, list):
+           print('ERROR: Bad input for cat_names, must be a list')
+           return []
+        result = []
+        for cat_name in cat_names:
+            query = self.sess.query(self.Category.ID).filter(self.Category.name == cat_name).first()
+            if query is None:
+                result.append(-1)
+            else:
+                result.append(query[0])
+        return result
+
+    def get_cat_names_by_IDs(self, cat_IDs):
+        '''
+        cat_IDs - list of IDs of categories. Returns list of names (one-to-one correspondence).
+        If category is not present, "" is returned on its position.
+        In case of bad input empty list is returned.
+        '''
+        if not isinstance(cat_IDs, list):
+           print('ERROR: Bad input for cat_names, must be a list')
+           return []
+        result = []
+        for cat_ID in cat_IDs:
+            query = self.sess.query(self.Category.name).filter(self.Category.ID == cat_ID).first()
+            if query is None:
+                result.append("")
+            else:
+                result.append(query[0])
+        return result
+            
+
