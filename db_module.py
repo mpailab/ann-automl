@@ -169,13 +169,14 @@ class dbModule:
         self.sess = Session()
     def create_sqlite_file(self):
         Base.metadata.create_all(self.engine)
-    def fill_cats_dogs(self, annoFileName = 'dogs_vs_cats_coco_anno.json'):
+    def fill_cats_dogs(self, annoFileName = 'dogs_vs_cats_coco_anno.json', file_prefix = './datasets/Kaggle/'):
         '''Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
         OUTPUT:
             None
         '''
+        print('Start filling DB with Kaggle CatsVsDogs')
         with open(annoFileName) as json_file:
             data = json.load(json_file)
         dataset_info = data['info']
@@ -185,7 +186,7 @@ class dbModule:
         ###################################
         im_objects = {}
         for im_data in data['images']:
-            image = self.Image(im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'], im_data['license'])
+            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'], im_data['license'])
             im_objects[im_data['id']] = image
             self.sess.add(image)
         self.sess.commit() #adding images
@@ -196,8 +197,9 @@ class dbModule:
             annotation = self.Annotation(real_id, an_data['category_id'] + 1, ';'.join(an_data['bbox']), ';'.join(an_data['segmentation']), an_data['iscrowd'], an_data['area'])
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
+        print('Finished with Kaggle CatsVsDogs')
     
-    def fill_coco(self, annoFileName, firstTime = False, ds_info = None):
+    def fill_coco(self, annoFileName, file_prefix = './datasets/COCO2017/', firstTime = False, ds_info = None):
         '''Method to fill COCOdataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -221,7 +223,7 @@ class dbModule:
         annIds = coco.getAnnIds()
         anns = coco.loadAnns(annIds)
         print('Adding '+ str(len(anns)) + ' annotations in COCO format to DB')
-        self.add_images_and_annotations(imgs, anns, dsID)
+        self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
         return
 
     def get_all_datasets(self):
@@ -368,6 +370,11 @@ class dbModule:
         self.sess.commit() #adding annotations
     
     def add_model_record(self, task_type, categories, model_address, metrics, history_address = ''):
+        '''
+        Inserts records about train results for some model.
+        If model already exists method does not create new model.
+        If key update_metrics is set to True, then metric records will be updated if they already exist
+        '''
         if not isinstance(task_type, str):
             print('ERROR: Bad input for global history record, expected string as task_type')
             return
@@ -383,35 +390,90 @@ class dbModule:
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
-        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).filter(self.Model.task_type == task_type).first()
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first() #model should be identified by its address uniquely
         if modelFromDB is None:
             #Model not in DB - add it (that's OK)
             new_model = self.Model(abs_model_address, task_type)
             self.sess.add(new_model)
             self.sess.commit()
-            modelFromDB = new_model
-        
-        trainResultFromDB = {}
-        #We do not check is metric is valid - module user should keep track on consistency of these records
-        for key, value in metrics.items():
-             #Metric not in DB - add it (that's OK)
-            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
-            self.sess.add(new_train_result)
-            self.sess.commit()
-            trainResultFromDB[key] = new_train_result
-
-            for cat_name in categories:
+            for cat_name in categories: #categories should not change for the model - they are attached once
                 categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
                 if categoryFromDB is None:
                     #That's a very bad case - we cannot simply add new category, DB may become inconsistent
                     print("ERROR: No category " + cat_name + " in DB")
-                    return
-                new_cat_record = self.CategoryToModel(categoryFromDB.ID, trainResultFromDB[key].ID)
+                    return        
+                new_cat_record = self.CategoryToModel(categoryFromDB.ID, new_model.ID)
                 self.sess.add(new_cat_record)
-                self.sess.commit()
-            #print(new_record.ID, new_record.metric_id, new_record.model_id)        
+            self.sess.commit()
+            modelFromDB = new_model
+        else:
+            print("ERROR: model was already added in DB. Check model_address for correctness.")
+            return
+        
+        #We do not check if metric is valid - module user should keep track on consistency of these records
+        for key, value in metrics.items():
+            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
+            self.sess.add(new_train_result)
+            self.sess.commit()
         return
 
+    def update_train_result_record(self, model_address, metric_name, metric_value, history_address = ''):
+        '''
+        Returns boolean of operation success
+        '''
+        if not isinstance(model_address, str):
+            print('ERROR: Bad input for global history record, expected string for model_address')
+            return False
+        if not isinstance(metric_name, str):
+            print('ERROR: Bad input for global history record, expected string for metric_name')
+            return False
+
+        abs_model_address = os.path.abspath(model_address)
+        abs_history_address = os.path.abspath(history_address)
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        if modelFromDB is None:
+            print('ERROR: Model does not exist in database')
+            return False
+        
+        for trRes in modelFromDB.train_results:
+            if trRes.metric_name == metric_name:
+                trRes.metric_value = metric_value
+                trRes.history_address = abs_history_address
+                self.sess.commit()
+                return True
+        #no such metric was found - add new train result
+        print('Adding new metric for this model, metric name:', metric_name)
+        new_train_result = self.TrainResult(metric_name, metric_value, modelFromDB.ID, abs_history_address)
+        self.sess.add(new_train_result)
+        self.sess.commit()
+        return True
+        
+    def delete_train_result_record(self, model_address, metric_name):
+        '''
+        Returns boolean of operation success
+        '''
+        if not isinstance(model_address, str):
+            print('ERROR: Bad input for global history record, expected string for model_address')
+            return False
+        if not isinstance(metric_name, str):
+            print('ERROR: Bad input for global history record, expected string for metric_name')
+            return False
+
+        abs_model_address = os.path.abspath(model_address)
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        if modelFromDB is None:
+            print('ERROR: Model does not exist in database')
+            return False
+        
+        for trRes in modelFromDB.train_results:
+            if trRes.metric_name == metric_name:
+                ret = self.sess.query(self.TrainResult).filter_by(ID=trRes.ID).delete()
+                self.sess.commit()
+                return True
+        print('ERROR: Such train result record was not found')
+        return False
+        
+    
     def get_models_by_filter(self, filter_dict, exact_category_match = False):
         '''
         filter_dict is a dictionary which contains params for model search. 
@@ -436,6 +498,23 @@ class dbModule:
             model_query = model_query.join(self.TrainResult)
             for key, value in filter_dict['min_metrics'].items():
                 model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
+        #Next thing you see is awful, but I don't know how to make it better - yet
+        model_query = model_query.group_by(self.Model.model_address)
+        cands = model_query.all()
+        good_IDs = []
+        for cand_buf in cands:
+            cand = cand_buf[0]
+            model_cand = self.sess.query(self.Model).filter(self.Model.ID == cand.ID).first()
+            model_categories = set()
+            cat_ids = []
+            for cat in model_cand.categories:
+                cat_ids.append(cat.category_id)
+            mod_cats = self.sess.query(self.Category).filter(self.Category.ID.in_(cat_ids))
+            for mod_cat in mod_cats:
+                model_categories.add(mod_cat.name)
+            if model_categories.issubset(set(filter_dict['categories'])):
+                good_IDs.append(model_cand.ID)
+        model_query = model_query.filter(self.Model.ID.in_(good_IDs))
         df = pd.read_sql(model_query.statement, model_query.session.bind)
         return df
 
