@@ -231,7 +231,7 @@ class dbModule:
         df = pd.read_sql(query.statement, query.session.bind)
         return df
     
-    def load_specific_datasets_annotations(self, datasets_ids):
+    def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
         '''Method to load annotations from specific datasets, given their IDs.
         INPUT:
             datasets_ids - list of datasets IDs to get annotations from
@@ -240,6 +240,11 @@ class dbModule:
         '''
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+            return df_new
         return df
 
     def get_all_categories(self):
@@ -267,7 +272,7 @@ class dbModule:
             if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
                 Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
                 cropped_dir = kwargs['cropped_dir']
-            files_dir = './'
+            files_dir = ''
             if 'files_dir' in kwargs and kwargs['files_dir'] != '':
                 files_dir = kwargs['files_dir']
             for index, row in df.iterrows():
@@ -282,14 +287,24 @@ class dbModule:
                 newRow = pd.DataFrame([['.'.join(buf_name[:-2]) + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
                 buf_df = buf_df.append(newRow)
             df = buf_df
-        train, validate, test = np.split(df.sample(frac=1, random_state=42), [int(.6*len(df)), int(.8*len(df))]) #TODO Split in scpecific sizes
+        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+        splitPoints = [0.6,0.8]
+        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
+            splitPoints = kwargs['splitPoints']
+        train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
         print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
-        np.savetxt("train.csv", train, delimiter=",", fmt='%s')
-        np.savetxt("test.csv", test, delimiter=",", fmt='%s')
-        np.savetxt("validate.csv", validate, delimiter=",", fmt='%s')
-        return df, {'train':'train.csv', 'test':'test.csv', 'validate':'validate.csv'}, av_width, av_height
+        curExperimentFolder = './'
+        if 'curExperimentFolder' in kwargs:
+            curExperimentFolder = kwargs['curExperimentFolder']
+        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s')
+        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s')
+        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s')
+        return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
     
-    def load_specific_images_annotations(self, image_names):
+    def load_specific_images_annotations(self, image_names, **kwargs):
         '''Method to load annotations from specific images, given their names.
         INPUT:
             image_names - list of image names to get annotations for
@@ -298,6 +313,11 @@ class dbModule:
         '''
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+            return df_new
         return df
     
     def add_categories(self, categories, respect_ids = True):
@@ -487,34 +507,37 @@ class dbModule:
         
         returns pd with models info
         '''
-        model_query = self.sess.query(self.Model, self.TrainResult)
-        if('categories' in filter_dict):
-            model_query = model_query.join(self.CategoryToModel).join(self.Category).filter(self.Category.name.in_(filter_dict['categories']))
+        model_query = self.sess.query(self.Model,self.TrainResult).join(self.TrainResult).join(self.CategoryToModel).join(self.Category)
+        if 'categories_ids' in filter_dict:
+            filter_dict['categories'] = self.get_cat_names_by_IDs(filter_dict['categories_ids']) #TODO: this is just a patch
+            print(filter_dict['categories'])
+        if 'categories' in filter_dict:
+            model_query = model_query.filter(self.Category.name.in_(filter_dict['categories']))
             #TODO: exact category matches
         if('min_metrics' in filter_dict):   
             if not isinstance(filter_dict['min_metrics'], dict):
                 print('ERROR: Bad input for min_metrics - should be dict')
                 return
-            model_query = model_query.join(self.TrainResult)
             for key, value in filter_dict['min_metrics'].items():
                 model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
         #Next thing you see is awful, but I don't know how to make it better - yet
         model_query = model_query.group_by(self.Model.model_address)
-        cands = model_query.all()
-        good_IDs = []
-        for cand_buf in cands:
-            cand = cand_buf[0]
-            model_cand = self.sess.query(self.Model).filter(self.Model.ID == cand.ID).first()
-            model_categories = set()
-            cat_ids = []
-            for cat in model_cand.categories:
-                cat_ids.append(cat.category_id)
-            mod_cats = self.sess.query(self.Category).filter(self.Category.ID.in_(cat_ids))
-            for mod_cat in mod_cats:
-                model_categories.add(mod_cat.name)
-            if model_categories.issubset(set(filter_dict['categories'])):
-                good_IDs.append(model_cand.ID)
-        model_query = model_query.filter(self.Model.ID.in_(good_IDs))
+        if 'categories' in filter_dict and len(filter_dict['categories']) != 0:
+            cands = model_query.all()
+            good_IDs = []
+            for cand_buf in cands:
+                cand = cand_buf[0]
+                model_cand = self.sess.query(self.Model).filter(self.Model.ID == cand.ID).first()
+                model_categories = set()
+                cat_ids = []
+                for cat in model_cand.categories:
+                    cat_ids.append(cat.category_id)
+                mod_cats = self.sess.query(self.Category).filter(self.Category.ID.in_(cat_ids))
+                for mod_cat in mod_cats:
+                    model_categories.add(mod_cat.name)
+                if model_categories.issubset(set(filter_dict['categories'])):
+                    good_IDs.append(model_cand.ID)
+            model_query = model_query.filter(self.Model.ID.in_(good_IDs))
         df = pd.read_sql(model_query.statement, model_query.session.bind)
         return df
 
