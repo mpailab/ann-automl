@@ -286,8 +286,9 @@ class dbModule:
                 image = cv2.imread(files_dir + row['file_name'])
                 crop = image[int(bbox[1]):int(bbox[1] + bbox[3]), int(bbox[0]):int(bbox[0] + bbox[2])]
                 buf_name = row["file_name"].split('.')
-                cv2.imwrite(cropped_dir + buf_name[-2] + "-" + str(index) + "." + buf_name[-1] ,crop)
-                newRow = pd.DataFrame([['.'.join(buf_name[:-2]) + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
+                filename = (buf_name[-2]).split('/')[-1]
+                cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
+                newRow = pd.DataFrame([[cropped_dir + filename + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
                 buf_df = buf_df.append(newRow)
             df = buf_df
         df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
@@ -302,9 +303,9 @@ class dbModule:
         curExperimentFolder = './'
         if 'curExperimentFolder' in kwargs:
             curExperimentFolder = kwargs['curExperimentFolder']
-        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s')
-        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s')
-        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s')
+        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s', header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s',header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
         return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
     
     def load_specific_images_annotations(self, image_names, **kwargs):
