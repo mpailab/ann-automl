@@ -276,9 +276,12 @@ class dbModule:
             if 'files_dir' in kwargs and kwargs['files_dir'] != '':
                 files_dir = kwargs['files_dir']
             for index, row in df.iterrows():
-                bbox = ast.literal_eval(row['bbox'])
+                bbox = []
+                if row['bbox'] != '':
+                    bbox = ast.literal_eval(row['bbox'])
                 if len(bbox) != 4:
-                    buf_df = buf_df.append(row['file_name'], row['category_id']) #nothing to cut
+                    new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
+                    buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
                     continue
                 image = cv2.imread(files_dir + row['file_name'])
                 crop = image[int(bbox[1]):int(bbox[1] + bbox[3]), int(bbox[0]):int(bbox[0] + bbox[2])]
