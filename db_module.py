@@ -12,6 +12,7 @@ import skimage.io as io
 import numpy as np
 import datetime
 import os
+import math
 
 Base = declarative_base()
 
@@ -284,7 +285,7 @@ class dbModule:
                     buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
                     continue
                 image = cv2.imread(files_dir + row['file_name'])
-                crop = image[int(bbox[1]):int(bbox[1] + bbox[3]), int(bbox[0]):int(bbox[0] + bbox[2])]
+                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]), math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
                 buf_name = row["file_name"].split('.')
                 filename = (buf_name[-2]).split('/')[-1]
                 cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
