@@ -13,6 +13,11 @@ import numpy as np
 import datetime
 import os
 import math
+from PIL import Image
+import glob
+from datetime import datetime
+import xml.etree.ElementTree as ET
+import time
 
 Base = declarative_base()
 
@@ -227,6 +232,101 @@ class dbModule:
         self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
         return
 
+    def fill_imagenet(self, annotations_dir = '/auto/projects/brain/datasets/imagenet/annotations', file_prefix = '/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train', assoc_file = '/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time = False, ds_info = None):
+        '''Method to fill ImageNet dataset into db. It is supposed to be called once.
+            INPUT:
+                annotations_dir - path to annotations directories
+                file_prefix - prefix of images from ImageNet
+                assoc_file - filename of ImageNet to COCO associations
+                first_time - bool, put to true if called for the first time
+                ds_info - some information about dataset
+            OUTPUT:
+                None
+        '''
+        #If we make it for the first time, we add dataset information to DB
+        if first_time:
+            if ds_info == None:
+                ds_info = {"description": "ImageNet 2012 Dataset","url": "https://image-net.org/about.php","version": "1.0","year": 2012,"contributor": "ImageNet","date_created": "2012/01/01"}
+            dsID = self.add_dataset_info(ds_info)
+        else:
+            dsID = self.get_dataset_info(ds_info)
+        #Then we take all the associations from the assoc_file and create some categories if needed
+        assoc = {}
+        with open(assoc_file) as file:
+            lines = file.readlines()
+            for line in lines:
+                arr = line.split(';')
+                assoc[arr[0]] = [arr[1],arr[2].rstrip('\n')]
+        cat_names = set()
+        categories_buf_assoc = {}
+        for elem in assoc:
+            if assoc[elem][1] != 'None':
+                cat_names.add(assoc[elem][1])
+                categories_buf_assoc[elem] = assoc[elem][1]
+            else:
+                cat_names.add(assoc[elem][0])
+                categories_buf_assoc[elem] = assoc[elem][0]
+        cat_names_list = list(cat_names)
+        catIDs = self.get_cat_IDs_by_names(cat_names_list)
+        new_categories = []
+        for i in range(len(catIDs)):
+            cat_id = catIDs[i]
+            if cat_id < 0:
+                cat_name = cat_names_list[i]
+                new_categories.append({'supercategory': 'imageNetOther', 'name': cat_name})
+        if len(new_categories) > 0:
+            self.add_categories(new_categories, respect_ids = False)
+            catIDs = self.get_cat_IDs_by_names(cat_names_list)
+            for i in range(len(catIDs)):
+                assert catIDs[i] > 0, 'Some category could not be added'
+        categories_assoc = {}
+        for i in range(len(catIDs)):
+            cat_id = catIDs[i]
+            cat_name = cat_names_list[i]
+            categories_assoc[cat_name] = cat_id
+        #Then we iterate over all the images from dataset. For each image we check if there are bbox in XML files. If so - this information is added to annotation.
+        img_files = glob.glob(file_prefix + '/*/*.JPEG', recursive=True) #ImageNet file structure requires /*/*.JPEG
+        print('Len img_files:',len(img_files))
+        images = []
+        annotations = []
+        licence_id =  1 #TODO - fix that, add BSD license
+        im_id = 0
+        for img_file in img_files:
+            im = Image.open(img_file)
+            width, height = im.size
+            #creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            creation_time = time.ctime(os.path.getctime(img_file))
+            image_data = {'file_name': img_file, 'width': width, 'height': height, 'date_captured': creation_time, 'coco_url': '', 'flickr_url': '', 'license': licence_id, 'id': im_id} #id will not be respected when added to base - needed for annotations only
+            images.append(image_data)
+            img_name_no_ext = os.path.splitext(os.path.basename(img_file))[0]
+            anno_subdir = img_name_no_ext.split('_')[0]
+            annofilename = os.path.join(annotations_dir, anno_subdir, img_name_no_ext+'.xml')
+            if os.path.isfile(annofilename):
+                #corresponding annotation file is found
+                #print('Found anno-filename:',annofilename)
+                tree = ET.parse(annofilename)
+                root = tree.getroot()
+                obj_tag = root.find('object')
+                if obj_tag != None:
+                    for child in obj_tag:
+                        bbox = []
+                        if child.tag == 'bndbox':
+                            for bchild in child:
+                                bbox.append(bchild.text)
+                            #print('Found bbox!', bbox)
+                            #input()
+                            area = np.abs((float(bbox[2]) - float(bbox[0])) * (float(bbox[3]) - float(bbox[1])))
+                            annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': json.dumps(bbox), 'iscrowd': 0, 'area': area, 'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
+                            annotations.append(annotation_data)
+            else:
+                annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': '', 'iscrowd': 0, 'area': width*height, 'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
+                annotations.append(annotation_data)
+            im_id += 1
+            if im_id % 100000 == 0:
+                print(im_id)
+        self.add_images_and_annotations(images, annotations, dsID)
+        return images, annotations
+    
     def get_all_datasets(self):
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
@@ -269,6 +369,8 @@ class dbModule:
         if 'crop_bbox' in kwargs and kwargs['crop_bbox'] == True:
             column_names = ["file_name", "category_id"]
             buf_df = pd.DataFrame(columns = column_names)
+            #print(buf_df)
+            #print(df)
             cropped_dir = 'buf_crops/'
             if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
                 Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
@@ -300,7 +402,67 @@ class dbModule:
         if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
             splitPoints = kwargs['splitPoints']
         train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
-        print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
+        #print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
+        curExperimentFolder = './'
+        if 'curExperimentFolder' in kwargs:
+            curExperimentFolder = kwargs['curExperimentFolder']
+        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s', header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s',header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
+        return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
+    
+    
+    def load_categories_datasets_annotations(self, cat_names, datasets_ids, **kwargs):
+        '''Method to load annotations from specific categories, given their IDs.
+        INPUT:
+            cat_names - list of categories IDs to get annotations from
+            dataset_ids - list of dataset IDs to get annotations from
+        OUTPUT:
+            pandas dataframe with full annotations for given cat_ids
+            dictionary with train, test, val files
+            average width, height of images
+        '''
+        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
+        df = pd.read_sql(query.statement, query.session.bind)
+        av_width = df['width'].mean()
+        av_height = df['height'].mean()
+        if 'crop_bbox' in kwargs and kwargs['crop_bbox'] == True:
+            column_names = ["file_name", "category_id"]
+            buf_df = pd.DataFrame(columns = column_names)
+            #print(buf_df)
+            #print(df)
+            cropped_dir = 'buf_crops/'
+            if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
+                Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
+                cropped_dir = kwargs['cropped_dir']
+            files_dir = ''
+            if 'files_dir' in kwargs and kwargs['files_dir'] != '':
+                files_dir = kwargs['files_dir']
+            for index, row in df.iterrows():
+                bbox = []
+                if row['bbox'] != '':
+                    bbox = ast.literal_eval(row['bbox'])
+                if len(bbox) != 4:
+                    new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
+                    buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
+                    continue
+                image = cv2.imread(files_dir + row['file_name'])
+                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]), math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                buf_name = row["file_name"].split('.')
+                filename = (buf_name[-2]).split('/')[-1]
+                cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
+                newRow = pd.DataFrame([[cropped_dir + filename + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
+                buf_df = buf_df.append(newRow)
+            df = buf_df
+        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+        splitPoints = [0.6,0.8]
+        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
+            splitPoints = kwargs['splitPoints']
+        train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
+        #print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
         curExperimentFolder = './'
         if 'curExperimentFolder' in kwargs:
             curExperimentFolder = kwargs['curExperimentFolder']
@@ -386,7 +548,7 @@ class dbModule:
             counter+=1
             anno_id = None
             if respect_ids == True:
-                anno_id = im_data['id']
+                anno_id = im_data['id'] #TODO:fixe that
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
@@ -581,5 +743,7 @@ class dbModule:
             else:
                 result.append(query[0])
         return result
-            
-
+    
+    def get_dataset_info(self, ds_info):
+        #TODO - implement
+        return 0
