@@ -12,6 +12,12 @@ import skimage.io as io
 import numpy as np
 import datetime
 import os
+import math
+from PIL import Image
+import glob
+from datetime import datetime
+import xml.etree.ElementTree as ET
+import time
 
 Base = declarative_base()
 
@@ -169,13 +175,14 @@ class dbModule:
         self.sess = Session()
     def create_sqlite_file(self):
         Base.metadata.create_all(self.engine)
-    def fill_cats_dogs(self, annoFileName = 'dogs_vs_cats_coco_anno.json'):
+    def fill_cats_dogs(self, annoFileName = 'dogs_vs_cats_coco_anno.json', file_prefix = './datasets/Kaggle/'):
         '''Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
         OUTPUT:
             None
         '''
+        print('Start filling DB with Kaggle CatsVsDogs')
         with open(annoFileName) as json_file:
             data = json.load(json_file)
         dataset_info = data['info']
@@ -185,7 +192,7 @@ class dbModule:
         ###################################
         im_objects = {}
         for im_data in data['images']:
-            image = self.Image(im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'], im_data['license'])
+            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'], im_data['license'])
             im_objects[im_data['id']] = image
             self.sess.add(image)
         self.sess.commit() #adding images
@@ -196,8 +203,9 @@ class dbModule:
             annotation = self.Annotation(real_id, an_data['category_id'] + 1, ';'.join(an_data['bbox']), ';'.join(an_data['segmentation']), an_data['iscrowd'], an_data['area'])
             self.sess.add(annotation)
         self.sess.commit() #adding annotations
+        print('Finished with Kaggle CatsVsDogs')
     
-    def fill_coco(self, annoFileName, firstTime = False, ds_info = None):
+    def fill_coco(self, annoFileName, file_prefix = './datasets/COCO2017/', firstTime = False, ds_info = None):
         '''Method to fill COCOdataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -221,15 +229,110 @@ class dbModule:
         annIds = coco.getAnnIds()
         anns = coco.loadAnns(annIds)
         print('Adding '+ str(len(anns)) + ' annotations in COCO format to DB')
-        self.add_images_and_annotations(imgs, anns, dsID)
+        self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
         return
 
+    def fill_imagenet(self, annotations_dir = '/auto/projects/brain/datasets/imagenet/annotations', file_prefix = '/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train', assoc_file = '/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time = False, ds_info = None):
+        '''Method to fill ImageNet dataset into db. It is supposed to be called once.
+            INPUT:
+                annotations_dir - path to annotations directories
+                file_prefix - prefix of images from ImageNet
+                assoc_file - filename of ImageNet to COCO associations
+                first_time - bool, put to true if called for the first time
+                ds_info - some information about dataset
+            OUTPUT:
+                None
+        '''
+        #If we make it for the first time, we add dataset information to DB
+        if first_time:
+            if ds_info == None:
+                ds_info = {"description": "ImageNet 2012 Dataset","url": "https://image-net.org/about.php","version": "1.0","year": 2012,"contributor": "ImageNet","date_created": "2012/01/01"}
+            dsID = self.add_dataset_info(ds_info)
+        else:
+            dsID = self.get_dataset_info(ds_info)
+        #Then we take all the associations from the assoc_file and create some categories if needed
+        assoc = {}
+        with open(assoc_file) as file:
+            lines = file.readlines()
+            for line in lines:
+                arr = line.split(';')
+                assoc[arr[0]] = [arr[1],arr[2].rstrip('\n')]
+        cat_names = set()
+        categories_buf_assoc = {}
+        for elem in assoc:
+            if assoc[elem][1] != 'None':
+                cat_names.add(assoc[elem][1])
+                categories_buf_assoc[elem] = assoc[elem][1]
+            else:
+                cat_names.add(assoc[elem][0])
+                categories_buf_assoc[elem] = assoc[elem][0]
+        cat_names_list = list(cat_names)
+        catIDs = self.get_cat_IDs_by_names(cat_names_list)
+        new_categories = []
+        for i in range(len(catIDs)):
+            cat_id = catIDs[i]
+            if cat_id < 0:
+                cat_name = cat_names_list[i]
+                new_categories.append({'supercategory': 'imageNetOther', 'name': cat_name})
+        if len(new_categories) > 0:
+            self.add_categories(new_categories, respect_ids = False)
+            catIDs = self.get_cat_IDs_by_names(cat_names_list)
+            for i in range(len(catIDs)):
+                assert catIDs[i] > 0, 'Some category could not be added'
+        categories_assoc = {}
+        for i in range(len(catIDs)):
+            cat_id = catIDs[i]
+            cat_name = cat_names_list[i]
+            categories_assoc[cat_name] = cat_id
+        #Then we iterate over all the images from dataset. For each image we check if there are bbox in XML files. If so - this information is added to annotation.
+        img_files = glob.glob(file_prefix + '/*/*.JPEG', recursive=True) #ImageNet file structure requires /*/*.JPEG
+        print('Len img_files:',len(img_files))
+        images = []
+        annotations = []
+        licence_id =  1 #TODO - fix that, add BSD license
+        im_id = 0
+        for img_file in img_files:
+            im = Image.open(img_file)
+            width, height = im.size
+            #creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            creation_time = time.ctime(os.path.getctime(img_file))
+            image_data = {'file_name': img_file, 'width': width, 'height': height, 'date_captured': creation_time, 'coco_url': '', 'flickr_url': '', 'license': licence_id, 'id': im_id} #id will not be respected when added to base - needed for annotations only
+            images.append(image_data)
+            img_name_no_ext = os.path.splitext(os.path.basename(img_file))[0]
+            anno_subdir = img_name_no_ext.split('_')[0]
+            annofilename = os.path.join(annotations_dir, anno_subdir, img_name_no_ext+'.xml')
+            if os.path.isfile(annofilename):
+                #corresponding annotation file is found
+                #print('Found anno-filename:',annofilename)
+                tree = ET.parse(annofilename)
+                root = tree.getroot()
+                obj_tag = root.find('object')
+                if obj_tag != None:
+                    for child in obj_tag:
+                        bbox = []
+                        if child.tag == 'bndbox':
+                            for bchild in child:
+                                bbox.append(bchild.text)
+                            #print('Found bbox!', bbox)
+                            #input()
+                            area = np.abs((float(bbox[2]) - float(bbox[0])) * (float(bbox[3]) - float(bbox[1])))
+                            annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': json.dumps(bbox), 'iscrowd': 0, 'area': area, 'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
+                            annotations.append(annotation_data)
+            else:
+                annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': '', 'iscrowd': 0, 'area': width*height, 'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
+                annotations.append(annotation_data)
+            im_id += 1
+            if im_id % 100000 == 0:
+                print(im_id)
+        self.add_images_and_annotations(images, annotations, dsID)
+        return images, annotations
+    
     def get_all_datasets(self):
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
         return df
     
-    def load_specific_datasets_annotations(self, datasets_ids):
+    def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
         '''Method to load annotations from specific datasets, given their IDs.
         INPUT:
             datasets_ids - list of datasets IDs to get annotations from
@@ -238,6 +341,11 @@ class dbModule:
         '''
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+            return df_new
         return df
 
     def get_all_categories(self):
@@ -261,33 +369,109 @@ class dbModule:
         if 'crop_bbox' in kwargs and kwargs['crop_bbox'] == True:
             column_names = ["file_name", "category_id"]
             buf_df = pd.DataFrame(columns = column_names)
+            #print(buf_df)
+            #print(df)
             cropped_dir = 'buf_crops/'
             if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
                 Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
                 cropped_dir = kwargs['cropped_dir']
-            files_dir = './'
+            files_dir = ''
             if 'files_dir' in kwargs and kwargs['files_dir'] != '':
                 files_dir = kwargs['files_dir']
             for index, row in df.iterrows():
-                bbox = ast.literal_eval(row['bbox'])
+                bbox = []
+                if row['bbox'] != '':
+                    bbox = ast.literal_eval(row['bbox'])
                 if len(bbox) != 4:
-                    buf_df = buf_df.append(row['file_name'], row['category_id']) #nothing to cut
+                    new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
+                    buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
                     continue
                 image = cv2.imread(files_dir + row['file_name'])
-                crop = image[int(bbox[1]):int(bbox[1] + bbox[3]), int(bbox[0]):int(bbox[0] + bbox[2])]
+                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]), math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
                 buf_name = row["file_name"].split('.')
-                cv2.imwrite(cropped_dir + buf_name[-2] + "-" + str(index) + "." + buf_name[-1] ,crop)
-                newRow = pd.DataFrame([['.'.join(buf_name[:-2]) + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
+                filename = (buf_name[-2]).split('/')[-1]
+                cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
+                newRow = pd.DataFrame([[cropped_dir + filename + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
                 buf_df = buf_df.append(newRow)
             df = buf_df
-        train, validate, test = np.split(df.sample(frac=1, random_state=42), [int(.6*len(df)), int(.8*len(df))]) #TODO Split in scpecific sizes
-        print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
-        np.savetxt("train.csv", train, delimiter=",", fmt='%s')
-        np.savetxt("test.csv", test, delimiter=",", fmt='%s')
-        np.savetxt("validate.csv", validate, delimiter=",", fmt='%s')
-        return df, {'train':'train.csv', 'test':'test.csv', 'validate':'validate.csv'}, av_width, av_height
+        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+        splitPoints = [0.6,0.8]
+        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
+            splitPoints = kwargs['splitPoints']
+        train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
+        #print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
+        curExperimentFolder = './'
+        if 'curExperimentFolder' in kwargs:
+            curExperimentFolder = kwargs['curExperimentFolder']
+        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s', header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s',header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
+        return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
     
-    def load_specific_images_annotations(self, image_names):
+    
+    def load_categories_datasets_annotations(self, cat_names, datasets_ids, **kwargs):
+        '''Method to load annotations from specific categories, given their IDs.
+        INPUT:
+            cat_names - list of categories IDs to get annotations from
+            dataset_ids - list of dataset IDs to get annotations from
+        OUTPUT:
+            pandas dataframe with full annotations for given cat_ids
+            dictionary with train, test, val files
+            average width, height of images
+        '''
+        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
+        df = pd.read_sql(query.statement, query.session.bind)
+        av_width = df['width'].mean()
+        av_height = df['height'].mean()
+        if 'crop_bbox' in kwargs and kwargs['crop_bbox'] == True:
+            column_names = ["file_name", "category_id"]
+            buf_df = pd.DataFrame(columns = column_names)
+            #print(buf_df)
+            #print(df)
+            cropped_dir = 'buf_crops/'
+            if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
+                Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
+                cropped_dir = kwargs['cropped_dir']
+            files_dir = ''
+            if 'files_dir' in kwargs and kwargs['files_dir'] != '':
+                files_dir = kwargs['files_dir']
+            for index, row in df.iterrows():
+                bbox = []
+                if row['bbox'] != '':
+                    bbox = ast.literal_eval(row['bbox'])
+                if len(bbox) != 4:
+                    new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
+                    buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
+                    continue
+                image = cv2.imread(files_dir + row['file_name'])
+                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]), math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                buf_name = row["file_name"].split('.')
+                filename = (buf_name[-2]).split('/')[-1]
+                cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
+                newRow = pd.DataFrame([[cropped_dir + filename + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
+                buf_df = buf_df.append(newRow)
+            df = buf_df
+        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+        splitPoints = [0.6,0.8]
+        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
+            splitPoints = kwargs['splitPoints']
+        train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
+        #print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
+        curExperimentFolder = './'
+        if 'curExperimentFolder' in kwargs:
+            curExperimentFolder = kwargs['curExperimentFolder']
+        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s', header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s',header='images,target',comments='')
+        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
+        return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
+    
+    def load_specific_images_annotations(self, image_names, **kwargs):
         '''Method to load annotations from specific images, given their names.
         INPUT:
             image_names - list of image names to get annotations for
@@ -296,6 +480,11 @@ class dbModule:
         '''
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+            return df_new
         return df
     
     def add_categories(self, categories, respect_ids = True):
@@ -359,7 +548,7 @@ class dbModule:
             counter+=1
             anno_id = None
             if respect_ids == True:
-                anno_id = im_data['id']
+                anno_id = im_data['id'] #TODO:fixe that
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
@@ -368,6 +557,11 @@ class dbModule:
         self.sess.commit() #adding annotations
     
     def add_model_record(self, task_type, categories, model_address, metrics, history_address = ''):
+        '''
+        Inserts records about train results for some model.
+        If model already exists method does not create new model.
+        If key update_metrics is set to True, then metric records will be updated if they already exist
+        '''
         if not isinstance(task_type, str):
             print('ERROR: Bad input for global history record, expected string as task_type')
             return
@@ -383,35 +577,90 @@ class dbModule:
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
-        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).filter(self.Model.task_type == task_type).first()
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first() #model should be identified by its address uniquely
         if modelFromDB is None:
             #Model not in DB - add it (that's OK)
             new_model = self.Model(abs_model_address, task_type)
             self.sess.add(new_model)
             self.sess.commit()
-            modelFromDB = new_model
-        
-        trainResultFromDB = {}
-        #We do not check is metric is valid - module user should keep track on consistency of these records
-        for key, value in metrics.items():
-             #Metric not in DB - add it (that's OK)
-            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
-            self.sess.add(new_train_result)
-            self.sess.commit()
-            trainResultFromDB[key] = new_train_result
-
-            for cat_name in categories:
+            for cat_name in categories: #categories should not change for the model - they are attached once
                 categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
                 if categoryFromDB is None:
                     #That's a very bad case - we cannot simply add new category, DB may become inconsistent
                     print("ERROR: No category " + cat_name + " in DB")
-                    return
-                new_cat_record = self.CategoryToModel(categoryFromDB.ID, trainResultFromDB[key].ID)
+                    return        
+                new_cat_record = self.CategoryToModel(categoryFromDB.ID, new_model.ID)
                 self.sess.add(new_cat_record)
-                self.sess.commit()
-            #print(new_record.ID, new_record.metric_id, new_record.model_id)        
+            self.sess.commit()
+            modelFromDB = new_model
+        else:
+            print("ERROR: model was already added in DB. Check model_address for correctness.")
+            return
+        
+        #We do not check if metric is valid - module user should keep track on consistency of these records
+        for key, value in metrics.items():
+            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
+            self.sess.add(new_train_result)
+            self.sess.commit()
         return
 
+    def update_train_result_record(self, model_address, metric_name, metric_value, history_address = ''):
+        '''
+        Returns boolean of operation success
+        '''
+        if not isinstance(model_address, str):
+            print('ERROR: Bad input for global history record, expected string for model_address')
+            return False
+        if not isinstance(metric_name, str):
+            print('ERROR: Bad input for global history record, expected string for metric_name')
+            return False
+
+        abs_model_address = os.path.abspath(model_address)
+        abs_history_address = os.path.abspath(history_address)
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        if modelFromDB is None:
+            print('ERROR: Model does not exist in database')
+            return False
+        
+        for trRes in modelFromDB.train_results:
+            if trRes.metric_name == metric_name:
+                trRes.metric_value = metric_value
+                trRes.history_address = abs_history_address
+                self.sess.commit()
+                return True
+        #no such metric was found - add new train result
+        print('Adding new metric for this model, metric name:', metric_name)
+        new_train_result = self.TrainResult(metric_name, metric_value, modelFromDB.ID, abs_history_address)
+        self.sess.add(new_train_result)
+        self.sess.commit()
+        return True
+        
+    def delete_train_result_record(self, model_address, metric_name):
+        '''
+        Returns boolean of operation success
+        '''
+        if not isinstance(model_address, str):
+            print('ERROR: Bad input for global history record, expected string for model_address')
+            return False
+        if not isinstance(metric_name, str):
+            print('ERROR: Bad input for global history record, expected string for metric_name')
+            return False
+
+        abs_model_address = os.path.abspath(model_address)
+        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        if modelFromDB is None:
+            print('ERROR: Model does not exist in database')
+            return False
+        
+        for trRes in modelFromDB.train_results:
+            if trRes.metric_name == metric_name:
+                ret = self.sess.query(self.TrainResult).filter_by(ID=trRes.ID).delete()
+                self.sess.commit()
+                return True
+        print('ERROR: Such train result record was not found')
+        return False
+        
+    
     def get_models_by_filter(self, filter_dict, exact_category_match = False):
         '''
         filter_dict is a dictionary which contains params for model search. 
@@ -425,16 +674,76 @@ class dbModule:
         
         returns pd with models info
         '''
-        model_query = self.sess.query(self.Model, self.TrainResult)
-        if('categories' in filter_dict):
-            model_query = model_query.join(self.CategoryToModel).join(self.Category).filter(self.Category.name.in_(filter_dict['categories']))
+        model_query = self.sess.query(self.Model,self.TrainResult).join(self.TrainResult).join(self.CategoryToModel).join(self.Category)
+        if 'categories_ids' in filter_dict:
+            filter_dict['categories'] = self.get_cat_names_by_IDs(filter_dict['categories_ids']) #TODO: this is just a patch
+            print(filter_dict['categories'])
+        if 'categories' in filter_dict:
+            model_query = model_query.filter(self.Category.name.in_(filter_dict['categories']))
             #TODO: exact category matches
         if('min_metrics' in filter_dict):   
             if not isinstance(filter_dict['min_metrics'], dict):
                 print('ERROR: Bad input for min_metrics - should be dict')
                 return
-            model_query = model_query.join(self.TrainResult)
             for key, value in filter_dict['min_metrics'].items():
                 model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
+        #Next thing you see is awful, but I don't know how to make it better - yet
+        model_query = model_query.group_by(self.Model.model_address)
+        if 'categories' in filter_dict and len(filter_dict['categories']) != 0:
+            cands = model_query.all()
+            good_IDs = []
+            for cand_buf in cands:
+                cand = cand_buf[0]
+                model_cand = self.sess.query(self.Model).filter(self.Model.ID == cand.ID).first()
+                model_categories = set()
+                cat_ids = []
+                for cat in model_cand.categories:
+                    cat_ids.append(cat.category_id)
+                mod_cats = self.sess.query(self.Category).filter(self.Category.ID.in_(cat_ids))
+                for mod_cat in mod_cats:
+                    model_categories.add(mod_cat.name)
+                if model_categories.issubset(set(filter_dict['categories'])):
+                    good_IDs.append(model_cand.ID)
+            model_query = model_query.filter(self.Model.ID.in_(good_IDs))
         df = pd.read_sql(model_query.statement, model_query.session.bind)
         return df
+
+    def get_cat_IDs_by_names(self, cat_names):
+        '''
+        cat_names - list of names of categories. Returns list of IDs (one-to-one correspondence).
+        If category is not present, -1 is returned on its position.
+        In case of bad input empty list is returned.
+        '''
+        if not isinstance(cat_names, list):
+           print('ERROR: Bad input for cat_names, must be a list')
+           return []
+        result = []
+        for cat_name in cat_names:
+            query = self.sess.query(self.Category.ID).filter(self.Category.name == cat_name).first()
+            if query is None:
+                result.append(-1)
+            else:
+                result.append(query[0])
+        return result
+
+    def get_cat_names_by_IDs(self, cat_IDs):
+        '''
+        cat_IDs - list of IDs of categories. Returns list of names (one-to-one correspondence).
+        If category is not present, "" is returned on its position.
+        In case of bad input empty list is returned.
+        '''
+        if not isinstance(cat_IDs, list):
+           print('ERROR: Bad input for cat_names, must be a list')
+           return []
+        result = []
+        for cat_ID in cat_IDs:
+            query = self.sess.query(self.Category.name).filter(self.Category.ID == cat_ID).first()
+            if query is None:
+                result.append("")
+            else:
+                result.append(query[0])
+        return result
+    
+    def get_dataset_info(self, ds_info):
+        #TODO - implement
+        return 0
