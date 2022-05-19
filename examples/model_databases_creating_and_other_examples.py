@@ -65,7 +65,7 @@ new_row={'TaskType': 'detection', 'Objects': {'cats', 'mice'}, 'Pipeline' : 'Res
 
 GLH=GLH.append(new_row, ignore_index=True)
 
-GLH.to_csv('ModelTrainingHistory.csv')
+GLH.to_csv('../data/history/ModelTrainingHistory.csv')
 GLH
 
 '''
