@@ -75,7 +75,6 @@ def plot_conv_weights(model,
     """
     W = model.get_layer(name=layer_name).get_weights()[0]
     assert(len(W.shape) == 4)
-    plt.title(title)
     W = np.squeeze(W)
     W = W.reshape((W.shape[0], W.shape[1], W.shape[2]*W.shape[3])) 
     cnt=W.shape[2]
@@ -93,18 +92,20 @@ def plot_conv_weights(model,
         for i in range(cnt):
             axs[i].imshow(W[:,:,i])
             axs[i].set_title(str(i))
+    plt.suptitle(title)
     if to_file is None:
         plt.show()
     else:
         plt.savefig(to_file)
 
-def plot_conv_outputs(model,
+def plot_outputs(model,
         inp, 
         layer_name,
+        title='Layer output', 
         to_file=None
     ):
     """
-    Plots convolutional layer outputs (maps) for certain layer on single input image
+    Plots layer outputs for certain layer on single input image
     Parameters
     ----------
     model: tf.keras.Model
@@ -112,7 +113,7 @@ def plot_conv_outputs(model,
     inp: numpy.array
         Preprocessed input image
     layer_name: str
-        Name of convolutional layer to plot it's output
+        Name of the layer to plot it's output
     title: str
         Title of the plot
     to_file: str, optional
@@ -139,6 +140,7 @@ def plot_conv_outputs(model,
         for i in range(cnt):
             axs[i].imshow(O[:,:,i])
             axs[i].set_title(str(i))
+    plt.suptitle(title)
     if to_file is None:
         plt.show()
     else:
