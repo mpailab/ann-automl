@@ -154,7 +154,7 @@ def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
     msk_time = datetime.now(MSK)
     tt = msk_time.strftime('%Y_%m_%d_%H_%M_%S')
 
-    log_name = './Logs/Experiment_log_' + tt + '.txt'
+    log_name = f'{_log_dir}/Logs/Experiment_log_{tt}.txt'
     num_steps = 0
 
     state = State(task, log_name)

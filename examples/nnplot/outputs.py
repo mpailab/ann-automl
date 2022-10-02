@@ -1,4 +1,4 @@
-import vislib
+import ann_automl.nnplot.vislib as vislib
 from tensorflow import keras
 from keras.datasets import cifar10
 import cv2

@@ -1,5 +1,4 @@
-from ann_automl.core.solver import solve, Task, set_log_dir
-from ann_automl.core.nn_rules import set_data_dir
+from ann_automl.core.nn_solver import solve, Task, set_log_dir, set_data_dir
 
 
 def test_solve():

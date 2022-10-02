@@ -3,9 +3,10 @@ import numpy as np
 from tensorflow.keras.utils import plot_model
 from keras.models import Model
 
+
 def arch(model,
-        to_file='model.png'
-    ):
+         to_file='model.png'
+         ):
     """
     Plots keras model architecture into image file
     Parameters
@@ -16,17 +17,19 @@ def arch(model,
         Image file name to save else it will be displayed
     Raises
     ------
-    """    
+    """
     plot_model(model, to_file)
 
+
 def plot_history(history,
-        plotlist=['accuracy','val_accuracy'],
-        label='accuracy',
-        title='model accuracy', 
-        to_file=None
-    ):
+                 plotlist=['accuracy', 'val_accuracy'],
+                 label='accuracy',
+                 title='model accuracy',
+                 to_file=None
+                 ):
     """
     Plots training model dynamic like accuracy/loss/smth else containing series of data for each epoch
+
     Parameters
     ----------
     history: dict
@@ -53,13 +56,15 @@ def plot_history(history,
     else:
         plt.savefig(to_file)
 
-def plot_conv_weights(model, 
-        layer_name,
-        title='Convolutional layer filters', 
-        to_file=None
-    ):
+
+def plot_conv_weights(model,
+                      layer_name,
+                      title='Convolutional layer filters',
+                      to_file=None
+                      ):
     """
     Plots weights of convolutional filters for certain convolutional layer
+
     Parameters
     ----------
     model: tf.keras.Model
@@ -74,23 +79,23 @@ def plot_conv_weights(model,
     ------
     """
     W = model.get_layer(name=layer_name).get_weights()[0]
-    assert(len(W.shape) == 4)
+    assert (len(W.shape) == 4)
     W = np.squeeze(W)
-    W = W.reshape((W.shape[0], W.shape[1], W.shape[2]*W.shape[3])) 
-    cnt=W.shape[2]
-    if cnt>=25:
-        fig, axs = plt.subplots(5,5, figsize=(8,8))
-        fig.subplots_adjust(hspace = .5, wspace=.001)
+    W = W.reshape((W.shape[0], W.shape[1], W.shape[2] * W.shape[3]))
+    cnt = W.shape[2]
+    if cnt >= 25:
+        fig, axs = plt.subplots(5, 5, figsize=(8, 8))
+        fig.subplots_adjust(hspace=.5, wspace=.001)
         axs = axs.ravel()
         for i in range(25):
-            axs[i].imshow(W[:,:,i])
+            axs[i].imshow(W[:, :, i])
             axs[i].set_title(str(i))
     else:
-        fig, axs = plt.subplots(cnt,1, figsize=(2,cnt*2))
-        fig.subplots_adjust(hspace = .5, wspace=.001)
+        fig, axs = plt.subplots(cnt, 1, figsize=(2, cnt * 2))
+        fig.subplots_adjust(hspace=.5, wspace=.001)
         axs = axs.ravel()
         for i in range(cnt):
-            axs[i].imshow(W[:,:,i])
+            axs[i].imshow(W[:, :, i])
             axs[i].set_title(str(i))
     plt.suptitle(title)
     if to_file is None:
@@ -98,14 +103,16 @@ def plot_conv_weights(model,
     else:
         plt.savefig(to_file)
 
+
 def plot_outputs(model,
-        inp, 
-        layer_name,
-        title='Layer output', 
-        to_file=None
-    ):
+                 inp,
+                 layer_name,
+                 title='Layer output',
+                 to_file=None
+                 ):
     """
     Plots layer outputs for certain layer on single input image
+
     Parameters
     ----------
     model: tf.keras.Model
@@ -122,26 +129,41 @@ def plot_outputs(model,
     ------
     """
     intermediate_layer_model = Model(inputs=model.input,
-                                 outputs=model.get_layer(layer_name).output)
-    O = intermediate_layer_model.predict(np.expand_dims(inp,axis=0))[0]
-    assert(len(O.shape)==3)
-    cnt=O.shape[2]
-    if cnt>=25:
-        fig, axs = plt.subplots(5,5, figsize=(8,8))
-        fig.subplots_adjust(hspace = .5, wspace=.001)
+                                     outputs=model.get_layer(layer_name).output)
+    O = intermediate_layer_model.predict(np.expand_dims(inp, axis=0))[0]
+    assert (len(O.shape) == 3)
+    cnt = O.shape[2]
+    if cnt >= 25:
+        fig, axs = plt.subplots(5, 5, figsize=(8, 8))
+        fig.subplots_adjust(hspace=.5, wspace=.001)
         axs = axs.ravel()
         for i in range(25):
-            axs[i].imshow(O[:,:,i])
+            axs[i].imshow(O[:, :, i])
             axs[i].set_title(str(i))
     else:
-        fig, axs = plt.subplots(cnt,1, figsize=(2,cnt*2))
-        fig.subplots_adjust(hspace = .5, wspace=.001)
+        fig, axs = plt.subplots(cnt, 1, figsize=(2, cnt * 2))
+        fig.subplots_adjust(hspace=.5, wspace=.001)
         axs = axs.ravel()
         for i in range(cnt):
-            axs[i].imshow(O[:,:,i])
+            axs[i].imshow(O[:, :, i])
             axs[i].set_title(str(i))
     plt.suptitle(title)
     if to_file is None:
         plt.show()
     else:
         plt.savefig(to_file)
+
+
+def show_image(filename):
+    """
+    Shows image from file
+
+    Parameters
+    ----------
+    filename: str
+        Image file name
+    """
+    from IPython.display import Image
+    from IPython.core.display import display
+    pil_img = Image(filename=filename)
+    display(pil_img)

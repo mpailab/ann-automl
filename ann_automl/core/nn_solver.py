@@ -1,4 +1,5 @@
-from .solver import Task
+from .solver import Task, set_log_dir, solve
+from .nn_rules import set_data_dir
 
 
 def create_nn_task(category, task_type, obj_set, target_metric, target_value):
