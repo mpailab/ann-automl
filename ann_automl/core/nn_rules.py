@@ -1,13 +1,10 @@
-from abc import ABC, abstractmethod
+import itertools
 import time
-import json
 import pandas as pd
 import keras
 import numpy as np
 import tensorflow as tf
-import h5py
 import os
-import sqlalchemy
 import db_module
 from datetime import datetime
 from pytz import timezone
@@ -17,7 +14,6 @@ myDB = db_module.dbModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточн
 
 
 _data_dir = 'data'
-
 
 
 def set_data_dir(data_dir):
@@ -50,6 +46,22 @@ class TimeHistory(keras.callbacks.Callback):
 
 # функция осмотра окрестности
 def neighborhood(cp, rr):
+    """
+    Finds next point in the neighborhood of the current point where there is zero in rr
+
+    Parameters
+    ----------
+    cp: list[int]
+        Current point
+    rr: ndarray
+        Array of function values
+
+    Returns
+    -------
+    tuple
+        (neighbor, point) where neighbor=0 if neighbor is found, -1 if neighbor is not found;
+        point is the next point in the neighborhood
+    """
     st = (-1, 0, 1)
     neighbor = -1
     cur = []
@@ -71,8 +83,7 @@ def neighborhood(cp, rr):
                 # print('k ', k)
                 # print (cp, rr[cp[0]+st[i], cp[1]+st[j], cp[2]+st[k] ])
                 # print('grid value',  abs(rr[cp[0]+st[i], cp[1]+st[j], cp[2]+st[k] ]))
-                if (cp[2] + st[k]) >= 0 and (cp[2] + st[k]) < rr.shape[2] and abs(
-                        rr[cp[0] + st[i], cp[1] + st[j], cp[2] + st[k]]) < 0.000001:
+                if 0 <= (cp[2] + st[k]) < rr.shape[2] and abs(rr[cp[0] + st[i], cp[1] + st[j], cp[2] + st[k]]) < 1e-6:
                     cur = [cp[0] + st[i], cp[1] + st[j], cp[2] + st[k]]
                     # print('cond k',  cur)
                     neighbor = 0
@@ -208,8 +219,11 @@ class SetGrid(Rule):
                                        'augmenParams': {'horizontal_flip': True,
                                                         'preprocessing_function': 'keras.applications.resnet.preprocess_input',
                                                         'vertical_flip': None,
-                                                        'width_shift_range': 0.4, 'height_shift_range': 0.4},
-                                       'loss': 'binary_crossentropy', 'metrics': 'accuracy', 'epochs': 150,
+                                                        'width_shift_range': 0.4,
+                                                        'height_shift_range': 0.4},
+                                       'loss': 'binary_crossentropy',
+                                       'metrics': 'accuracy',
+                                       'epochs': 150,
                                        'stoppingCriterion': 'stop_val_metr'}
 
         ''''''
@@ -273,11 +287,15 @@ class SetGrid(Rule):
 
              'pipeline': state.task.fixedHyperParams['pipeline'],
              'modelLastLayers': [state.task.fixedHyperParams['modelLastLayers']],
-             'augmenParams': [state.task.fixedHyperParams['augmenParams']], 'loss': state.task.fixedHyperParams['loss'],
-             'metrics': state.task.fixedHyperParams['metrics'], 'epochs': state.task.fixedHyperParams['epochs'],
-             'stoppingCriterion': state.task.fixedHyperParams['stoppingCriterion'], 'data': [state.task.data],
+             'augmenParams': [state.task.fixedHyperParams['augmenParams']],
+             'loss': state.task.fixedHyperParams['loss'],
+             'metrics': state.task.fixedHyperParams['metrics'],
+             'epochs': state.task.fixedHyperParams['epochs'],
+             'stoppingCriterion': state.task.fixedHyperParams['stoppingCriterion'],
+             'data': [state.task.data],
 
-             'optimizer': [state.task.hyperParams['optimizer']], 'batchSize': [state.task.hyperParams['batchSize']],
+             'optimizer': [state.task.hyperParams['optimizer']],
+             'batchSize': [state.task.hyperParams['batchSize']],
              'lr': [[[0.00025, 0.0005, 0.001, 0.002, 0.004], [0.00025, 0.0005, 0.001, 0.002, 0.004],
                      [0.0025, 0.005, 0.01, 0.02, 0.04]]],
 
@@ -462,7 +480,7 @@ class GridStep(Rule):
     """ Прием для перехода к следующей точке сетки """
 
     def can_apply(self, state):
-        return (state.task.taskCt == "train" and state.curState == 'GridStep')
+        return state.task.taskCt == "train" and state.curState == 'GridStep'
 
     def apply(self, state):
 
@@ -531,7 +549,8 @@ class GridStep(Rule):
                 state.task.cur_hp['optimizer'] = state.task.cur_C_hp['optimizer']
                 state.task.cur_hp['lr'] = state.task.cur_C_hp['lr']
 
-                # если изменили только batch size, то просто умножили или поделили на два текущее значение (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
+                # если изменили только batch size, то просто умножили или поделили на два текущее значение
+                # (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
                 state.task.cur_hp['batchSize'] = int(state.task.cur_C_hp['batchSize'] * 2 ** (vN[2] - vC[2]))
 
             if state.task.cur_hp['batchSize'] > 64:
@@ -624,15 +643,15 @@ class GridStep(Rule):
                         else:
                             state.task.cur_hp['lr'] = state.task.hyperParams['lr_A_R'][vN[1]]
 
-                        state.task.cur_hp['batchSize'] = int(state.task.cur_C_hp['batchSize'] * 2 ** (
-                                    (vN[2] - vC[2]) + (vN[1] - vC[1])))  # изменение батча из-за learning rate см бумаги
+                        state.task.cur_hp['batchSize'] = int(state.task.cur_C_hp['batchSize'] * 2 ** ((vN[2] - vC[2]) + (vN[1] - vC[1])))  # изменение батча из-за learning rate см бумаги
 
                     else:
                         # print('only bs')
                         state.task.cur_hp['optimizer'] = state.task.cur_C_hp['optimizer']
                         state.task.cur_hp['lr'] = state.task.cur_C_hp['lr']
 
-                        # если изменили только batch size, то просто умножили или поделили на два текущее значение (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
+                        # если изменили только batch size, то просто умножили или поделили на два текущее значение
+                        # (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
                         state.task.cur_hp['batchSize'] = int(state.task.cur_C_hp['batchSize'] * 2 ** (vN[2] - vC[2]))
 
                     if state.task.cur_hp['batchSize'] > 64:

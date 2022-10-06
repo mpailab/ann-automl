@@ -39,6 +39,7 @@ class dbModule:
         date_captured = Column(String)
         flickr_url = Column(String)
         aux = Column(String)
+
         def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url = '' ,flickr_url = '', license_id = -1, _id = None, aux = ''):
             self.width = width
             self.height = height
@@ -65,6 +66,7 @@ class dbModule:
         date_created = Column(String)
         aux = Column(String)
         images = relationship("Image", backref=backref("dataset"))
+
         def __init__(self, description, url, version, year, contributor, date_created, _id = None, aux = ''):
             self.description = description
             self.url = url
@@ -83,7 +85,8 @@ class dbModule:
         name = Column(String)
         aux = Column(String)
         images = relationship("Annotation", backref=backref("category"))
-        records = relationship("CategoryToModel")  
+        records = relationship("CategoryToModel")
+
         def __init__(self, supercategory, name, _id = None, aux = ''):
             self.supercategory = supercategory
             self.name = name
@@ -98,6 +101,7 @@ class dbModule:
         url = Column(String)
         aux = Column(String)
         images = relationship("Image")
+
         def __init__(self, name, url, _id = None, aux = ''):
             self.url = url
             self.name = name
@@ -115,6 +119,7 @@ class dbModule:
         is_crowd = Column(Integer)
         area = Column(Float)
         aux = Column(String)
+
         def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id = None, aux = ''):
             self.image_id = image_id
             self.category_id = category_id
@@ -134,6 +139,7 @@ class dbModule:
         model_id = Column(Integer, ForeignKey("model.ID")) 
         history_address = Column(String)
         aux = Column(String)
+
         def __init__(self, metricName, metricValue, modelID, historyAddress = '', aux = '', _id = None):
             self.metric_name = metricName
             self.metric_value = metricValue
@@ -146,7 +152,8 @@ class dbModule:
     class CategoryToModel(Base):
         __tablename__ = "categoryToModel"
         category_id = Column(Integer, ForeignKey("category.ID"), primary_key = True)
-        model_id = Column(Integer, ForeignKey("model.ID"), primary_key = True) 
+        model_id = Column(Integer, ForeignKey("model.ID"), primary_key = True)
+
         def __init__(self, category_id, model_id):
             self.category_id = category_id
             self.model_id = model_id
@@ -158,7 +165,8 @@ class dbModule:
         task_type = Column(String) #TODO - this is very bad from DB perspective, but I'll leave for later
         aux = Column(String)
         train_results = relationship("TrainResult", backref=backref("model"))
-        categories = relationship("CategoryToModel") 
+        categories = relationship("CategoryToModel")
+
         def __init__(self, modelAddress, taskType, aux = '', _id = None):
             self.model_address = modelAddress
             self.task_type = taskType
@@ -173,15 +181,17 @@ class dbModule:
         self.engine = create_engine(dbstring, echo = dbecho)
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
+
     def create_sqlite_file(self):
         Base.metadata.create_all(self.engine)
+
     def fill_cats_dogs(self, annoFileName = 'dogs_vs_cats_coco_anno.json', file_prefix = './datasets/Kaggle/'):
-        '''Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
+        """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
         OUTPUT:
             None
-        '''
+        """
         print('Start filling DB with Kaggle CatsVsDogs')
         with open(annoFileName) as json_file:
             data = json.load(json_file)
@@ -206,14 +216,14 @@ class dbModule:
         print('Finished with Kaggle CatsVsDogs')
     
     def fill_coco(self, annoFileName, file_prefix = './datasets/COCO2017/', firstTime = False, ds_info = None):
-        '''Method to fill COCOdataset into db. It is supposed to be called once.
+        """Method to fill COCOdataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
             ds_info - dictionary with info about dataset (default - COCO2017). Necessary keys:
                 description, url, version, year, contributor, date_created
         OUTPUT:
             None
-        '''
+        """
         coco=COCO(annoFileName)
         cats = coco.loadCats(coco.getCatIds())
         ##CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
@@ -233,7 +243,7 @@ class dbModule:
         return
 
     def fill_imagenet(self, annotations_dir = '/auto/projects/brain/datasets/imagenet/annotations', file_prefix = '/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train', assoc_file = '/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time = False, ds_info = None):
-        '''Method to fill ImageNet dataset into db. It is supposed to be called once.
+        """Method to fill ImageNet dataset into db. It is supposed to be called once.
             INPUT:
                 annotations_dir - path to annotations directories
                 file_prefix - prefix of images from ImageNet
@@ -242,7 +252,7 @@ class dbModule:
                 ds_info - some information about dataset
             OUTPUT:
                 None
-        '''
+        """
         #If we make it for the first time, we add dataset information to DB
         if first_time:
             if ds_info == None:
@@ -333,12 +343,12 @@ class dbModule:
         return df
     
     def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
-        '''Method to load annotations from specific datasets, given their IDs.
+        """Method to load annotations from specific datasets, given their IDs.
         INPUT:
             datasets_ids - list of datasets IDs to get annotations from
         OUTPUT:
             pandas dataframe with annotations for given datasets IDs
-        '''
+        """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
         if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
@@ -354,14 +364,14 @@ class dbModule:
         return df
     
     def load_specific_categories_annotations(self, cat_names, **kwargs):
-        '''Method to load annotations from specific categories, given their IDs.
+        """Method to load annotations from specific categories, given their IDs.
         INPUT:
             cat_names - list of categories IDs to get annotations from
         OUTPUT:
             pandas dataframe with full annotations for given cat_ids
             dictionary with train, test, val files
             average width, height of images
-        '''
+        """
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
@@ -411,9 +421,8 @@ class dbModule:
         np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
         return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
     
-    
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, **kwargs):
-        '''Method to load annotations from specific categories, given their IDs.
+        """Method to load annotations from specific categories, given their IDs.
         INPUT:
             cat_names - list of categories IDs to get annotations from
             dataset_ids - list of dataset IDs to get annotations from
@@ -421,7 +430,7 @@ class dbModule:
             pandas dataframe with full annotations for given cat_ids
             dictionary with train, test, val files
             average width, height of images
-        '''
+        """
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
@@ -472,12 +481,12 @@ class dbModule:
         return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
     
     def load_specific_images_annotations(self, image_names, **kwargs):
-        '''Method to load annotations from specific images, given their names.
+        """Method to load annotations from specific images, given their names.
         INPUT:
             image_names - list of image names to get annotations for
         OUTPUT:
             pandas dataframe with annotations for given image_names
-        '''
+        """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
         if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
@@ -488,13 +497,13 @@ class dbModule:
         return df
     
     def add_categories(self, categories, respect_ids = True):
-        '''Method to add given categories to database. Expected to be called rarely, since category list is almost permanent.
+        """Method to add given categories to database. Expected to be called rarely, since category list is almost permanent.
         INPUT:
             categories - disctionary with necessary fields: supercategory, name, id
             respect_ids - boolean, to specify if ids from dictionary are preserved in DB
         OUTPUT:
             None
-        '''
+        """
         for category in categories:
             _id = None
             if respect_ids == True:
@@ -504,7 +513,7 @@ class dbModule:
         self.sess.commit() #adding categories in db
         
     def add_default_licences(self):
-        '''Method to add default licenses to DB. Exptected to be called once'''
+        """Method to add default licenses to DB. Exptected to be called once"""
         licenses =  [{"url": "http://creativecommons.org/licenses/by-nc-sa/2.0/","id": 1,"name": "Attribution-NonCommercial-ShareAlike License"},{"url": "http://creativecommons.org/licenses/by-nc/2.0/","id": 2,"name": "Attribution-NonCommercial License"},{"url": "http://creativecommons.org/licenses/by-nc-nd/2.0/","id": 3,"name": "Attribution-NonCommercial-NoDerivs License"},{"url": "http://creativecommons.org/licenses/by/2.0/","id": 4,"name": "Attribution License"},{"url": "http://creativecommons.org/licenses/by-sa/2.0/","id": 5,"name": "Attribution-ShareAlike License"},{"url": "http://creativecommons.org/licenses/by-nd/2.0/","id": 6,"name": "Attribution-NoDerivs License"},{"url": "http://flickr.com/commons/usage/","id": 7,"name": "No known copyright restrictions"},{"url": "http://www.usa.gov/copyright.shtml","id": 8,"name": "United States Government Work"}]
         for license in licenses:
             lic = self.License(license['name'], license['url'], license['id'])
@@ -512,25 +521,34 @@ class dbModule:
         self.sess.commit() #adding licenses from dogs_vs_cats.json
     
     def add_dataset_info(self, dataset_info):
-        '''Method to add info about new dataset. Returns added dataset ID'''
+        """Method to add info about new dataset. Returns added dataset ID"""
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'], dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
         self.sess.add(dataset)
         self.sess.commit() #adding dataset
         return dataset.ID
     
     def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix = '', respect_ids = False):
-        '''Method to add a chunk of images and their annotations to DB. 
-        INPUT:
-            images - array of dicts with attributes:
-                license, file_name, coco_url, height, width, date_captured, flickr_url, id
-            annotations - array of dicts with attributes:
-                segmentation, area, iscrowd, image_id, bbox, category_id, id
-            dataset_id - ID of a dataset images are from
-            file_prefix - prefix to be added to filenames
-            respect_ids - boolean to specify if input ids are preserved in DB
-        OUTPUT:
-            None
-        '''
+        """Method to add a chunk of images and their annotations to DB.
+
+        Parameters
+        ----------
+        images : list[dict]
+            array of dicts with attributes:
+            license, file_name, coco_url, height, width, date_captured, flickr_url, id
+        annotations : list[dict]
+            array of dicts with attributes:
+            segmentation, area, iscrowd, image_id, bbox, category_id, id
+        dataset_id : any
+            ID of a dataset images are from
+        file_prefix : str
+            prefix to be added to filenames
+        respect_ids : bool
+            boolean to specify if input ids are preserved in DB
+
+        Returns
+        -------
+        None
+        """
         print('Adding images')
         buf_images = {}
         for im_data in images:
@@ -557,11 +575,11 @@ class dbModule:
         self.sess.commit() #adding annotations
     
     def add_model_record(self, task_type, categories, model_address, metrics, history_address = ''):
-        '''
+        """
         Inserts records about train results for some model.
         If model already exists method does not create new model.
         If key update_metrics is set to True, then metric records will be updated if they already exist
-        '''
+        """
         if not isinstance(task_type, str):
             print('ERROR: Bad input for global history record, expected string as task_type')
             return
@@ -605,9 +623,9 @@ class dbModule:
         return
 
     def update_train_result_record(self, model_address, metric_name, metric_value, history_address = ''):
-        '''
+        """
         Returns boolean of operation success
-        '''
+        """
         if not isinstance(model_address, str):
             print('ERROR: Bad input for global history record, expected string for model_address')
             return False
@@ -636,9 +654,9 @@ class dbModule:
         return True
         
     def delete_train_result_record(self, model_address, metric_name):
-        '''
+        """
         Returns boolean of operation success
-        '''
+        """
         if not isinstance(model_address, str):
             print('ERROR: Bad input for global history record, expected string for model_address')
             return False
@@ -659,21 +677,30 @@ class dbModule:
                 return True
         print('ERROR: Such train result record was not found')
         return False
-        
-    
+
     def get_models_by_filter(self, filter_dict, exact_category_match = False):
-        '''
-        filter_dict is a dictionary which contains params for model search. 
-        Specification for this structure can be changed in time.
-        Possible key-value pairs:
-            'min_metrics':
-                {
-                    'metric_name': min_value
-                }
-            'categories': ['list','of','categories','names']
-        
-        returns pd with models info
-        '''
+        """
+        Returns list of models that match filter_dict
+
+        Parameters
+        ----------
+        filter_dict : dict
+            filter_dict is a dictionary which contains params for model search.
+            Specification for this structure can be changed in time.
+            Possible key-value pairs:
+                'min_metrics':
+                    {
+                        'metric_name': min_value
+                    }
+                'categories': ['list','of','categories','names']
+        exact_category_match : bool
+            If True, then only models that have exactly the same categories will be returned.
+
+        Returns
+        -------
+        Generator
+            returns pd with models info
+        """
         model_query = self.sess.query(self.Model,self.TrainResult).join(self.TrainResult).join(self.CategoryToModel).join(self.Category)
         if 'categories_ids' in filter_dict:
             filter_dict['categories'] = self.get_cat_names_by_IDs(filter_dict['categories_ids']) #TODO: this is just a patch
@@ -709,11 +736,11 @@ class dbModule:
         return df
 
     def get_cat_IDs_by_names(self, cat_names):
-        '''
+        """
         cat_names - list of names of categories. Returns list of IDs (one-to-one correspondence).
         If category is not present, -1 is returned on its position.
         In case of bad input empty list is returned.
-        '''
+        """
         if not isinstance(cat_names, list):
            print('ERROR: Bad input for cat_names, must be a list')
            return []
@@ -727,11 +754,11 @@ class dbModule:
         return result
 
     def get_cat_names_by_IDs(self, cat_IDs):
-        '''
+        """
         cat_IDs - list of IDs of categories. Returns list of names (one-to-one correspondence).
         If category is not present, "" is returned on its position.
         In case of bad input empty list is returned.
-        '''
+        """
         if not isinstance(cat_IDs, list):
            print('ERROR: Bad input for cat_names, must be a list')
            return []

@@ -3,6 +3,7 @@ from functools import wraps
 import multiprocessing_utils
 import queue
 
+
 class Pipe(object):
 
     def __init__(self, f, que_in, que_out):

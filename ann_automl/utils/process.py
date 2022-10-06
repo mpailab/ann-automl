@@ -2,15 +2,10 @@ import threading
 from functools import wraps
 
 
-# def lockobj(f):
-#    @wraps(f)
-#    def g(self,*args,**kwargs):
-#        with self.lock:
-#            return f(self,*args,**kwargs)
-#    return g
-
 class PDelayed(object):
+    """ Class to communicate with the asynchronous task """
     class State:
+        """ State of the task """
         status = 'not started'
         progress = 0
         state = None
@@ -18,27 +13,49 @@ class PDelayed(object):
         request = None
 
     def __init__(self):
-        self._value = None
-        self._canceled = False
-        self._finished = False
+        self._value = None      # result of the task
+        self._canceled = False  # True if the task is canceled
+        self._finished = False  # finished or cancelled
 
-        self._stop = False
-        self._cancel = False
+        self._stop = False    # flag to stop the task
+        self._cancel = False  # flag to cancel the task
 
-        self._th = None
-        self._exn = None
+        self._th = None   # thread to run the task
+        self._exn = None  # exception raised by the task
 
-        self._state = PDelayed.State()
-        self.lock = threading.RLock()
+        self._state = PDelayed.State()  # state of the task
+        self.lock = threading.RLock()   # lock to access the state from different threads
         self.handlers = {}  # map request names to functions
 
     def set_handler(self, name, f):
+        """ Set a handler for a request
+
+        Parameters
+        ----------
+        name: str
+            Name of the request
+        f: Callable
+            Function to handle the request
+        """
         self.handlers[name] = f
 
     def prepare(self, f, args, kwargs):
+        """ Prepare the task to run with the given function and arguments.
+        After preparation, to run the task, call start().
+
+        Parameters
+        ----------
+        f: Callable
+            Function to run
+        args: tuple
+            Positional arguments
+        kwargs: dict
+            Keyword arguments
+        """
         self._th = threading.Thread(target=f, args=args, kwargs=kwargs)
 
     def start(self):
+        """ Start the task """
         if self._th is None:
             raise Exception("no function to run")
         elif self._th.isAlive():
@@ -46,6 +63,18 @@ class PDelayed(object):
         self._th.start()
 
     def get(self, raise_exn=True):
+        """ Get the result of the task.
+
+        Parameters
+        ----------
+        raise_exn: bool
+            If True, raise an exception if the task failed with an exception.
+
+        Returns
+        -------
+        result: object
+            Result of the task or None if the task is not finished or cancelled or failed.
+        """
         with self.lock:
             if self._exn is not None:
                 if raise_exn:
@@ -57,6 +86,7 @@ class PDelayed(object):
     value = property(get)
 
     def cancel(self):
+        """ Send a cancel request to the task (task may not cancel immediately) """
         with self.lock:
             if not self._canceled and not self.ready:
                 self._stop = True
@@ -65,6 +95,7 @@ class PDelayed(object):
         return self
 
     def stop(self):
+        """ Send a stop request to the task (task may not stop immediately) """
         with self.lock:
             if not self._canceled and not self.ready:
                 self._stop = True
@@ -72,6 +103,18 @@ class PDelayed(object):
         return self
 
     def wait(self, timeout=None):
+        """ Wait for the task to finish or be cancelled.
+
+        Parameters
+        ----------
+        timeout: float
+            Timeout in seconds. If None, wait indefinitely.
+
+        Returns
+        -------
+        result: object
+            Result of the task or None if the task is not finished.
+        """
         if not self._canceled and not self.ready:
             self._th.join(timeout)
             # self._value = self.result
@@ -86,11 +129,13 @@ class PDelayed(object):
 
     @property
     def ready(self):
+        """ True if the task is finished or cancelled """
         with self.lock:
             return self._state.result is not None or self._exn is not None
 
     @property
     def runnung(self):
+        """ True if the task is running """
         return not self.canceled and not self.ready
 
     @property
@@ -171,6 +216,24 @@ def set_pstate(**kwargs):
 
 
 def request(name, *args, raise_exn=True, **kwargs):
+    """ Send a request from the task to some other thread.
+
+    Parameters
+    ----------
+    name: str
+        Name of the request
+    *args: tuple
+        Positional arguments of handler function associated with the request
+    raise_exn: bool
+        If True, raise an exception if the request failed with an exception.
+    **kwargs: dict
+        Keyword arguments of handler function associated with the request
+
+    Returns
+    -------
+    result: object
+        Result of the request
+    """
     handler = pstate().handlers.get(name, None)
     if handler is None:
         if raise_exn:
@@ -230,6 +293,10 @@ class VarWaiter:
 
 
 def process(f):
+    """ Decorator for a function to be executed in a separate thread.
+    Function with this decorator returns PDelayed object that can be used to communicate with the task.
+    """
+
     @wraps(f)
     def g(*args, start=True, handlers=None, **kwargs):
         d = PDelayed()
@@ -241,21 +308,6 @@ def process(f):
                 d._state.result = f(*args, **kwargs)
             except Exception as e:
                 d._exn = e
-            # for a in f(*args, **kwargs):
-            #     # print(d.lock.locked())
-            #     with d.lock:
-            #         for field in ['progress', 'state', 'result', 'status', 'request']:
-            #             if hasattr(a, field):
-            #                 setattr(d._state, field, getattr(a, field))
-            #         if hasattr(a, 'result'):
-            #             break
-            #         if d._stop:
-            #             if not d._cancel:
-            #                 if not hasattr(d._state, 'result') and hasattr(d._state, 'state'):
-            #                     d._state.result = d._state.state
-            #                 else:
-            #                     d._state.result = 'Stopped'
-            #             break
 
         d.prepare(pp, args=(), kwargs={})
         if start:

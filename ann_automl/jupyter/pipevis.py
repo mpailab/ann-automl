@@ -56,7 +56,7 @@ def show_progress(rr):
 
         while rr.status != 'canceled':
             if rr.empty():
-                time.sleep(1)
+                time.sleep(0.1)
                 continue
 
             cmd = rr.receive()

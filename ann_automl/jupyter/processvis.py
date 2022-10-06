@@ -58,7 +58,7 @@ def show_progress(rr):
         while not rr.ready and not rr.canceled:
             rr._progress_widget.value = st.progress
             rr._status_widget.value = st.status
-            time.sleep(1)
+            time.sleep(0.1)
             st = rr.update()
 
         rr._hbox.close()
