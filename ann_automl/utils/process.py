@@ -26,6 +26,14 @@ class PDelayed(object):
         self._state = PDelayed.State()  # state of the task
         self.lock = threading.RLock()   # lock to access the state from different threads
         self.handlers = {}  # map request names to functions
+        self.on_finish = None  # function to call when the task is finished
+
+    def finish(self):
+        """ Finish the task """
+        with self.lock:
+            self._finished = True
+            if self.on_finish is not None:
+                self.on_finish(self)
 
     def set_handler(self, name, f):
         """ Set a handler for a request
@@ -194,8 +202,8 @@ def pstatus(r):
     return SetState(status=r)
 
 
-def pcall(func, *args, **kwargs):
-    return SetState(request=(func, args, kwargs))
+#def pcall(func, *args, **kwargs):
+#    return SetState(request=(func, args, kwargs))
 
 
 # thread-local variable
@@ -215,6 +223,10 @@ def set_pstate(**kwargs):
                 setattr(st, k, v)
 
 
+class NoHandlerError(Exception):
+    pass
+
+
 def request(name, *args, raise_exn=True, **kwargs):
     """ Send a request from the task to some other thread.
 
@@ -222,11 +234,11 @@ def request(name, *args, raise_exn=True, **kwargs):
     ----------
     name: str
         Name of the request
-    *args: tuple
+    *args:
         Positional arguments of handler function associated with the request
     raise_exn: bool
         If True, raise an exception if the request failed with an exception.
-    **kwargs: dict
+    **kwargs:
         Keyword arguments of handler function associated with the request
 
     Returns
@@ -237,9 +249,32 @@ def request(name, *args, raise_exn=True, **kwargs):
     handler = pstate().handlers.get(name, None)
     if handler is None:
         if raise_exn:
-            raise Exception(f"Handler for request {name} not registered")
+            raise NoHandlerError(f"Handler for request {name} not registered")
         else:
             return None
+    return handler(*args, **kwargs)
+
+
+def pcall(name, *args, **kwargs):
+    """ Send a request from the task to some other thread.
+
+    Parameters
+    ----------
+    name: str
+        Name of the request
+    *args:
+        Positional arguments of handler function associated with the request
+    **kwargs:
+        Keyword arguments of handler function associated with the request
+
+    Returns
+    -------
+    result: object
+        Result of the request
+    """
+    handler = pstate().handlers.get(name, None)
+    if handler is None:
+        return None
     return handler(*args, **kwargs)
 
 
@@ -308,6 +343,7 @@ def process(f):
                 d._state.result = f(*args, **kwargs)
             except Exception as e:
                 d._exn = e
+            d.finish()
 
         d.prepare(pp, args=(), kwargs={})
         if start:

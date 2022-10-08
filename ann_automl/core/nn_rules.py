@@ -5,10 +5,10 @@ import keras
 import numpy as np
 import tensorflow as tf
 import os
-import db_module
+from . import db_module
 from datetime import datetime
 from pytz import timezone
-from .solver import Rule, rule, State, Task
+from .solver import Rule, rule, State, Task, printlog
 
 myDB = db_module.dbModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточнить путь к файлу базы данных
 
@@ -123,7 +123,7 @@ class CheckSuitableModelExistence(Rule):
 
         s = []
         if ch_res.empty:
-            print('empty')
+            printlog('empty')
             state.curState = 'DB'
         else:
             n = len(ch_res.index)
@@ -144,8 +144,7 @@ class UserDec(Rule):
         return state.task.taskCt == "train" and state.curState == 'UserDec'
 
     def apply(self, state):
-
-        print('\n' + state.message)
+        printlog('\n' + state.message)
         answer = input()
         state.curState = state.actions[str(answer)]
 
@@ -186,12 +185,16 @@ class CreateDatabase(Rule):
         # In next version there will be two databases methods\tricks - the first one to check are required categories exist
         # the second one - to create database
 
-        tmpData = myDB.load_specific_categories_annotations(['cat', 'dog'], normalizeCats=True, splitPoints=[0.7, 0.85],
+        tmpData = myDB.load_specific_categories_annotations(list(state.task.objects), normalizeCats=True,
+                                                            splitPoints=[0.7, 0.85],
                                                             curExperimentFolder='./', crop_bbox=True,
                                                             cropped_dir='./crops/')
 
-        state.task.data = {'train': tmpData[1]['train'], 'validate': tmpData[1]['validate'], 'test': tmpData[1]['test'],
-                           'dim': (224, 224, 3), 'augmenConstr': {'vertical_flip': None}}
+        state.task.data = {'train': tmpData[1]['train'],
+                           'validate': tmpData[1]['validate'],
+                           'test': tmpData[1]['test'],
+                           'dim': (224, 224, 3),
+                           'augmenConstr': {'vertical_flip': None}}
         state.curState = 'Training'
 
 
