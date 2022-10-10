@@ -136,12 +136,11 @@ class Rule(ABC):
         pass
 
 
-def printlog(message, end='\n'):
+def printlog(*args, **kwargs):
     try:
-        request("log", message, end=end)
+        request('print', *args, **kwargs)
     except NoHandlerError:
-        pass
-        #print(message, end=end)
+        print(*args, **kwargs)
 
 
 def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
@@ -154,6 +153,8 @@ def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
         Rules to use for solving the task
     max_num_steps : int
         Maximum number of tries to apply rules for solving the task
+    debug_mode : bool
+        If True, prints debug information
 
     Returns
     -------
@@ -181,11 +182,10 @@ def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
         with open(log_name, 'a') as log_file:
             log_file.write(f'{state.curState}\n')
         if debug_mode:
-            printlog(f'{num_steps}. {state.curState}')
+            printlog(f'{num_steps}. Состояние: {state.curState}')
         if rules[pos].can_apply(state):
             if debug_mode:
                 printlog(f'{num_steps}. Применяем правило {rules[pos].__class__.__name__}')
-            # print(rules[pos])
             rules[pos].apply(state)
         pos = (pos + 1) % len(rules)
         if num_steps > max_num_steps:

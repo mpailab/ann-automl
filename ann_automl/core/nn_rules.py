@@ -1,5 +1,10 @@
 import itertools
+import math
+import sys
 import time
+from collections import defaultdict
+
+import ipywidgets
 import pandas as pd
 import keras
 import numpy as np
@@ -9,6 +14,7 @@ from . import db_module
 from datetime import datetime
 from pytz import timezone
 from .solver import Rule, rule, State, Task, printlog
+from ..utils.process import request, NoHandlerError
 
 myDB = db_module.dbModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточнить путь к файлу базы данных
 
@@ -66,7 +72,7 @@ def neighborhood(cp, rr):
     neighbor = -1
     cur = []
 
-    print('\n')
+    printlog('\n')
 
     for i in range(3):
         # print('i ', i)
@@ -93,14 +99,36 @@ def neighborhood(cp, rr):
         if neighbor == 0:
             break
 
-    return (neighbor, cur)
+    return neighbor, cur
+
+
+def find_zero_neighbor(center, table, radius=1):
+    """
+    Finds next point in the neighborhood of the current point where there is zero in table
+
+    Parameters
+    ----------
+    center: list[int]
+        Current point
+    table: ndarray
+        Array of function values
+    radius: int
+        Radius of the neighborhood
+
+    Returns
+    -------
+    optional list[int]
+        Next point in the neighborhood where there is zero in table or None if there is no such point
+    """
+    ranges = [range(max(0, center[i] - radius), min(szi, center[i] + radius + 1)) for i, szi in enumerate(table.shape)]
+    for i in itertools.product(*ranges):
+        if abs(table[i]) <= 1e-6:
+            return list(i)
+    return None
 
 
 # Допустимая погрешность по достигнутой точности при выборе общей стратегии обучения
 # eps = 0.1
-
-
-#####################################################################
 
 
 @rule
@@ -123,8 +151,44 @@ class CheckSuitableModelExistence(Rule):
 
         s = []
         if ch_res.empty:
-            printlog('empty')
-            state.curState = 'DB'
+            printlog('Не найдено подходящих моделей')
+            #######################################################################
+            ############ ПРИМЕР ВЗАИМОДЕЙСТВИЯ С ПОЛЬЗОВАТЕЛЕМ ####################
+            #######################################################################
+
+            # Запрос у пользователя: как будем выбирать гиперпараметры?
+            # Формат запроса:
+            #     request('choose_hyperparameters', current_hyperparameters, history_available, params_to_choose)
+            #     current_hyperparameters - текущие гиперпараметры
+            #     history_available - доступна ли история обучения
+            #     params_to_choose - список параметров, которые нужно задать
+            # 1. Задать вручную:
+            #    ожидается на выходе: ('manual', словарь с гиперпараметрами)
+            # 2. Подобрать автоматически исходя из истории
+            #    ожидается на выходе: ('from_history', None)
+            # 3. Поиск по сетке
+            #    ожидается на выходе: ('grid_search', словарь с параметрами поиска по сетке)
+            try:
+                params_to_choose = ['learning_rate', 'batch_size', 'epochs', 'optimizer', 'loss']
+                decision, params = request('choose_hyperparameters', {}, True, params_to_choose)  # TODO: заполнить current_hyperparameters и history_available
+                if decision == 'manual':
+                    printlog('Выбрано задание гиперпараметров вручную')
+                    printlog("Заданы следующие гиперпараметры:")
+                    for key, value in params.items():
+                        printlog(f"{key}: {value}")
+                    state.curState = 'Done'  # TODO: Replace done with actual state
+                elif decision == 'from_history':
+                    printlog('Подбор гиперпараметров по истории (пока не реализовано)')
+                    state.curState = 'Done'  # TODO: Replace done with actual state
+                elif decision == 'grid_search':
+                    printlog('Поиск по сетке')
+                    state.curState = 'DB'  # TODO: Replace done with actual state
+                else:
+                    printlog('Неверный ввод', file=sys.stderr)
+                    state.curState = 'Done'
+            except NoHandlerError:  # Если запущено не в режиме взаимодействия с пользователем
+                state.curState = 'DB'
+            #######################################################################
         else:
             n = len(ch_res.index)
             for i in range(n):
@@ -286,7 +350,9 @@ class SetGrid(Rule):
 
         # Experiment History
         state.task.history = pd.DataFrame(
-            {'taskType': state.task.taskType, 'objects': [state.task.objects], 'expName': state.task.expName,
+            {'taskType': state.task.taskType,
+             'objects': [state.task.objects],
+             'expName': state.task.expName,
 
              'pipeline': state.task.fixedHyperParams['pipeline'],
              'modelLastLayers': [state.task.fixedHyperParams['modelLastLayers']],
@@ -304,7 +370,9 @@ class SetGrid(Rule):
 
              'Metric_achieved_result': state.task.goal[str(list(state.task.goal.keys())[0])],
              'curTrainingSubfolder': '',
-             'timeStat': [[]], 'totalTime': 0, 'Additional_params': [{}]})
+             'timeStat': [[]],
+             'totalTime': 0,
+             'Additional_params': [{}]})
 
         state.task.history.to_csv(state.task.expPath + '/' + state.task.expName + '__History.csv', index_label='Index')
         # index=False)
@@ -415,10 +483,10 @@ class FitModel(Rule):
             print(state.task.curTrainingSubfolder, file=log_file)
             print(state.task.cur_hp, file=log_file)
 
-        print('\n')
-        print(state.task.curTrainingSubfolder)
-        print('\n')
-        print(state.task.cur_hp)
+        printlog('\n')
+        printlog(state.task.curTrainingSubfolder)
+        printlog('\n')
+        printlog(state.task.cur_hp)
 
         model_path = f'{state.task.expPath}/{state.task.curTrainingSubfolder}'
         model_history = model_path + '/' + state.task.curTrainingSubfolder + '__History.csv'
@@ -487,8 +555,8 @@ class GridStep(Rule):
 
     def apply(self, state):
 
-        print('GRID')
-        print('central hp', state.task.cur_C_hp)
+        printlog('GRID')
+        printlog('central hp', state.task.cur_C_hp)
         # print(state.task.cur_central_point, state.task.cur_training_point)
         # print(state.task.hp_grid)
 
@@ -509,7 +577,7 @@ class GridStep(Rule):
 
         if not checkN:
 
-            print('neighboor exists')
+            printlog('neighboor exists')
 
             with open(state.logName, 'a') as log_file:
                 print('neighboor exists', file=log_file)
@@ -569,15 +637,15 @@ class GridStep(Rule):
                 print('checkN of our central point is equal -1 => Step', file=log_file)
                 print(state.task.hp_grid, file=log_file)
 
-            print('checkN of our central point is equal -1 => Step')
-            print(state.task.hp_grid)
+            printlog('checkN of our central point is equal -1 => Step')
+            printlog(state.task.hp_grid)
 
             if state.task.best_model == state.task.cur_central_point:
 
                 with open(state.logName, 'a') as log_file:
                     print('state.task.best_model == state.task.cur_central_point -- local maximum', file=log_file)
 
-                print('state.task.best_model == state.task.cur_central_point -- local maximum')
+                printlog('state.task.best_model == state.task.cur_central_point -- local maximum')
                 # осмотрела всю окрестность, но лучше результата нет => попали в локальный максимум => сохранить реузультаты и закончить работу
                 # ЛУЧШИЙ РЕЗУЛЬТАТ ЭКСПЕРИМЕНТА ЗАПИСАТЬ В БД
                 best = state.task.history['Index'] == state.task.best_num  # является ли текущий индекс лучшим
@@ -597,7 +665,7 @@ class GridStep(Rule):
                 with open(state.logName, 'a') as log_file:
                     print('have found a new central point => change it anf it\'s hyperParams ', file=log_file)
 
-                print('have found a new central point => change it anf it\'s hyperParams ')
+                printlog('have found a new central point => change it anf it\'s hyperParams ')
                 state.task.cur_central_point = state.task.best_model.copy()
                 state.task.cur_C_hp['optimizer'] = state.task.hyperParams['optimizer'][state.task.cur_central_point[0]]
                 state.task.cur_C_hp['batchSize'] = state.task.hyperParams['batchSize'][state.task.cur_central_point[2]]
@@ -614,7 +682,7 @@ class GridStep(Rule):
                     with open(state.logName, 'a') as log_file:
                         print('neighboor of a new central point exists', file=log_file)
 
-                    print('neighboor of a new central point exists')
+                    printlog('neighboor of a new central point exists')
 
                     # если есть нулевой сосед
                     state.task.cur_training_point = cur
@@ -669,7 +737,7 @@ class GridStep(Rule):
                         print('set a new central point, but it\'s neighborhood has already filled => local maximum',
                               file=log_file)
 
-                    print('set a new central point, but it\'s neighborhood has already filled => local maximum')
+                    printlog('set a new central point, but it\'s neighborhood has already filled => local maximum')
                     # осмотрела всю окрестность, но лучше результата нет => попали в локальный максимум => сохранить реузультаты и закончить работу
                     # ЛУЧШИЙ РЕЗУЛЬТАТ ЭКСПЕРИМЕНТА ЗАПИСАТЬ В БД
                     best = state.task.history['Index'] == state.task.best_num  # является ли текущий индекс лучшим
@@ -688,4 +756,3 @@ class GridStep(Rule):
         state.curState = 'Training_Gen'
         if state.task.counter > 600:
             state.curState = 'Done'
-

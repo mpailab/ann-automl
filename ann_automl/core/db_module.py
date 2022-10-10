@@ -21,6 +21,7 @@ import time
 
 Base = declarative_base()
 
+
 class dbModule:
 
     ############################################################
@@ -40,7 +41,7 @@ class dbModule:
         flickr_url = Column(String)
         aux = Column(String)
 
-        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url = '' ,flickr_url = '', license_id = -1, _id = None, aux = ''):
+        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url='' , flickr_url='', license_id=-1, _id=None, aux=''):
             self.width = width
             self.height = height
             self.file_name = file_name
@@ -51,7 +52,7 @@ class dbModule:
             if license_id == -1:
                 license_id = 1
             self.license_id = license_id
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -140,7 +141,7 @@ class dbModule:
         history_address = Column(String)
         aux = Column(String)
 
-        def __init__(self, metricName, metricValue, modelID, historyAddress = '', aux = '', _id = None):
+        def __init__(self, metricName, metricValue, modelID, historyAddress='', aux='', _id=None):
             self.metric_name = metricName
             self.metric_value = metricValue
             self.history_address = historyAddress
@@ -151,8 +152,8 @@ class dbModule:
     
     class CategoryToModel(Base):
         __tablename__ = "categoryToModel"
-        category_id = Column(Integer, ForeignKey("category.ID"), primary_key = True)
-        model_id = Column(Integer, ForeignKey("model.ID"), primary_key = True)
+        category_id = Column(Integer, ForeignKey("category.ID"), primary_key=True)
+        model_id = Column(Integer, ForeignKey("model.ID"), primary_key=True)
 
         def __init__(self, category_id, model_id):
             self.category_id = category_id
@@ -162,7 +163,7 @@ class dbModule:
         __tablename__ = "model"
         ID = Column(Integer, primary_key=True)
         model_address = Column(String)
-        task_type = Column(String) #TODO - this is very bad from DB perspective, but I'll leave for later
+        task_type = Column(String)  # TODO - this is very bad from DB perspective, but I'll leave for later
         aux = Column(String)
         train_results = relationship("TrainResult", backref=backref("model"))
         categories = relationship("CategoryToModel")
@@ -173,6 +174,7 @@ class dbModule:
             if _id != None:
                 self.ID = _id
             self.aux = aux
+
     ############################################################
     ##########        DB Module methods      ###################
     ############################################################
@@ -224,21 +226,25 @@ class dbModule:
         OUTPUT:
             None
         """
-        coco=COCO(annoFileName)
+        coco = COCO(annoFileName)
         cats = coco.loadCats(coco.getCatIds())
-        ##CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
+        # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
         if firstTime:
             self.add_categories(cats, True)
             self.add_default_licences()
         #######################################################################
-        if ds_info == None:
-            ds_info = {"description": "COCO 2017 Dataset","url": "http://cocodataset.org","version": "1.0","year": 2017,"contributor": "COCO Consortium","date_created": "2017/09/01"}
+        if ds_info is None:
+            ds_info = {"description": "COCO 2017 Dataset",
+                       "url": "http://cocodataset.org",
+                       "version": "1.0","year": 2017,
+                       "contributor": "COCO Consortium",
+                       "date_created": "2017/09/01"}
         dsID = self.add_dataset_info(ds_info)
         imgIds = coco.getImgIds()
         imgs = coco.loadImgs(imgIds)
         annIds = coco.getAnnIds()
         anns = coco.loadAnns(annIds)
-        print('Adding '+ str(len(anns)) + ' annotations in COCO format to DB')
+        print(f'Adding {len(anns)} annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
         return
 
@@ -253,14 +259,14 @@ class dbModule:
             OUTPUT:
                 None
         """
-        #If we make it for the first time, we add dataset information to DB
+        # If we make it for the first time, we add dataset information to DB
         if first_time:
             if ds_info == None:
                 ds_info = {"description": "ImageNet 2012 Dataset","url": "https://image-net.org/about.php","version": "1.0","year": 2012,"contributor": "ImageNet","date_created": "2012/01/01"}
             dsID = self.add_dataset_info(ds_info)
         else:
             dsID = self.get_dataset_info(ds_info)
-        #Then we take all the associations from the assoc_file and create some categories if needed
+        # Then we take all the associations from the assoc_file and create some categories if needed
         assoc = {}
         with open(assoc_file) as file:
             lines = file.readlines()
@@ -294,12 +300,14 @@ class dbModule:
             cat_id = catIDs[i]
             cat_name = cat_names_list[i]
             categories_assoc[cat_name] = cat_id
-        #Then we iterate over all the images from dataset. For each image we check if there are bbox in XML files. If so - this information is added to annotation.
-        img_files = glob.glob(file_prefix + '/*/*.JPEG', recursive=True) #ImageNet file structure requires /*/*.JPEG
-        print('Len img_files:',len(img_files))
+        # Then we iterate over all the images from dataset.
+        # For each image we check if there are bbox in XML files.
+        # If so - this information is added to annotation.
+        img_files = glob.glob(file_prefix + '/*/*.JPEG', recursive=True)  # ImageNet file structure requires /*/*.JPEG
+        print('Len img_files:', len(img_files))
         images = []
         annotations = []
-        licence_id =  1 #TODO - fix that, add BSD license
+        licence_id = 1  # TODO - fix that, add BSD license
         im_id = 0
         for img_file in img_files:
             im = Image.open(img_file)
@@ -317,7 +325,7 @@ class dbModule:
                 tree = ET.parse(annofilename)
                 root = tree.getroot()
                 obj_tag = root.find('object')
-                if obj_tag != None:
+                if obj_tag is not None:
                     for child in obj_tag:
                         bbox = []
                         if child.tag == 'bndbox':
@@ -362,7 +370,61 @@ class dbModule:
         query = self.sess.query(self.Category)
         df = pd.read_sql(query.statement, query.session.bind)
         return df
-    
+
+    def _prepare_cropped_images(self, df, kwargs):
+        column_names = ["file_name", "category_id"]
+        buf_df = pd.DataFrame(columns=column_names)
+        # print(buf_df)
+        # print(df)
+        cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
+        #if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
+        Path(cropped_dir).mkdir(parents=True, exist_ok=True)
+            #cropped_dir = kwargs['cropped_dir']
+        files_dir = kwargs.get('files_dir', '')
+        for index, row in df.iterrows():
+            bbox = []
+            if row['bbox'] != '':
+                bbox = ast.literal_eval(row['bbox'])
+            if len(bbox) != 4:
+                new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
+                buf_df = buf_df.append(new_row, ignore_index=True)  # nothing to cut
+                continue
+            image = cv2.imread(files_dir + row['file_name'])
+            crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
+                         math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+            buf_name = row["file_name"].split('.')
+            filename = (buf_name[-2]).split('/')[-1]
+            filepath = cropped_dir + filename + "-" + str(index) + "." + buf_name[-1]
+            cv2.imwrite(filepath, crop)
+            new_row = pd.DataFrame([[filepath, row['category_id']]], columns=column_names)
+            buf_df = buf_df.append(new_row)
+        return buf_df
+
+    def _split_and_save(self, df, save_dir, split_points):
+        train_end = int(split_points[0] * len(df))
+        val_end = int(split_points[1] * len(df))
+        train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])
+        np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header='images,target', comments='')
+        np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header='images,target', comments='')
+        np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header='images,target', comments='')
+        return {'train': f'{save_dir}train.csv', 'test': f'{save_dir}test.csv', 'validate': f'{save_dir}val.csv'}
+
+    def _process_query(self, query, kwargs):
+        df = pd.read_sql(query.statement, query.session.bind)
+        av_width = df['width'].mean()
+        av_height = df['height'].mean()
+        if kwargs.get('crop_bbox', False):
+            df = self._prepare_cropped_images(df, kwargs)
+        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
+        if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
+            min_cat = df_new['target'].min()
+            df_new['target'] = df_new['target'] - min_cat
+        split_points = [0.6, 0.8]
+        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
+            split_points = kwargs['splitPoints']
+        filename_dict = self._split_and_save(df_new, kwargs.get('curExperimentFolder', './'), split_points)
+        return df_new, filename_dict, av_width, av_height
+
     def load_specific_categories_annotations(self, cat_names, **kwargs):
         """Method to load annotations from specific categories, given their IDs.
         INPUT:
@@ -372,55 +434,11 @@ class dbModule:
             dictionary with train, test, val files
             average width, height of images
         """
-        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
-        df = pd.read_sql(query.statement, query.session.bind)
-        av_width = df['width'].mean()
-        av_height = df['height'].mean()
-        if 'crop_bbox' in kwargs and kwargs['crop_bbox'] == True:
-            column_names = ["file_name", "category_id"]
-            buf_df = pd.DataFrame(columns = column_names)
-            #print(buf_df)
-            #print(df)
-            cropped_dir = 'buf_crops/'
-            if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
-                Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
-                cropped_dir = kwargs['cropped_dir']
-            files_dir = ''
-            if 'files_dir' in kwargs and kwargs['files_dir'] != '':
-                files_dir = kwargs['files_dir']
-            for index, row in df.iterrows():
-                bbox = []
-                if row['bbox'] != '':
-                    bbox = ast.literal_eval(row['bbox'])
-                if len(bbox) != 4:
-                    new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
-                    buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
-                    continue
-                image = cv2.imread(files_dir + row['file_name'])
-                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]), math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
-                buf_name = row["file_name"].split('.')
-                filename = (buf_name[-2]).split('/')[-1]
-                cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
-                newRow = pd.DataFrame([[cropped_dir + filename + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
-                buf_df = buf_df.append(newRow)
-            df = buf_df
-        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
-            min_cat = df_new['target'].min()
-            df_new['target'] = df_new['target'] - min_cat
-        splitPoints = [0.6,0.8]
-        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
-            splitPoints = kwargs['splitPoints']
-        train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
-        #print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
-        curExperimentFolder = './'
-        if 'curExperimentFolder' in kwargs:
-            curExperimentFolder = kwargs['curExperimentFolder']
-        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s', header='images,target',comments='')
-        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s',header='images,target',comments='')
-        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
-        return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
-    
+        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
+                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
+                                ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
+        return self._process_query(query, kwargs)
+
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, **kwargs):
         """Method to load annotations from specific categories, given their IDs.
         INPUT:
@@ -431,55 +449,11 @@ class dbModule:
             dictionary with train, test, val files
             average width, height of images
         """
-        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
-        df = pd.read_sql(query.statement, query.session.bind)
-        av_width = df['width'].mean()
-        av_height = df['height'].mean()
-        if 'crop_bbox' in kwargs and kwargs['crop_bbox'] == True:
-            column_names = ["file_name", "category_id"]
-            buf_df = pd.DataFrame(columns = column_names)
-            #print(buf_df)
-            #print(df)
-            cropped_dir = 'buf_crops/'
-            if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
-                Path(kwargs['cropped_dir']).mkdir(parents=True, exist_ok=True)
-                cropped_dir = kwargs['cropped_dir']
-            files_dir = ''
-            if 'files_dir' in kwargs and kwargs['files_dir'] != '':
-                files_dir = kwargs['files_dir']
-            for index, row in df.iterrows():
-                bbox = []
-                if row['bbox'] != '':
-                    bbox = ast.literal_eval(row['bbox'])
-                if len(bbox) != 4:
-                    new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
-                    buf_df = buf_df.append(new_row, ignore_index = True) #nothing to cut
-                    continue
-                image = cv2.imread(files_dir + row['file_name'])
-                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]), math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
-                buf_name = row["file_name"].split('.')
-                filename = (buf_name[-2]).split('/')[-1]
-                cv2.imwrite(cropped_dir + filename + "-" + str(index) + "." + buf_name[-1] ,crop)
-                newRow = pd.DataFrame([[cropped_dir + filename + "-" + str(index) + "." + buf_name[-1], row['category_id']]], columns = column_names)
-                buf_df = buf_df.append(newRow)
-            df = buf_df
-        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
-            min_cat = df_new['target'].min()
-            df_new['target'] = df_new['target'] - min_cat
-        splitPoints = [0.6,0.8]
-        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
-            splitPoints = kwargs['splitPoints']
-        train, validate, test = np.split(df_new.sample(frac=1), [int(splitPoints[0] * len(df_new)), int(splitPoints[1] *len(df_new))]) 
-        #print('Train shape:',train.shape,' test shape:', test.shape, 'validation shape', validate.shape)
-        curExperimentFolder = './'
-        if 'curExperimentFolder' in kwargs:
-            curExperimentFolder = kwargs['curExperimentFolder']
-        np.savetxt(curExperimentFolder+"train.csv", train, delimiter=",", fmt='%s', header='images,target',comments='')
-        np.savetxt(curExperimentFolder+"test.csv", test, delimiter=",", fmt='%s',header='images,target',comments='')
-        np.savetxt(curExperimentFolder+"validate.csv", validate, delimiter=",", fmt='%s',header='images,target',comments='')
-        return df_new, {'train':curExperimentFolder+'train.csv', 'test':curExperimentFolder+'test.csv', 'validate':curExperimentFolder+'validate.csv'}, av_width, av_height
-    
+        query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
+                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
+                                ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
+        return self._process_query(query, kwargs)
+
     def load_specific_images_annotations(self, image_names, **kwargs):
         """Method to load annotations from specific images, given their names.
         INPUT:
@@ -527,7 +501,7 @@ class dbModule:
         self.sess.commit() #adding dataset
         return dataset.ID
     
-    def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix = '', respect_ids = False):
+    def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='', respect_ids=False):
         """Method to add a chunk of images and their annotations to DB.
 
         Parameters
@@ -595,34 +569,34 @@ class dbModule:
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
-        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first() #model should be identified by its address uniquely
-        if modelFromDB is None:
-            #Model not in DB - add it (that's OK)
+        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first() #model should be identified by its address uniquely
+        if model_from_db is None:
+            # Model not in DB - add it (that's OK)
             new_model = self.Model(abs_model_address, task_type)
             self.sess.add(new_model)
             self.sess.commit()
-            for cat_name in categories: #categories should not change for the model - they are attached once
+            for cat_name in categories:  # categories should not change for the model - they are attached once
                 categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
                 if categoryFromDB is None:
-                    #That's a very bad case - we cannot simply add new category, DB may become inconsistent
+                    # That's a very bad case - we cannot simply add new category, DB may become inconsistent
                     print("ERROR: No category " + cat_name + " in DB")
                     return        
                 new_cat_record = self.CategoryToModel(categoryFromDB.ID, new_model.ID)
                 self.sess.add(new_cat_record)
             self.sess.commit()
-            modelFromDB = new_model
+            model_from_db = new_model
         else:
             print("ERROR: model was already added in DB. Check model_address for correctness.")
             return
         
-        #We do not check if metric is valid - module user should keep track on consistency of these records
+        # We do not check if metric is valid - module user should keep track on consistency of these records
         for key, value in metrics.items():
-            new_train_result = self.TrainResult(key, value, modelFromDB.ID, abs_history_address)
+            new_train_result = self.TrainResult(key, value, model_from_db.ID, abs_history_address)
             self.sess.add(new_train_result)
             self.sess.commit()
         return
 
-    def update_train_result_record(self, model_address, metric_name, metric_value, history_address = ''):
+    def update_train_result_record(self, model_address, metric_name, metric_value, history_address=''):
         """
         Returns boolean of operation success
         """
@@ -635,20 +609,20 @@ class dbModule:
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
-        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
-        if modelFromDB is None:
+        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        if model_from_db is None:
             print('ERROR: Model does not exist in database')
             return False
         
-        for trRes in modelFromDB.train_results:
+        for trRes in model_from_db.train_results:
             if trRes.metric_name == metric_name:
                 trRes.metric_value = metric_value
                 trRes.history_address = abs_history_address
                 self.sess.commit()
                 return True
-        #no such metric was found - add new train result
+        # no such metric was found - add new train result
         print('Adding new metric for this model, metric name:', metric_name)
-        new_train_result = self.TrainResult(metric_name, metric_value, modelFromDB.ID, abs_history_address)
+        new_train_result = self.TrainResult(metric_name, metric_value, model_from_db.ID, abs_history_address)
         self.sess.add(new_train_result)
         self.sess.commit()
         return True
@@ -665,12 +639,12 @@ class dbModule:
             return False
 
         abs_model_address = os.path.abspath(model_address)
-        modelFromDB= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
-        if modelFromDB is None:
+        model_from_db= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        if model_from_db is None:
             print('ERROR: Model does not exist in database')
             return False
         
-        for trRes in modelFromDB.train_results:
+        for trRes in model_from_db.train_results:
             if trRes.metric_name == metric_name:
                 ret = self.sess.query(self.TrainResult).filter_by(ID=trRes.ID).delete()
                 self.sess.commit()
@@ -678,7 +652,7 @@ class dbModule:
         print('ERROR: Such train result record was not found')
         return False
 
-    def get_models_by_filter(self, filter_dict, exact_category_match = False):
+    def get_models_by_filter(self, filter_dict, exact_category_match=False):
         """
         Returns list of models that match filter_dict
 
@@ -701,20 +675,21 @@ class dbModule:
         Generator
             returns pd with models info
         """
-        model_query = self.sess.query(self.Model,self.TrainResult).join(self.TrainResult).join(self.CategoryToModel).join(self.Category)
+        model_query = self.sess.query(self.Model, self.TrainResult).join(self.TrainResult).join(self.CategoryToModel).join(self.Category)
         if 'categories_ids' in filter_dict:
-            filter_dict['categories'] = self.get_cat_names_by_IDs(filter_dict['categories_ids']) #TODO: this is just a patch
+            filter_dict['categories'] = self.get_cat_names_by_IDs(filter_dict['categories_ids'])  # TODO: this is just a patch
             print(filter_dict['categories'])
         if 'categories' in filter_dict:
             model_query = model_query.filter(self.Category.name.in_(filter_dict['categories']))
-            #TODO: exact category matches
-        if('min_metrics' in filter_dict):   
+            # TODO: exact category matches
+        if 'min_metrics' in filter_dict:
             if not isinstance(filter_dict['min_metrics'], dict):
                 print('ERROR: Bad input for min_metrics - should be dict')
                 return
             for key, value in filter_dict['min_metrics'].items():
-                model_query = model_query.filter(and_(self.TrainResult.metric_value >= value, self.TrainResult.metric_name == key))
-        #Next thing you see is awful, but I don't know how to make it better - yet
+                model_query = model_query.filter(and_(self.TrainResult.metric_value >= value,
+                                                      self.TrainResult.metric_name == key))
+        # Next thing you see is awful, but I don't know how to make it better - yet
         model_query = model_query.group_by(self.Model.model_address)
         if 'categories' in filter_dict and len(filter_dict['categories']) != 0:
             cands = model_query.all()
@@ -742,8 +717,8 @@ class dbModule:
         In case of bad input empty list is returned.
         """
         if not isinstance(cat_names, list):
-           print('ERROR: Bad input for cat_names, must be a list')
-           return []
+            print('ERROR: Bad input for cat_names, must be a list')
+            return []
         result = []
         for cat_name in cat_names:
             query = self.sess.query(self.Category.ID).filter(self.Category.name == cat_name).first()
@@ -760,8 +735,8 @@ class dbModule:
         In case of bad input empty list is returned.
         """
         if not isinstance(cat_IDs, list):
-           print('ERROR: Bad input for cat_names, must be a list')
-           return []
+            print('ERROR: Bad input for cat_names, must be a list')
+            return []
         result = []
         for cat_ID in cat_IDs:
             query = self.sess.query(self.Category.name).filter(self.Category.ID == cat_ID).first()
@@ -772,5 +747,5 @@ class dbModule:
         return result
     
     def get_dataset_info(self, ds_info):
-        #TODO - implement
+        # TODO - implement
         return 0

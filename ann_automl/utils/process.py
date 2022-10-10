@@ -1,4 +1,6 @@
+import sys
 import threading
+import traceback
 from functools import wraps
 
 
@@ -333,7 +335,7 @@ def process(f):
     """
 
     @wraps(f)
-    def g(*args, start=True, handlers=None, **kwargs):
+    def g(*args, start=True, handlers=None, output_context=None, **kwargs):
         d = PDelayed()
         d.handlers = handlers or {}
 
@@ -343,7 +345,21 @@ def process(f):
                 d._state.result = f(*args, **kwargs)
             except Exception as e:
                 d._exn = e
+                if output_context is not None:
+                    with output_context:
+                        print("Error occured during thread execution:")
+                        traceback.print_exc()
+                else:
+                    print("Error occured during thread execution:")
+                    traceback.print_exc()
             d.finish()
+
+        def qq():
+            if output_context is not None:
+                with output_context:
+                    pp()
+            else:
+                pp()
 
         d.prepare(pp, args=(), kwargs={})
         if start:
