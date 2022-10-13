@@ -41,7 +41,8 @@ class dbModule:
         flickr_url = Column(String)
         aux = Column(String)
 
-        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url='' , flickr_url='', license_id=-1, _id=None, aux=''):
+        def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url='', flickr_url='',
+                     license_id=-1, _id=None, aux=''):
             self.width = width
             self.height = height
             self.file_name = file_name
@@ -68,7 +69,7 @@ class dbModule:
         aux = Column(String)
         images = relationship("Image", backref=backref("dataset"))
 
-        def __init__(self, description, url, version, year, contributor, date_created, _id = None, aux = ''):
+        def __init__(self, description, url, version, year, contributor, date_created, _id=None, aux=''):
             self.description = description
             self.url = url
             self.version = version
@@ -88,13 +89,13 @@ class dbModule:
         images = relationship("Annotation", backref=backref("category"))
         records = relationship("CategoryToModel")
 
-        def __init__(self, supercategory, name, _id = None, aux = ''):
+        def __init__(self, supercategory, name, _id=None, aux=''):
             self.supercategory = supercategory
             self.name = name
             if _id != None:
                 self.ID = _id
             self.aux = aux
-        
+
     class License(Base):
         __tablename__ = "license"
         ID = Column(Integer, primary_key=True)
@@ -103,7 +104,7 @@ class dbModule:
         aux = Column(String)
         images = relationship("Image")
 
-        def __init__(self, name, url, _id = None, aux = ''):
+        def __init__(self, name, url, _id=None, aux=''):
             self.url = url
             self.name = name
             if _id != None:
@@ -121,7 +122,7 @@ class dbModule:
         area = Column(Float)
         aux = Column(String)
 
-        def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id = None, aux = ''):
+        def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id=None, aux=''):
             self.image_id = image_id
             self.category_id = category_id
             self.bbox = bbox
@@ -131,13 +132,13 @@ class dbModule:
             if _id != None:
                 self.ID = _id
             self.aux = aux
-    
+
     class TrainResult(Base):
         __tablename__ = "trainResult"
         ID = Column(Integer, primary_key=True)
         metric_name = Column(String)
         metric_value = Column(Float)
-        model_id = Column(Integer, ForeignKey("model.ID")) 
+        model_id = Column(Integer, ForeignKey("model.ID"))
         history_address = Column(String)
         aux = Column(String)
 
@@ -149,7 +150,7 @@ class dbModule:
             if _id != None:
                 self.ID = _id
             self.aux = aux
-    
+
     class CategoryToModel(Base):
         __tablename__ = "categoryToModel"
         category_id = Column(Integer, ForeignKey("category.ID"), primary_key=True)
@@ -168,7 +169,7 @@ class dbModule:
         train_results = relationship("TrainResult", backref=backref("model"))
         categories = relationship("CategoryToModel")
 
-        def __init__(self, modelAddress, taskType, aux = '', _id = None):
+        def __init__(self, modelAddress, taskType, aux='', _id=None):
             self.model_address = modelAddress
             self.task_type = taskType
             if _id != None:
@@ -179,15 +180,15 @@ class dbModule:
     ##########        DB Module methods      ###################
     ############################################################
 
-    def __init__(self, dbstring = 'sqlite:///datasets.sqlite', dbecho = False):
-        self.engine = create_engine(dbstring, echo = dbecho)
+    def __init__(self, dbstring='sqlite:///datasets.sqlite', dbecho=False):
+        self.engine = create_engine(dbstring, echo=dbecho)
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
 
     def create_sqlite_file(self):
         Base.metadata.create_all(self.engine)
 
-    def fill_cats_dogs(self, annoFileName = 'dogs_vs_cats_coco_anno.json', file_prefix = './datasets/Kaggle/'):
+    def fill_cats_dogs(self, annoFileName='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -198,26 +199,30 @@ class dbModule:
         with open(annoFileName) as json_file:
             data = json.load(json_file)
         dataset_info = data['info']
-        dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'], dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
+        dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
+                               dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
         self.sess.add(dataset)
-        self.sess.commit() #adding dataset
+        self.sess.commit()  # adding dataset
         ###################################
         im_objects = {}
         for im_data in data['images']:
-            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'], im_data['license'])
+            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'],
+                               im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
+                               im_data['license'])
             im_objects[im_data['id']] = image
             self.sess.add(image)
-        self.sess.commit() #adding images
+        self.sess.commit()  # adding images
         ###################################
         for an_data in data['annotations']:
-            #TODO: +1 because of error in json - should be fixed later
+            # TODO: +1 because of error in json - should be fixed later
             real_id = im_objects[an_data['image_id']].ID
-            annotation = self.Annotation(real_id, an_data['category_id'] + 1, ';'.join(an_data['bbox']), ';'.join(an_data['segmentation']), an_data['iscrowd'], an_data['area'])
+            annotation = self.Annotation(real_id, an_data['category_id'] + 1, ';'.join(an_data['bbox']),
+                                         ';'.join(an_data['segmentation']), an_data['iscrowd'], an_data['area'])
             self.sess.add(annotation)
-        self.sess.commit() #adding annotations
+        self.sess.commit()  # adding annotations
         print('Finished with Kaggle CatsVsDogs')
-    
-    def fill_coco(self, annoFileName, file_prefix = './datasets/COCO2017/', firstTime = False, ds_info = None):
+
+    def fill_coco(self, annoFileName, file_prefix='./datasets/COCO2017/', firstTime=False, ds_info=None):
         """Method to fill COCOdataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -236,7 +241,7 @@ class dbModule:
         if ds_info is None:
             ds_info = {"description": "COCO 2017 Dataset",
                        "url": "http://cocodataset.org",
-                       "version": "1.0","year": 2017,
+                       "version": "1.0", "year": 2017,
                        "contributor": "COCO Consortium",
                        "date_created": "2017/09/01"}
         dsID = self.add_dataset_info(ds_info)
@@ -248,7 +253,10 @@ class dbModule:
         self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
         return
 
-    def fill_imagenet(self, annotations_dir = '/auto/projects/brain/datasets/imagenet/annotations', file_prefix = '/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train', assoc_file = '/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time = False, ds_info = None):
+    def fill_imagenet(self, annotations_dir='/auto/projects/brain/datasets/imagenet/annotations',
+                      file_prefix='/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train',
+                      assoc_file='/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time=False,
+                      ds_info=None):
         """Method to fill ImageNet dataset into db. It is supposed to be called once.
             INPUT:
                 annotations_dir - path to annotations directories
@@ -262,7 +270,8 @@ class dbModule:
         # If we make it for the first time, we add dataset information to DB
         if first_time:
             if ds_info == None:
-                ds_info = {"description": "ImageNet 2012 Dataset","url": "https://image-net.org/about.php","version": "1.0","year": 2012,"contributor": "ImageNet","date_created": "2012/01/01"}
+                ds_info = {"description": "ImageNet 2012 Dataset", "url": "https://image-net.org/about.php",
+                           "version": "1.0", "year": 2012, "contributor": "ImageNet", "date_created": "2012/01/01"}
             dsID = self.add_dataset_info(ds_info)
         else:
             dsID = self.get_dataset_info(ds_info)
@@ -272,7 +281,7 @@ class dbModule:
             lines = file.readlines()
             for line in lines:
                 arr = line.split(';')
-                assoc[arr[0]] = [arr[1],arr[2].rstrip('\n')]
+                assoc[arr[0]] = [arr[1], arr[2].rstrip('\n')]
         cat_names = set()
         categories_buf_assoc = {}
         for elem in assoc:
@@ -291,7 +300,7 @@ class dbModule:
                 cat_name = cat_names_list[i]
                 new_categories.append({'supercategory': 'imageNetOther', 'name': cat_name})
         if len(new_categories) > 0:
-            self.add_categories(new_categories, respect_ids = False)
+            self.add_categories(new_categories, respect_ids=False)
             catIDs = self.get_cat_IDs_by_names(cat_names_list)
             for i in range(len(catIDs)):
                 assert catIDs[i] > 0, 'Some category could not be added'
@@ -312,16 +321,18 @@ class dbModule:
         for img_file in img_files:
             im = Image.open(img_file)
             width, height = im.size
-            #creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             creation_time = time.ctime(os.path.getctime(img_file))
-            image_data = {'file_name': img_file, 'width': width, 'height': height, 'date_captured': creation_time, 'coco_url': '', 'flickr_url': '', 'license': licence_id, 'id': im_id} #id will not be respected when added to base - needed for annotations only
+            image_data = {'file_name': img_file, 'width': width, 'height': height, 'date_captured': creation_time,
+                          'coco_url': '', 'flickr_url': '', 'license': licence_id,
+                          'id': im_id}  # id will not be respected when added to base - needed for annotations only
             images.append(image_data)
             img_name_no_ext = os.path.splitext(os.path.basename(img_file))[0]
             anno_subdir = img_name_no_ext.split('_')[0]
-            annofilename = os.path.join(annotations_dir, anno_subdir, img_name_no_ext+'.xml')
+            annofilename = os.path.join(annotations_dir, anno_subdir, img_name_no_ext + '.xml')
             if os.path.isfile(annofilename):
-                #corresponding annotation file is found
-                #print('Found anno-filename:',annofilename)
+                # corresponding annotation file is found
+                # print('Found anno-filename:',annofilename)
                 tree = ET.parse(annofilename)
                 root = tree.getroot()
                 obj_tag = root.find('object')
@@ -331,25 +342,29 @@ class dbModule:
                         if child.tag == 'bndbox':
                             for bchild in child:
                                 bbox.append(bchild.text)
-                            #print('Found bbox!', bbox)
-                            #input()
+                            # print('Found bbox!', bbox)
+                            # input()
                             area = np.abs((float(bbox[2]) - float(bbox[0])) * (float(bbox[3]) - float(bbox[1])))
-                            annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': json.dumps(bbox), 'iscrowd': 0, 'area': area, 'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
+                            annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': json.dumps(bbox),
+                                               'iscrowd': 0, 'area': area,
+                                               'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
                             annotations.append(annotation_data)
             else:
-                annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': '', 'iscrowd': 0, 'area': width*height, 'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
+                annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': '', 'iscrowd': 0,
+                                   'area': width * height,
+                                   'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
                 annotations.append(annotation_data)
             im_id += 1
             if im_id % 100000 == 0:
                 print(im_id)
         self.add_images_and_annotations(images, annotations, dsID)
         return images, annotations
-    
+
     def get_all_datasets(self):
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
         return df
-    
+
     def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
         """Method to load annotations from specific datasets, given their IDs.
         INPUT:
@@ -359,8 +374,8 @@ class dbModule:
         """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
-            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True:  # TODO: This is an awful patch for keras
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
             return df_new
@@ -377,9 +392,9 @@ class dbModule:
         # print(buf_df)
         # print(df)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
-        #if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
+        # if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
-            #cropped_dir = kwargs['cropped_dir']
+        # cropped_dir = kwargs['cropped_dir']
         files_dir = kwargs.get('files_dir', '')
         for index, row in df.iterrows():
             bbox = []
@@ -391,7 +406,7 @@ class dbModule:
                 continue
             image = cv2.imread(files_dir + row['file_name'])
             crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
-                         math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                   math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
             buf_name = row["file_name"].split('.')
             filename = (buf_name[-2]).split('/')[-1]
             filepath = cropped_dir + filename + "-" + str(index) + "." + buf_name[-1]
@@ -463,14 +478,14 @@ class dbModule:
         """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True: #TODO: This is an awful patch for keras
-            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True:  # TODO: This is an awful patch for keras
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
             return df_new
         return df
-    
-    def add_categories(self, categories, respect_ids = True):
+
+    def add_categories(self, categories, respect_ids=True):
         """Method to add given categories to database. Expected to be called rarely, since category list is almost permanent.
         INPUT:
             categories - disctionary with necessary fields: supercategory, name, id
@@ -484,23 +499,35 @@ class dbModule:
                 _id = category['id']
             newCat = self.Category(category['supercategory'], category['name'], _id)
             self.sess.add(newCat)
-        self.sess.commit() #adding categories in db
-        
+        self.sess.commit()  # adding categories in db
+
     def add_default_licences(self):
         """Method to add default licenses to DB. Exptected to be called once"""
-        licenses =  [{"url": "http://creativecommons.org/licenses/by-nc-sa/2.0/","id": 1,"name": "Attribution-NonCommercial-ShareAlike License"},{"url": "http://creativecommons.org/licenses/by-nc/2.0/","id": 2,"name": "Attribution-NonCommercial License"},{"url": "http://creativecommons.org/licenses/by-nc-nd/2.0/","id": 3,"name": "Attribution-NonCommercial-NoDerivs License"},{"url": "http://creativecommons.org/licenses/by/2.0/","id": 4,"name": "Attribution License"},{"url": "http://creativecommons.org/licenses/by-sa/2.0/","id": 5,"name": "Attribution-ShareAlike License"},{"url": "http://creativecommons.org/licenses/by-nd/2.0/","id": 6,"name": "Attribution-NoDerivs License"},{"url": "http://flickr.com/commons/usage/","id": 7,"name": "No known copyright restrictions"},{"url": "http://www.usa.gov/copyright.shtml","id": 8,"name": "United States Government Work"}]
+        licenses = [{"url": "http://creativecommons.org/licenses/by-nc-sa/2.0/", "id": 1,
+                     "name": "Attribution-NonCommercial-ShareAlike License"},
+                    {"url": "http://creativecommons.org/licenses/by-nc/2.0/", "id": 2,
+                     "name": "Attribution-NonCommercial License"},
+                    {"url": "http://creativecommons.org/licenses/by-nc-nd/2.0/", "id": 3,
+                     "name": "Attribution-NonCommercial-NoDerivs License"},
+                    {"url": "http://creativecommons.org/licenses/by/2.0/", "id": 4, "name": "Attribution License"},
+                    {"url": "http://creativecommons.org/licenses/by-sa/2.0/", "id": 5,
+                     "name": "Attribution-ShareAlike License"},
+                    {"url": "http://creativecommons.org/licenses/by-nd/2.0/", "id": 6,
+                     "name": "Attribution-NoDerivs License"},
+                    {"url": "http://flickr.com/commons/usage/", "id": 7, "name": "No known copyright restrictions"},
+                    {"url": "http://www.usa.gov/copyright.shtml", "id": 8, "name": "United States Government Work"}]
         for license in licenses:
             lic = self.License(license['name'], license['url'], license['id'])
             self.sess.add(lic)
-        self.sess.commit() #adding licenses from dogs_vs_cats.json
-    
+        self.sess.commit()  # adding licenses from dogs_vs_cats.json
+
     def add_dataset_info(self, dataset_info):
         """Method to add info about new dataset. Returns added dataset ID"""
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'], dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
         self.sess.add(dataset)
-        self.sess.commit() #adding dataset
+        self.sess.commit()  # adding dataset
         return dataset.ID
-    
+
     def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='', respect_ids=False):
         """Method to add a chunk of images and their annotations to DB.
 
@@ -532,23 +559,23 @@ class dbModule:
             image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset_id, im_data['coco_url'], im_data['flickr_url'], im_data['license'], im_id)
             buf_images[im_data['id']] = image
             self.sess.add(image)
-        self.sess.commit() #adding images
+        self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0
         for an_data in annotations:
-            #print(counter)
-            counter+=1
+            # print(counter)
+            counter += 1
             anno_id = None
             if respect_ids == True:
-                anno_id = im_data['id'] #TODO:fixe that
+                anno_id = im_data['id']  # TODO:fixe that
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
             annotation = self.Annotation(cur_image_id, an_data['category_id'], bbox_str, seg_str, an_data['iscrowd'], an_data['area'], anno_id)
             self.sess.add(annotation)
-        self.sess.commit() #adding annotations
-    
-    def add_model_record(self, task_type, categories, model_address, metrics, history_address = ''):
+        self.sess.commit()  # adding annotations
+
+    def add_model_record(self, task_type, categories, model_address, metrics, history_address=''):
         """
         Inserts records about train results for some model.
         If model already exists method does not create new model.
@@ -569,7 +596,7 @@ class dbModule:
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
-        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first() #model should be identified by its address uniquely
+        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()  # model should be identified by its address uniquely
         if model_from_db is None:
             # Model not in DB - add it (that's OK)
             new_model = self.Model(abs_model_address, task_type)
@@ -580,7 +607,7 @@ class dbModule:
                 if categoryFromDB is None:
                     # That's a very bad case - we cannot simply add new category, DB may become inconsistent
                     print("ERROR: No category " + cat_name + " in DB")
-                    return        
+                    return
                 new_cat_record = self.CategoryToModel(categoryFromDB.ID, new_model.ID)
                 self.sess.add(new_cat_record)
             self.sess.commit()
@@ -588,7 +615,7 @@ class dbModule:
         else:
             print("ERROR: model was already added in DB. Check model_address for correctness.")
             return
-        
+
         # We do not check if metric is valid - module user should keep track on consistency of these records
         for key, value in metrics.items():
             new_train_result = self.TrainResult(key, value, model_from_db.ID, abs_history_address)
@@ -613,7 +640,7 @@ class dbModule:
         if model_from_db is None:
             print('ERROR: Model does not exist in database')
             return False
-        
+
         for trRes in model_from_db.train_results:
             if trRes.metric_name == metric_name:
                 trRes.metric_value = metric_value
@@ -626,7 +653,7 @@ class dbModule:
         self.sess.add(new_train_result)
         self.sess.commit()
         return True
-        
+
     def delete_train_result_record(self, model_address, metric_name):
         """
         Returns boolean of operation success
@@ -639,11 +666,11 @@ class dbModule:
             return False
 
         abs_model_address = os.path.abspath(model_address)
-        model_from_db= self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
+        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
         if model_from_db is None:
             print('ERROR: Model does not exist in database')
             return False
-        
+
         for trRes in model_from_db.train_results:
             if trRes.metric_name == metric_name:
                 ret = self.sess.query(self.TrainResult).filter_by(ID=trRes.ID).delete()
@@ -745,7 +772,7 @@ class dbModule:
             else:
                 result.append(query[0])
         return result
-    
+
     def get_dataset_info(self, ds_info):
         # TODO - implement
         return 0

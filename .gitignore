@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Logs and databases
+Logs/
+data/trainedNN/
+data/architectures/
+data/datasets/

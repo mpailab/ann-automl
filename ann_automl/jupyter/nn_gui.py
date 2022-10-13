@@ -68,12 +68,12 @@ hyperparameters = {
                         'default': 'disabled', 'name': 'ограничение смещений'},
 }
 
+
 # ipywidget для выбора гиперпараметров
 # Функция, создающая ipywidget для задания гиперпараметра по его описанию
-import ipywidgets as widgets
 def create_hyperparameter_widget(description):
     name = description['name']
-    label = widgets.Label(name)
+    label = ipywidgets.Label(name)
     tp = description['type']
 
     def get_value(value):
@@ -81,7 +81,7 @@ def create_hyperparameter_widget(description):
     def set_val(value):
         return value
 
-    value_label = widgets.Label()
+    value_label = ipywidgets.Label()
 
     if tp in ['int', 'float']:
         is_exp = 'exponential_step' in description
@@ -110,7 +110,7 @@ def create_hyperparameter_widget(description):
         if tp == 'int':
             def set_value(value):
                 value_label.value = str(get_value(value))
-            control = widgets.IntSlider(
+            control = ipywidgets.IntSlider(
                 value=def_value,
                 min=rng[0],
                 max=rng[1],
@@ -132,7 +132,7 @@ def create_hyperparameter_widget(description):
                     else:
                         value_label.value = f'{get_value(value):.0f}'
 
-            control = widgets.FloatSlider(
+            control = ipywidgets.FloatSlider(
                 value=def_value,
                 min=rng[0],
                 max=rng[1],
@@ -149,14 +149,14 @@ def create_hyperparameter_widget(description):
         set_value(def_value)
     else:
         if tp == 'str':
-            control = widgets.Dropdown(
+            control = ipywidgets.Dropdown(
                 options=description['values'],
                 value=description['default'],
                 description='',
                 disabled=False,
             )
         elif tp == 'bool':
-            control = widgets.Checkbox(
+            control = ipywidgets.Checkbox(
                 value=description['default'],
                 description='',
                 disabled=False,
@@ -305,7 +305,7 @@ class SolverGUI:
         )
 
         cat_in = ipywidgets.Text(
-            value='cats, dogs',
+            value='cat, dog',
             description='Категория объектов интереса:',
             style=style
         )
@@ -484,7 +484,6 @@ class SolverGUI:
             description='Архитектура модели:',
             style={'description_width': '200px', 'width': '500px'}
         )
-
         a10 = ipywidgets.Button(
             description='Прекратить обучение',
             button_style='',  # 'success', 'info', 'warning', 'danger' or ''
@@ -492,7 +491,6 @@ class SolverGUI:
             layout=ipywidgets.Layout(width='200px'),
             # style = {'button_color': 'rgb(0,178,255)'}
         )
-
         return ipywidgets.VBox([a7, a8, a9, a10])
 
     def create_train_choose(self):
@@ -614,7 +612,7 @@ class SolverGUI:
         self._retrain_widget = self.create_retrain_widget()
         self._final_screen = self.create_final_screen()
         self._log_widget = ipywidgets.Output(
-            layout=ipywidgets.Layout(height='500px', border='solid', overflow_y='scroll'))
+            layout=ipywidgets.Layout(height='200px', border='solid', overflow_y='scroll'))
 
         def set_state(state):
             self.state = state

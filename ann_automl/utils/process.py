@@ -68,7 +68,7 @@ class PDelayed(object):
         """ Start the task """
         if self._th is None:
             raise Exception("no function to run")
-        elif self._th.isAlive():
+        elif self._th.is_alive():
             raise Exception("already running")
         self._th.start()
 
@@ -248,6 +248,12 @@ def request(name, *args, raise_exn=True, **kwargs):
     result: object
         Result of the request
     """
+    pst = pstate()
+    if pst is None:
+        if raise_exn:
+            raise NoHandlerError(f"No process descriptor for current task")
+        else:
+            return None
     handler = pstate().handlers.get(name, None)
     if handler is None:
         if raise_exn:
@@ -274,10 +280,7 @@ def pcall(name, *args, **kwargs):
     result: object
         Result of the request
     """
-    handler = pstate().handlers.get(name, None)
-    if handler is None:
-        return None
-    return handler(*args, **kwargs)
+    return request(name, *args, **kwargs, raise_exn=False)
 
 
 def get_pstate_value(name, default=None):

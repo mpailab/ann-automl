@@ -1,4 +1,5 @@
 import os
+import sys
 import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -136,11 +137,25 @@ class Rule(ABC):
         pass
 
 
+_first_print = _first_error = True
+
+
 def printlog(*args, **kwargs):
     try:
         request('print', *args, **kwargs)
     except NoHandlerError:
         print(*args, **kwargs)
+
+    global _first_print, _first_error
+    if kwargs.get('file', None) is None:
+        with open('log.txt', 'a' if not _first_print else 'w') as f:
+            print(*args, **kwargs, file=f)
+            _first_print = False
+    elif kwargs.get('file') is sys.stderr:
+        with open('err.txt', 'a' if not _first_error else 'w') as f:
+            kwargs['file'] = f
+            print(*args, **kwargs)
+            _first_error = False
 
 
 def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
@@ -161,35 +176,40 @@ def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
     State
         State of the solver after solving the task
     """
-    rules = rules if rules is not None else _rules
-    MSK = timezone('Europe/Moscow')
-    msk_time = datetime.now(MSK)
-    tt = msk_time.strftime('%Y_%m_%d_%H_%M_%S')
+    try:
+        rules = rules if rules is not None else _rules
+        MSK = timezone('Europe/Moscow')
+        msk_time = datetime.now(MSK)
+        tt = msk_time.strftime('%Y_%m_%d_%H_%M_%S')
 
-    # создаём директорию для логов
-    log_name = f'{_log_dir}/Logs/Experiment_log_{tt}.txt'
-    if not os.path.exists(f'{_log_dir}/Logs'):
-        os.makedirs(f'{_log_dir}/Logs')
-    num_steps = 0
+        # создаём директорию для логов
+        log_name = f'{_log_dir}/Logs/Experiment_log_{tt}.txt'
+        if not os.path.exists(f'{_log_dir}/Logs'):
+            os.makedirs(f'{_log_dir}/Logs')
+        num_steps = 0
 
-    state = State(task, log_name)
-    pcall("set_state", state)
-    pos = 0
-    if debug_mode:
-        printlog([x.__class__.__name__ for x in rules])
-    while state.curState != "Done":
-        num_steps += 1
-        with open(log_name, 'a') as log_file:
-            log_file.write(f'{state.curState}\n')
+        state = State(task, log_name)
+        pcall("set_state", state)
+        pos = 0
         if debug_mode:
-            printlog(f'{num_steps}. Состояние: {state.curState}')
-        if rules[pos].can_apply(state):
+            printlog([x.__class__.__name__ for x in rules])
+        while state.curState != "Done":
+            num_steps += 1
+            with open(log_name, 'a') as log_file:
+                log_file.write(f'{state.curState}\n')
             if debug_mode:
-                printlog(f'{num_steps}. Применяем правило {rules[pos].__class__.__name__}')
-            rules[pos].apply(state)
-        pos = (pos + 1) % len(rules)
-        if num_steps > max_num_steps:
-            printlog(f'Превышено максимальное число шагов ({max_num_steps})')
-            break
+                printlog(f'{num_steps}. Состояние: {state.curState}')
+            if rules[pos].can_apply(state):
+                if debug_mode:
+                    printlog(f'{num_steps}. Применяем правило {rules[pos].__class__.__name__}')
+                rules[pos].apply(state)
+            pos = (pos + 1) % len(rules)
+            if num_steps > max_num_steps:
+                printlog(f'Превышено максимальное число шагов ({max_num_steps})')
+                break
 
-    return state
+        return state
+    except Exception as e:
+        printlog(f'Ошибка при решении задачи: {e}', file=sys.stderr)
+        printlog(traceback.format_exc(), file=sys.stderr)
+        raise
