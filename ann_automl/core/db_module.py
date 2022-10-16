@@ -120,12 +120,12 @@ class dbModule:
         area = Column(Float)
         aux = Column(String)
 
-        def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id=None, aux=''):
+        def __init__(self, image_id, category_id, bbox, segmentation, is_crowd, area, _id=None, aux=''):
             self.image_id = image_id
             self.category_id = category_id
             self.bbox = bbox
             self.segmentation = segmentation
-            self.is_crowd = isCrowd
+            self.is_crowd = is_crowd
             self.area = area
             if _id is not None:
                 self.ID = _id
@@ -140,12 +140,12 @@ class dbModule:
         history_address = Column(String)
         aux = Column(String)
 
-        def __init__(self, metricName, metricValue, modelID, historyAddress='', aux='', _id=None):
-            self.metric_name = metricName
-            self.metric_value = metricValue
-            self.history_address = historyAddress
-            self.model_id = modelID
-            if _id != None:
+        def __init__(self, metric_name, metric_value, model_id, history_address='', aux='', _id=None):
+            self.metric_name = metric_name
+            self.metric_value = metric_value
+            self.history_address = history_address
+            self.model_id = model_id
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -167,10 +167,10 @@ class dbModule:
         train_results = relationship("TrainResult", backref=backref("model"))
         categories = relationship("CategoryToModel")
 
-        def __init__(self, modelAddress, taskType, aux='', _id=None):
-            self.model_address = modelAddress
-            self.task_type = taskType
-            if _id != None:
+        def __init__(self, model_address, task_type, aux='', _id=None):
+            self.model_address = model_address
+            self.task_type = task_type
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
