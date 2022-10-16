@@ -1,6 +1,7 @@
 from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql.expression import func
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 import json
@@ -8,14 +9,11 @@ import ast
 import cv2
 from pathlib import Path
 from pycocotools.coco import COCO
-import skimage.io as io
 import numpy as np
-import datetime
 import os
 import math
 from PIL import Image
 import glob
-from datetime import datetime
 import xml.etree.ElementTree as ET
 import time
 
@@ -76,7 +74,7 @@ class dbModule:
             self.year = year
             self.contributor = contributor
             self.date_created = date_created
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -92,7 +90,7 @@ class dbModule:
         def __init__(self, supercategory, name, _id=None, aux=''):
             self.supercategory = supercategory
             self.name = name
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -107,7 +105,7 @@ class dbModule:
         def __init__(self, name, url, _id=None, aux=''):
             self.url = url
             self.name = name
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -129,7 +127,7 @@ class dbModule:
             self.segmentation = segmentation
             self.is_crowd = isCrowd
             self.area = area
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -184,9 +182,20 @@ class dbModule:
         self.engine = create_engine(dbstring, echo=dbecho)
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
+        self.dbstring_ = dbstring
 
     def create_sqlite_file(self):
         Base.metadata.create_all(self.engine)
+
+    def fill_all_default(self, annoFileName_ = './datasets/coco/annotations/instances_train2017.json'):
+        """Method to fill all at once, supposing datasets are at default locations (CatsDogs, COCO, ImageNet)"""
+        if os.path.exists(self.dbstring_.split('/')[-1]):  # If file exists we suppose it is filled
+            return
+        self.create_sqlite_file()
+        self.fill_coco(annoFileName=annoFileName_, firstTime=True)
+        self.fill_cats_dogs()
+        self.fill_imagenet(first_time = True)
+        return
 
     def fill_cats_dogs(self, annoFileName='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
@@ -253,9 +262,9 @@ class dbModule:
         self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
         return
 
-    def fill_imagenet(self, annotations_dir='/auto/projects/brain/datasets/imagenet/annotations',
-                      file_prefix='/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train',
-                      assoc_file='/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time=False,
+    def fill_imagenet(self, annotations_dir='./datasets/imagenet/annotations',
+                      file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
+                      assoc_file='imageNetToCOCOClasses.txt', first_time=False,
                       ds_info=None):
         """Method to fill ImageNet dataset into db. It is supposed to be called once.
             INPUT:
@@ -269,7 +278,7 @@ class dbModule:
         """
         # If we make it for the first time, we add dataset information to DB
         if first_time:
-            if ds_info == None:
+            if ds_info is None:
                 ds_info = {"description": "ImageNet 2012 Dataset", "url": "https://image-net.org/about.php",
                            "version": "1.0", "year": 2012, "contributor": "ImageNet", "date_created": "2012/01/01"}
             dsID = self.add_dataset_info(ds_info)
@@ -374,7 +383,7 @@ class dbModule:
         """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True:  # TODO: This is an awful patch for keras
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
@@ -392,9 +401,7 @@ class dbModule:
         # print(buf_df)
         # print(df)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
-        # if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
-        # cropped_dir = kwargs['cropped_dir']
         files_dir = kwargs.get('files_dir', '')
         for index, row in df.iterrows():
             bbox = []
@@ -415,13 +422,13 @@ class dbModule:
             buf_df = buf_df.append(new_row)
         return buf_df
 
-    def _split_and_save(self, df, save_dir, split_points):
+    def _split_and_save(self, df, save_dir, split_points, headers_string):
         train_end = int(split_points[0] * len(df))
         val_end = int(split_points[1] * len(df))
         train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])
-        np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header='images,target', comments='')
-        np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header='images,target', comments='')
-        np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header='images,target', comments='')
+        np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header=headers_string, comments='')
+        np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header=headers_string, comments='')
+        np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
         return {'train': f'{save_dir}train.csv', 'test': f'{save_dir}test.csv', 'validate': f'{save_dir}val.csv'}
 
     def _process_query(self, query, kwargs):
@@ -430,14 +437,20 @@ class dbModule:
         av_height = df['height'].mean()
         if kwargs.get('crop_bbox', False):
             df = self._prepare_cropped_images(df, kwargs)
-        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
+        if 'with_segmentation' in kwargs and kwargs['with_segmentation'] is False:
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name','category_id']].values)
+            headers_string = 'images,target'
+        else:
+            df_new = pd.DataFrame(columns=['images', 'target', 'segmentation'], data=df[['file_name','category_id', 'segmentation']].values)
+            df_new.dropna(subset=['segmentation'], inplace=True)
+            headers_string = 'images,target,segmentation'
         if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
         split_points = [0.6, 0.8]
         if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
             split_points = kwargs['splitPoints']
-        filename_dict = self._split_and_save(df_new, kwargs.get('curExperimentFolder', './'), split_points)
+        filename_dict = self._split_and_save(df_new, kwargs.get('curExperimentFolder', './'), split_points, headers_string)
         return df_new, filename_dict, av_width, av_height
 
     def load_specific_categories_annotations(self, cat_names, **kwargs):
@@ -452,6 +465,8 @@ class dbModule:
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
+        if 'with_segmentation' in kwargs and kwargs['with_segmentation'] is True:
+            query = query.filter(func.length(self.Annotation.segmentation) > 2) #TODO: somehow length 0 and 1 do not work?
         return self._process_query(query, kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, **kwargs):
@@ -467,6 +482,8 @@ class dbModule:
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
+        if 'with_segmentation' in kwargs and kwargs['with_segmentation'] is True:
+            query = query.filter(func.length(self.Annotation.segmentation) > 2) #TODO: somehow length 0 and 1 do not work?
         return self._process_query(query, kwargs)
 
     def load_specific_images_annotations(self, image_names, **kwargs):
@@ -478,7 +495,7 @@ class dbModule:
         """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True:  # TODO: This is an awful patch for keras
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
@@ -495,7 +512,7 @@ class dbModule:
         """
         for category in categories:
             _id = None
-            if respect_ids == True:
+            if respect_ids is True:
                 _id = category['id']
             newCat = self.Category(category['supercategory'], category['name'], _id)
             self.sess.add(newCat)
@@ -554,7 +571,7 @@ class dbModule:
         buf_images = {}
         for im_data in images:
             im_id = None
-            if respect_ids == True:
+            if respect_ids is True:
                 im_id = im_data['id']
             image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset_id, im_data['coco_url'], im_data['flickr_url'], im_data['license'], im_id)
             buf_images[im_data['id']] = image
@@ -566,8 +583,8 @@ class dbModule:
             # print(counter)
             counter += 1
             anno_id = None
-            if respect_ids == True:
-                anno_id = im_data['id']  # TODO:fixe that
+            if respect_ids is True:
+                anno_id = an_data['id']  # TODO:fixe that
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
