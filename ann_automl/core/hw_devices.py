@@ -156,7 +156,7 @@ gpus = [
     DeviceParams('Tesla A100 SXM4 40GB', 'GPU', mem_size=40, bandwidth=1555, tflops_fp32=19.49, tflops_fp16=77.96,
                  tflops_tc_mixed=312, tflops_tc_tf32=156, tflops_tc_fp16=312),
     DeviceParams('Tesla A100 SXM4 80GB', 'GPU', mem_size=80, bandwidth=2039, tflops_fp32=19.49, tflops_fp16=77.96,
-                tflops_tc_mixed=312, tflops_tc_tf32=156, tflops_tc_fp16=312),
+                 tflops_tc_mixed=312, tflops_tc_tf32=156, tflops_tc_fp16=312),
     DeviceParams('Tesla V100 SXM2 16GB', 'GPU', mem_size=16, bandwidth=900, tflops_fp32=15.3, tflops_fp16=30.7,
                  tflops_tc_mixed=61.4, tflops_tc_fp16=122.8),
     DeviceParams('Tesla V100 SXM2 32GB', 'GPU', mem_size=32, bandwidth=900, tflops_fp32=15.3, tflops_fp16=30.7,

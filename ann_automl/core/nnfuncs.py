@@ -352,15 +352,15 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
     'decay': {'type': 'float', 'range': [1/2**5, 1], 'default': 0.0, 'step': 2, 'scale': 'log', 'zero_point': 1},
 
     # conditonal params
-    'amsgrad': {'values': [True, False], 'default': False, 'cond': True},
-    'nesterov': {'values': [True, False], 'default': True, 'cond': True},
-    'centered': {'values': [True, False], 'default': False, 'cond': True},
+    'amsgrad': {'values': [True, False], 'default': False, 'cond': True},  # для Adam
+    'nesterov': {'values': [True, False], 'default': True, 'cond': True},  # для SGD
+    'centered': {'values': [True, False], 'default': False, 'cond': True},  # для RMSprop
 
-    'beta_1': {'range': [0.5, 0.999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': 'loglog'},
-    'beta_2': {'range': [0.5, 0.9999], 'default': 0.999, 'cond': True, 'step': 2, 'scale': 'loglog'},
-    'rho': {'range': [0.5, 0.9999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': 'loglog'},
-    'epsilon': {'range': [1e-8, 1], 'default': 1e-7, 'cond': True, 'step': 10, 'scale': 'log'},
-    'momentum': {'range': [0, 1], 'default': 0.0, 'cond': True, 'step': 0.1, 'scale': 'lin'},
+    'beta_1': {'range': [0.5, 0.999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': 'loglog'},  # для Adam
+    'beta_2': {'range': [0.5, 0.9999], 'default': 0.999, 'cond': True, 'step': 2, 'scale': 'loglog'},  # для Adam
+    'rho': {'range': [0.5, 0.9999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': 'loglog'},  # для RMSprop
+    'epsilon': {'range': [1e-8, 1], 'default': 1e-7, 'cond': True, 'step': 10, 'scale': 'log'},  # для Adam, RMSprop
+    'momentum': {'range': [0, 1], 'default': 0.0, 'cond': True, 'step': 0.1, 'scale': 'lin'},  # для SGD, RMSprop
 }
 
 
@@ -392,40 +392,43 @@ def param_values(range=None, default=None, values=None, step=None, scale=None, z
 
 
 class HyperParamGrid:
-    def __init__(self, hparams, grid_params):
+    def __init__(self, hparams, tuned_params):
         """
         Parameters
         ----------
         hparams: dict
             Словарь с текущими значениями гиперпараметров
-        grid_params: List
+        tuned_params: List
             Набор гиперпараметров, которые будут подбираться
         """
         self.hparams = hparams
-        self.grid_params = grid_params
-        self.fixed_params = [p for p in hparams if p not in grid_params]
-        self.param_control = {p: grid_hparams_space[p]['values'] for p in grid_params
+        self.tuned_params = tuned_params
+        self.fixed_params = [p for p in hparams if p not in tuned_params]
+        self.param_control = {p: grid_hparams_space[p]['values'] for p in tuned_params
                               if 'values' in grid_hparams_space[p] and isinstance(grid_hparams_space[p]['values'], dict)}
         active = set()
         for p in self.fixed_params:
             v = hparams[p]
             active.update(self.param_control.get(p, {}).get(v, ()))
-        self.active = {p for p in self.grid_params if not grid_hparams_space[p].get('cond', False) or p in active}
+        self.active = {p for p in self.tuned_params if not grid_hparams_space[p].get('cond', False) or p in active}
 
-        self.axis = [param_values(**grid_hparams_space[param]) for param in grid_params]
+        self.axis = [param_values(**grid_hparams_space[param]) for param in tuned_params]
 
     def remove_inactive(self, point):  # replaces inactive dependent params with None
         active = {*self.active}
-        for p, i, ax in zip(self.grid_params, point, self.axis):
+        for p, i, ax in zip(self.tuned_params, point, self.axis):
             if p in active:
                 active.update(self.param_control.get(p, {}).get(ax[i], ()))
 
-        return tuple(x if p in active else None for p, x in zip(self.grid_params, point))
+        return tuple(x if p in active else None for p, x in zip(self.tuned_params, point))
 
     def __call__(self, point):
         key = self.remove_inactive(point)
-        pt_params = {p: ax[v] for p, v, ax in zip(self.grid_params, key, self.axis) if v is not None}
+        pt_params = {p: ax[v] for p, v, ax in zip(self.tuned_params, key, self.axis) if v is not None}
         res = {**self.hparams, **pt_params}
+        if 'lr/batch_size' in res:
+            res['learning_rate'] = res['lr/batch_size'] * res['batch_size']
+            del res['lr/batch_size']
 
         # apply parameter scaling depending on other parameters
         for p, pp in self.param_control.items():
@@ -480,9 +483,9 @@ def grid_search_gen(grid_size, axis_types, func, gridmap, start_point='random', 
         Размер сетки, на которой производится оптимизация. Каждый элемент кортежа - это количество точек в соответствующей оси.
     axis_types: tuple
         Типы величин по осям ('num' -- числовая, 'cat' -- категориальная)
-    func: function
+    func: callable
         Функция, которую нужно оптимизировать.
-    gridmap: function
+    gridmap: callable
         Функция, которая преобразует точку сетки в кортеж (key, args, kwargs), где
         key - ключ для кэширования, args и kwargs - аргументы функции func.
     start_point:    Union[tuple, str]
@@ -507,7 +510,7 @@ def grid_search_gen(grid_size, axis_types, func, gridmap, start_point='random', 
     key, args, kwargs = gridmap(cur_point)
     cur_value = func(*args, **kwargs)
     cache = {key: cur_value}
-    yield cur_point, cur_value, False
+    yield cur_point, cur_value, True
 
     while True:
         printlog(f'Current point: {cur_point}, value: {cur_value}')
@@ -519,14 +522,69 @@ def grid_search_gen(grid_size, axis_types, func, gridmap, start_point='random', 
                 continue
             if key not in cache:
                 cache[key] = func(*args, **kwargs)
-                yield point, cache[key], False
+                yield point, cache[key], cache[key] > best_value
             if cache[key] > best_value:
                 best_point = point
                 best_value = cache[key]
 
         if best_point == cur_point:
-            yield cur_point, cur_value, True
             break
 
         cur_point = best_point
         cur_value = best_value
+
+
+def hparams_grid_tune(nn_task, data, exp_dir, hparams, tuned_params, stop_flag=None,
+                      start_point='random', grid_metric='l1', radius=1):
+    """
+    Оптимизирует параметры нейронной сети на сетке.
+
+    Parameters
+    ----------
+    nn_task: NNTask
+        Задача, для которой оптимизируются параметры.
+    data: tuple
+        Кортеж, с генераторами для обучения, валидации и тестирования.
+    exp_dir: str
+        Путь к директории, в которой сохраняются результаты оптимизации.
+    hparams: dict
+        Исходные гиперпараметры, часть из них будет оптимизироваться.
+    tuned_params: dict
+        Параметры, которые будут оптимизироваться.
+    stop_flag: optional StopFlag
+        Флаг, который можно использовать для остановки оптимизации.
+    start_point: str
+        Начальная точка. Если 'random', то начальная точка выбирается случайно.
+    grid_metric: str
+        Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
+    radius: int
+        Радиус окрестности, в которой производится поиск лучшей точки.
+    """
+    grid = HyperParamGrid(hparams, tuned_params)
+    grid_size = list(map(len, grid.axis))
+    cat_axis = ['values' in grid_hparams_space[p] for p in tuned_params]
+
+    history = ExperimentHistory(nn_task)
+
+    def fit_and_get_score(params):
+        scores = create_and_train_model(params, data, exp_dir, history=history, stop_flag=stop_flag)
+        return scores[1]
+
+    best_point, best_value = None, None
+    for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
+                                                grid, start_point, grid_metric, radius):
+        if stop_flag is not None and stop_flag.stop:
+            break
+        printlog(f'Evaluated point: {point}, value: {value}')
+        if is_max:
+            best_point, best_value = point, value
+            if not nn_task.goals.get('maximize', True) and best_value >= nn_task.goals['target']:
+                break
+
+    printlog(f'Best point: {best_point}, value: {best_value}')
+    if best_value is not None and best_value >= nn_task.goals['target']:
+        printlog("achieved target score")
+    else:
+        printlog("did not achieve target score")
+
+    return best_point, best_value
