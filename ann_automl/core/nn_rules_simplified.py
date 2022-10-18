@@ -7,7 +7,6 @@ from collections import defaultdict
 from functools import reduce
 from typing import Any
 
-import ipywidgets
 import pandas as pd
 import keras
 import numpy as np
@@ -91,6 +90,7 @@ class RecommendArch(Recommender):
         else:
             last_layers.append({'type': 'Dense', 'units': len(task.nn_task.objects)})
             last_layers.append({'type': 'Activation', 'activation': 'softmax'})
+        prec['last_layers'] = last_layers
 
 
 @rule(SetectHParamsTask)

@@ -162,13 +162,13 @@ def create_generators(model, data, augmen_params, batch_size):
     return train_generator, val_generator, test_generator
 
 
-def create_layer(layer_type, **kwargs):
-    return getattr(keras.layers, layer_type)(**kwargs)
+def create_layer(type, **kwargs):
+    return getattr(keras.layers, type)(**kwargs)
 
 
 def create_model(base, last_layers):
-    input_shape = base.input_shape[1:]
     y = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
+    input_shape = y.input_shape[1:]
     x = keras.layers.Input(shape=input_shape)
     y = y(x)
     for layer in last_layers:
@@ -289,7 +289,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
     c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
     c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/weights-{epoch:02d}.h5', monitor=check_metric, verbose=1,
                                            save_best_only=True, save_weights_only=False, mode='auto')
-    c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)
+    c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
     c_t = TimeHistory()
     callbacks = [c_log, c_ch, c_es, c_t]
     if stop_flag is not None:
@@ -471,7 +471,7 @@ def neighborhood_gen(c, shape, cat_axis, r, metric):
         raise ValueError(f'Unknown metric: {metric}')
 
 
-def grid_search_gen(grid_size, axis_types, func, gridmap, start_point='random', grid_metric='l1', radius=1):
+def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', grid_metric='l1', radius=1):
     """
     Оптимизирует функцию на сетке жадным алгоритмом.
     На каждом шаге выбирается точка с максимальным значением функции в окрестности текущей точки.
@@ -481,8 +481,8 @@ def grid_search_gen(grid_size, axis_types, func, gridmap, start_point='random', 
     ----------
     grid_size: tuple
         Размер сетки, на которой производится оптимизация. Каждый элемент кортежа - это количество точек в соответствующей оси.
-    axis_types: tuple
-        Типы величин по осям ('num' -- числовая, 'cat' -- категориальная)
+    cat_axis: tuple
+        Типы величин по осям (0 -- числовая, 1 -- категориальная)
     func: callable
         Функция, которую нужно оптимизировать.
     gridmap: callable
@@ -516,7 +516,7 @@ def grid_search_gen(grid_size, axis_types, func, gridmap, start_point='random', 
         printlog(f'Current point: {cur_point}, value: {cur_value}')
         best_point = cur_point
         best_value = cur_value
-        for point in neighborhood_gen(cur_point, grid_size, axis_types, radius, grid_metric):
+        for point in neighborhood_gen(cur_point, grid_size, cat_axis, radius, grid_metric):
             key, args, kwargs = gridmap(point)
             if key is None:  # если точка не входит в область определения функции
                 continue
