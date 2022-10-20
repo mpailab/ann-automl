@@ -1,11 +1,7 @@
 import itertools
-import math
 import sys
 import time
-import traceback
-from collections import defaultdict
 
-import ipywidgets
 import pandas as pd
 import keras
 import numpy as np
@@ -14,6 +10,8 @@ import os
 from . import db_module
 from datetime import datetime
 from pytz import timezone
+
+from .nn_solver import NNTask
 from .solver import Rule, rule, Task, printlog, _log_dir, SolverState
 from ..utils.process import request, NoHandlerError, pcall
 
@@ -551,10 +549,10 @@ class FitModel(Rule):
 class GridStep(Rule):
     """ Прием для перехода к следующей точке сетки """
 
-    def can_apply(self, state):
+    def can_apply(self, task, state):
         return task.task_ct == "train" and task.cur_state == 'GridStep'
 
-    def apply(self, state):
+    def apply(self, task, state):
 
         printlog('GRID')
         printlog('central hp', task.cur_C_hp)

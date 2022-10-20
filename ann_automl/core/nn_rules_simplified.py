@@ -447,10 +447,6 @@ class FitModel(Rule):
         task.cur_state = 'GridStep'
 
 
-
-
-
-
 @rule
 class GridStep(Rule):
     """ Прием для перехода к следующей точке сетки """

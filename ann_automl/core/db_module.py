@@ -1,6 +1,7 @@
 from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql.expression import func
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 import json
@@ -8,21 +9,18 @@ import ast
 import cv2
 from pathlib import Path
 from pycocotools.coco import COCO
-import skimage.io as io
 import numpy as np
-import datetime
 import os
 import math
 from PIL import Image
 import glob
-from datetime import datetime
 import xml.etree.ElementTree as ET
 import time
 
 Base = declarative_base()
 
 
-class dbModule:
+class DBModule:
 
     ############################################################
     ##########        DB ORM description     ###################
@@ -42,7 +40,7 @@ class dbModule:
         aux = Column(String)
 
         def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url='', flickr_url='',
-                     license_id=-1, _id=None, aux=''):
+                     license_id=-1, ID=None, aux=''):
             self.width = width
             self.height = height
             self.file_name = file_name
@@ -53,8 +51,8 @@ class dbModule:
             if license_id == -1:
                 license_id = 1
             self.license_id = license_id
-            if _id is not None:
-                self.ID = _id
+            if ID is not None:
+                self.ID = ID
             self.aux = aux
 
     class Dataset(Base):
@@ -76,7 +74,7 @@ class dbModule:
             self.year = year
             self.contributor = contributor
             self.date_created = date_created
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -92,7 +90,7 @@ class dbModule:
         def __init__(self, supercategory, name, _id=None, aux=''):
             self.supercategory = supercategory
             self.name = name
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -107,7 +105,7 @@ class dbModule:
         def __init__(self, name, url, _id=None, aux=''):
             self.url = url
             self.name = name
-            if _id != None:
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -122,15 +120,15 @@ class dbModule:
         area = Column(Float)
         aux = Column(String)
 
-        def __init__(self, image_id, category_id, bbox, segmentation, isCrowd, area, _id=None, aux=''):
+        def __init__(self, image_id, category_id, bbox, segmentation, is_crowd, area, ID=None, aux=''):
             self.image_id = image_id
             self.category_id = category_id
             self.bbox = bbox
             self.segmentation = segmentation
-            self.is_crowd = isCrowd
+            self.is_crowd = is_crowd
             self.area = area
-            if _id != None:
-                self.ID = _id
+            if ID is not None:
+                self.ID = ID
             self.aux = aux
 
     class TrainResult(Base):
@@ -142,12 +140,12 @@ class dbModule:
         history_address = Column(String)
         aux = Column(String)
 
-        def __init__(self, metricName, metricValue, modelID, historyAddress='', aux='', _id=None):
-            self.metric_name = metricName
-            self.metric_value = metricValue
-            self.history_address = historyAddress
-            self.model_id = modelID
-            if _id != None:
+        def __init__(self, metric_name, metric_value, model_id, history_address='', aux='', _id=None):
+            self.metric_name = metric_name
+            self.metric_value = metric_value
+            self.history_address = history_address
+            self.model_id = model_id
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -169,10 +167,10 @@ class dbModule:
         train_results = relationship("TrainResult", backref=backref("model"))
         categories = relationship("CategoryToModel")
 
-        def __init__(self, modelAddress, taskType, aux='', _id=None):
-            self.model_address = modelAddress
-            self.task_type = taskType
-            if _id != None:
+        def __init__(self, model_address, task_type, aux='', _id=None):
+            self.model_address = model_address
+            self.task_type = task_type
+            if _id is not None:
                 self.ID = _id
             self.aux = aux
 
@@ -181,22 +179,53 @@ class dbModule:
     ############################################################
 
     def __init__(self, dbstring='sqlite:///datasets.sqlite', dbecho=False):
+        """
+        Basic initialization method, creates session to the DB address
+        given by dbstring (defult sqlite:///datasets.sqlite).
+        """
         self.engine = create_engine(dbstring, echo=dbecho)
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
+        self.dbstring_ = dbstring
 
     def create_sqlite_file(self):
+        """
+        In case SQLite file not found one should call this method to create one.
+        """
         Base.metadata.create_all(self.engine)
 
-    def fill_cats_dogs(self, annoFileName='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
+    def fill_all_default(self, anno_file_name='./datasets/coco/annotations/instances_train2017.json'):
+        """
+        Method to fill all at once, supposing datasets are at default locations (CatsDogs, COCO, ImageNet)
+
+        Parameters
+        ----------
+            anno_file_name : str
+                shows path to the default COCO2017 annotations (train subset as default)
+        """
+        if os.path.exists(self.dbstring_.split('/')[-1]):  # If file exists we suppose it is filled
+            return
+        self.create_sqlite_file()
+        self.fill_coco(anno_file_name=anno_file_name, first_time=True)
+        self.fill_cats_dogs()
+        self.fill_imagenet(first_time=True)
+        return
+
+    def fill_cats_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
-        INPUT:
-            annoFileName - file with json annotation in COCO format for cats and dogs
-        OUTPUT:
+        Parameters
+        ----------
+            anno_file_name : str
+                file with json annotation in COCO format for cats and dogs
+            file_prefix : str
+                prefix added to the file names in annotation file
+
+        Returns
+        -------
             None
         """
         print('Start filling DB with Kaggle CatsVsDogs')
-        with open(annoFileName) as json_file:
+        with open(anno_file_name) as json_file:
             data = json.load(json_file)
         dataset_info = data['info']
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
@@ -216,65 +245,89 @@ class dbModule:
         for an_data in data['annotations']:
             # TODO: +1 because of error in json - should be fixed later
             real_id = im_objects[an_data['image_id']].ID
-            annotation = self.Annotation(real_id, an_data['category_id'] + 1, ';'.join(an_data['bbox']),
-                                         ';'.join(an_data['segmentation']), an_data['iscrowd'], an_data['area'])
+            annotation = self.Annotation(image_id=real_id,
+                                         category_id=an_data['category_id'] + 1,
+                                         bbox=';'.join(an_data['bbox']),
+                                         segmentation=';'.join(an_data['segmentation']),
+                                         is_crowd=an_data['iscrowd'],
+                                         area=an_data['area'])
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
         print('Finished with Kaggle CatsVsDogs')
 
-    def fill_coco(self, annoFileName, file_prefix='./datasets/COCO2017/', firstTime=False, ds_info=None):
+    def fill_coco(self, anno_file_name, file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
         """Method to fill COCOdataset into db. It is supposed to be called once.
-        INPUT:
-            annoFileName - file with json annotation in COCO format for cats and dogs
-            ds_info - dictionary with info about dataset (default - COCO2017). Necessary keys:
+
+        Parameters
+        ----------
+            anno_file_name : str
+                file with json annotation in COCO format for cats and dogs
+            file_prefix : str
+                prefix added to the file names in annotation file
+            first_time : bool
+                put to True if called for the first time
+            ds_info : dict
+                dictionary with info about dataset (default - COCO2017). Necessary keys:
                 description, url, version, year, contributor, date_created
-        OUTPUT:
+
+        Returns
+        -------
             None
         """
-        coco = COCO(annoFileName)
+        coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
         # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
-        if firstTime:
+        if first_time:
             self.add_categories(cats, True)
             self.add_default_licences()
         #######################################################################
         if ds_info is None:
             ds_info = {"description": "COCO 2017 Dataset",
-                       "url": "http://cocodataset.org",
+                       "url": "https://cocodataset.org",
                        "version": "1.0", "year": 2017,
                        "contributor": "COCO Consortium",
                        "date_created": "2017/09/01"}
-        dsID = self.add_dataset_info(ds_info)
-        imgIds = coco.getImgIds()
-        imgs = coco.loadImgs(imgIds)
-        annIds = coco.getAnnIds()
-        anns = coco.loadAnns(annIds)
+        ds_id = self.add_dataset_info(ds_info)
+        img_ids = coco.getImgIds()
+        imgs = coco.loadImgs(img_ids)
+        ann_ids = coco.getAnnIds()
+        anns = coco.loadAnns(ann_ids)
+        print(f'Dataset description: ', ds_info["description"])
         print(f'Adding {len(anns)} annotations in COCO format to DB')
-        self.add_images_and_annotations(imgs, anns, dsID, file_prefix)
+        self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
         return
 
-    def fill_imagenet(self, annotations_dir='/auto/projects/brain/datasets/imagenet/annotations',
-                      file_prefix='/auto/projects/brain/datasets/imagenet/ILSVRC2012_img_train',
-                      assoc_file='/auto/projects/brain/Ronzhin/imageNetToCOCOClasses.txt', first_time=False,
+    def fill_imagenet(self, annotations_dir='./datasets/imagenet/annotations',
+                      file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
+                      assoc_file='imageNetToCOCOClasses.txt', first_time=False,
                       ds_info=None):
         """Method to fill ImageNet dataset into db. It is supposed to be called once.
-            INPUT:
-                annotations_dir - path to annotations directories
-                file_prefix - prefix of images from ImageNet
-                assoc_file - filename of ImageNet to COCO associations
-                first_time - bool, put to true if called for the first time
-                ds_info - some information about dataset
-            OUTPUT:
-                None
+
+        Parameters
+        ----------
+            annotations_dir : str
+                path to annotations directories
+            file_prefix : str
+                prefix of images from ImageNet
+            assoc_file : str
+                filename of ImageNet to COCO associations
+            first_time : bool
+                put to True if called for the first time
+            ds_info : Optional[dict]
+                some information about dataset
+
+        Returns
+        -------
+            None
         """
         # If we make it for the first time, we add dataset information to DB
         if first_time:
-            if ds_info == None:
+            if ds_info is None:
                 ds_info = {"description": "ImageNet 2012 Dataset", "url": "https://image-net.org/about.php",
                            "version": "1.0", "year": 2012, "contributor": "ImageNet", "date_created": "2012/01/01"}
-            dsID = self.add_dataset_info(ds_info)
+            ds_id = self.add_dataset_info(ds_info)
         else:
-            dsID = self.get_dataset_info(ds_info)
+            ds_id = 3  # TODO: this is just a patch for ImageNet, since in 'clear' dataset imageNet is filled last
         # Then we take all the associations from the assoc_file and create some categories if needed
         assoc = {}
         with open(assoc_file) as file:
@@ -292,21 +345,21 @@ class dbModule:
                 cat_names.add(assoc[elem][0])
                 categories_buf_assoc[elem] = assoc[elem][0]
         cat_names_list = list(cat_names)
-        catIDs = self.get_cat_IDs_by_names(cat_names_list)
+        cat_ids = self.get_cat_IDs_by_names(cat_names_list)
         new_categories = []
-        for i in range(len(catIDs)):
-            cat_id = catIDs[i]
+        for i in range(len(cat_ids)):
+            cat_id = cat_ids[i]
             if cat_id < 0:
                 cat_name = cat_names_list[i]
                 new_categories.append({'supercategory': 'imageNetOther', 'name': cat_name})
         if len(new_categories) > 0:
             self.add_categories(new_categories, respect_ids=False)
-            catIDs = self.get_cat_IDs_by_names(cat_names_list)
-            for i in range(len(catIDs)):
-                assert catIDs[i] > 0, 'Some category could not be added'
+            cat_ids = self.get_cat_IDs_by_names(cat_names_list)
+            for i in range(len(cat_ids)):
+                assert cat_ids[i] > 0, 'Some category could not be added'
         categories_assoc = {}
-        for i in range(len(catIDs)):
-            cat_id = catIDs[i]
+        for i in range(len(cat_ids)):
+            cat_id = cat_ids[i]
             cat_name = cat_names_list[i]
             categories_assoc[cat_name] = cat_id
         # Then we iterate over all the images from dataset.
@@ -357,7 +410,7 @@ class dbModule:
             im_id += 1
             if im_id % 100000 == 0:
                 print(im_id)
-        self.add_images_and_annotations(images, annotations, dsID)
+        self.add_images_and_annotations(images, annotations, ds_id)
         return images, annotations
 
     def get_all_datasets(self):
@@ -367,14 +420,24 @@ class dbModule:
 
     def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
         """Method to load annotations from specific datasets, given their IDs.
-        INPUT:
-            datasets_ids - list of datasets IDs to get annotations from
-        OUTPUT:
+
+        Parameters
+        ----------
+        datasets_ids : list
+            list of datasets IDs to get annotations from
+        kwargs["normalizeCats"] : bool
+            used for test purposes only, changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
+
+        Returns
+        -------
+        DataFrame
             pandas dataframe with annotations for given datasets IDs
         """
-        query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
+        query = self.sess.query(self.Image.file_name, self.Annotation.category_id,
+                                self.Annotation.bbox, self.Annotation.segmentation
+                                ).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True:  # TODO: This is an awful patch for keras
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
@@ -382,19 +445,23 @@ class dbModule:
         return df
 
     def get_all_categories(self):
+        """
+        Returns pandas dataframe with all available categories in database
+        """
         query = self.sess.query(self.Category)
         df = pd.read_sql(query.statement, query.session.bind)
         return df
 
     def _prepare_cropped_images(self, df, kwargs):
+        """
+        Helper for image cropping in case of multiple annotations on one picture.
+        """
         column_names = ["file_name", "category_id"]
         buf_df = pd.DataFrame(columns=column_names)
         # print(buf_df)
         # print(df)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
-        # if 'cropped_dir' in kwargs and kwargs['cropped_dir'] != '':
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
-        # cropped_dir = kwargs['cropped_dir']
         files_dir = kwargs.get('files_dir', '')
         for index, row in df.iterrows():
             bbox = []
@@ -406,7 +473,7 @@ class dbModule:
                 continue
             image = cv2.imread(files_dir + row['file_name'])
             crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
-                   math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                         math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
             buf_name = row["file_name"].split('.')
             filename = (buf_name[-2]).split('/')[-1]
             filepath = cropped_dir + filename + "-" + str(index) + "." + buf_name[-1]
@@ -415,36 +482,65 @@ class dbModule:
             buf_df = buf_df.append(new_row)
         return buf_df
 
-    def _split_and_save(self, df, save_dir, split_points):
+    def _split_and_save(self, df, save_dir, split_points, headers_string):
+        """
+        Helper for storing csv files with annotations returned
+        """
         train_end = int(split_points[0] * len(df))
         val_end = int(split_points[1] * len(df))
         train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])
-        np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header='images,target', comments='')
-        np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header='images,target', comments='')
-        np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header='images,target', comments='')
+        np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header=headers_string, comments='')
+        np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header=headers_string, comments='')
+        np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
         return {'train': f'{save_dir}train.csv', 'test': f'{save_dir}test.csv', 'validate': f'{save_dir}val.csv'}
 
-    def _process_query(self, query, kwargs):
+    def _process_query(self, query, with_segmentation, kwargs):
+        """
+        Helper to process SQL query for Annotations
+            - query -> sqlalchemy query object
+            - with_segmentation -> if True, only annotations with segmentation will be returned
+            - kwargs['crop_box'] -> if True, cropping and saving will be performed
+            - kwargs['split_points'] -> stores quantiles for train_test_validation split (default 0.6,0.8)
+            - kwargs['normalize_cats'] -> set for test purposes only,
+              changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
+        """
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
         av_height = df['height'].mean()
         if kwargs.get('crop_bbox', False):
             df = self._prepare_cropped_images(df, kwargs)
-        df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
+        if with_segmentation is False:
+            df_new = pd.DataFrame(columns=['images', 'target'],
+                                  data=df[['file_name', 'category_id']].values)
+            headers_string = 'images,target'
+        else:
+            df_new = pd.DataFrame(columns=['images', 'target', 'segmentation'],
+                                  data=df[['file_name', 'category_id', 'segmentation']].values)
+            df_new.dropna(subset=['segmentation'], inplace=True)
+            headers_string = 'images,target,segmentation'
         if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
         split_points = [0.6, 0.8]
         if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
             split_points = kwargs['splitPoints']
-        filename_dict = self._split_and_save(df_new, kwargs.get('curExperimentFolder', './'), split_points)
+        filename_dict = self._split_and_save(df_new, kwargs.get('curExperimentFolder', './'),
+                                             split_points, headers_string)
         return df_new, filename_dict, av_width, av_height
 
-    def load_specific_categories_annotations(self, cat_names, **kwargs):
+    def load_specific_categories_annotations(self, cat_names, with_segmentation=False, **kwargs):
         """Method to load annotations from specific categories, given their IDs.
-        INPUT:
-            cat_names - list of categories IDs to get annotations from
-        OUTPUT:
+
+        Parameters
+        ----------
+            cat_names : list
+                list of categories IDs to get annotations from
+            with_segmentation : bool
+                if True, only annotations with segmentation will be returned
+
+        Returns
+        -------
+        DataFrame
             pandas dataframe with full annotations for given cat_ids
             dictionary with train, test, val files
             average width, height of images
@@ -452,14 +548,24 @@ class dbModule:
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
-        return self._process_query(query, kwargs)
+        if with_segmentation:
+            query = query.filter(func.length(self.Annotation.segmentation) > 2)  #TODO: somehow length 0 and 1 do not work?
+        return self._process_query(query, with_segmentation, kwargs)
 
-    def load_categories_datasets_annotations(self, cat_names, datasets_ids, **kwargs):
+    def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
         """Method to load annotations from specific categories, given their IDs.
-        INPUT:
-            cat_names - list of categories IDs to get annotations from
-            dataset_ids - list of dataset IDs to get annotations from
-        OUTPUT:
+
+        Parameters
+        ----------
+            cat_names : list
+                list of categories IDs to get annotations from
+            datasets_ids : list
+                list of dataset IDs to get annotations from
+            with_segmentation : bool
+                if True, only annotations with segmentation will be returned
+        Returns
+        -------
+        DataFrame
             pandas dataframe with full annotations for given cat_ids
             dictionary with train, test, val files
             average width, height of images
@@ -467,18 +573,30 @@ class dbModule:
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
-        return self._process_query(query, kwargs)
+        if with_segmentation:
+            query = query.filter(func.length(self.Annotation.segmentation) > 2)  # TODO: somehow length 0 and 1 do not work?
+        return self._process_query(query, with_segmentation, kwargs)
 
     def load_specific_images_annotations(self, image_names, **kwargs):
         """Method to load annotations from specific images, given their names.
-        INPUT:
-            image_names - list of image names to get annotations for
-        OUTPUT:
+
+        Parameters
+        ----------
+            image_names : list
+                list of image names to get annotations for
+            kwargs['normalizeCats'] : bool
+              set for test purposes only, changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
+
+        Returns
+        -------
+        DataFrame
             pandas dataframe with annotations for given image_names
         """
-        query = self.sess.query(self.Image.file_name, self.Annotation.category_id, self.Annotation.bbox, self.Annotation.segmentation).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
+        query = self.sess.query(self.Image.file_name, self.Annotation.category_id,
+                                self.Annotation.bbox, self.Annotation.segmentation
+                                ).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] == True:  # TODO: This is an awful patch for keras
+        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
@@ -486,36 +604,43 @@ class dbModule:
         return df
 
     def add_categories(self, categories, respect_ids=True):
-        """Method to add given categories to database. Expected to be called rarely, since category list is almost permanent.
-        INPUT:
-            categories - disctionary with necessary fields: supercategory, name, id
-            respect_ids - boolean, to specify if ids from dictionary are preserved in DB
-        OUTPUT:
+        """Method to add given categories to database.
+        Expected to be called rarely, since category list is almost permanent.
+
+        Parameters
+        ----------
+            categories : list
+                list of disctionaries with necessary fields: supercategory, name, id
+            respect_ids : bool
+                boolean, to specify if ids from dictionary are preserved in DB
+
+        Returns
+        -------
             None
         """
         for category in categories:
             _id = None
-            if respect_ids == True:
+            if respect_ids is True:
                 _id = category['id']
-            newCat = self.Category(category['supercategory'], category['name'], _id)
-            self.sess.add(newCat)
+            new_cat = self.Category(category['supercategory'], category['name'], _id)
+            self.sess.add(new_cat)
         self.sess.commit()  # adding categories in db
 
     def add_default_licences(self):
         """Method to add default licenses to DB. Exptected to be called once"""
-        licenses = [{"url": "http://creativecommons.org/licenses/by-nc-sa/2.0/", "id": 1,
+        licenses = [{"url": "https://creativecommons.org/licenses/by-nc-sa/2.0/", "id": 1,
                      "name": "Attribution-NonCommercial-ShareAlike License"},
-                    {"url": "http://creativecommons.org/licenses/by-nc/2.0/", "id": 2,
+                    {"url": "https://creativecommons.org/licenses/by-nc/2.0/", "id": 2,
                      "name": "Attribution-NonCommercial License"},
-                    {"url": "http://creativecommons.org/licenses/by-nc-nd/2.0/", "id": 3,
+                    {"url": "https://creativecommons.org/licenses/by-nc-nd/2.0/", "id": 3,
                      "name": "Attribution-NonCommercial-NoDerivs License"},
-                    {"url": "http://creativecommons.org/licenses/by/2.0/", "id": 4, "name": "Attribution License"},
-                    {"url": "http://creativecommons.org/licenses/by-sa/2.0/", "id": 5,
+                    {"url": "https://creativecommons.org/licenses/by/2.0/", "id": 4, "name": "Attribution License"},
+                    {"url": "https://creativecommons.org/licenses/by-sa/2.0/", "id": 5,
                      "name": "Attribution-ShareAlike License"},
-                    {"url": "http://creativecommons.org/licenses/by-nd/2.0/", "id": 6,
+                    {"url": "https://creativecommons.org/licenses/by-nd/2.0/", "id": 6,
                      "name": "Attribution-NoDerivs License"},
-                    {"url": "http://flickr.com/commons/usage/", "id": 7, "name": "No known copyright restrictions"},
-                    {"url": "http://www.usa.gov/copyright.shtml", "id": 8, "name": "United States Government Work"}]
+                    {"url": "https://flickr.com/commons/usage/", "id": 7, "name": "No known copyright restrictions"},
+                    {"url": "https://www.usa.gov/copyright.shtml", "id": 8, "name": "United States Government Work"}]
         for license in licenses:
             lic = self.License(license['name'], license['url'], license['id'])
             self.sess.add(lic)
@@ -523,7 +648,8 @@ class dbModule:
 
     def add_dataset_info(self, dataset_info):
         """Method to add info about new dataset. Returns added dataset ID"""
-        dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'], dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
+        dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
+                               dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
         self.sess.add(dataset)
         self.sess.commit()  # adding dataset
         return dataset.ID
@@ -539,7 +665,7 @@ class dbModule:
         annotations : list[dict]
             array of dicts with attributes:
             segmentation, area, iscrowd, image_id, bbox, category_id, id
-        dataset_id : any
+        dataset_id : int
             ID of a dataset images are from
         file_prefix : str
             prefix to be added to filenames
@@ -554,9 +680,17 @@ class dbModule:
         buf_images = {}
         for im_data in images:
             im_id = None
-            if respect_ids == True:
+            if respect_ids is True:
                 im_id = im_data['id']
-            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'], im_data['date_captured'], dataset_id, im_data['coco_url'], im_data['flickr_url'], im_data['license'], im_id)
+            image = self.Image(file_name=file_prefix + im_data['file_name'],
+                               width=im_data['width'],
+                               height=im_data['height'],
+                               date_captured=im_data['date_captured'],
+                               dataset_id=dataset_id,
+                               coco_url=im_data['coco_url'],
+                               flickr_url=im_data['flickr_url'],
+                               license_id=im_data['license'],
+                               ID=im_id)
             buf_images[im_data['id']] = image
             self.sess.add(image)
         self.sess.commit()  # adding images
@@ -566,12 +700,18 @@ class dbModule:
             # print(counter)
             counter += 1
             anno_id = None
-            if respect_ids == True:
-                anno_id = im_data['id']  # TODO:fixe that
+            if respect_ids is True:
+                anno_id = an_data['id']  # TODO:fixe that
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
-            annotation = self.Annotation(cur_image_id, an_data['category_id'], bbox_str, seg_str, an_data['iscrowd'], an_data['area'], anno_id)
+            annotation = self.Annotation(image_id=cur_image_id,
+                                         category_id=an_data['category_id'],
+                                         bbox=bbox_str,
+                                         segmentation=seg_str,
+                                         is_crowd=an_data['iscrowd'],
+                                         area=an_data['area'],
+                                         ID=anno_id)
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
 
@@ -599,16 +739,16 @@ class dbModule:
         model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()  # model should be identified by its address uniquely
         if model_from_db is None:
             # Model not in DB - add it (that's OK)
-            new_model = self.Model(abs_model_address, task_type)
+            new_model = self.Model(model_address=abs_model_address, task_type=task_type)
             self.sess.add(new_model)
             self.sess.commit()
             for cat_name in categories:  # categories should not change for the model - they are attached once
-                categoryFromDB = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
-                if categoryFromDB is None:
+                category_from_db = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
+                if category_from_db is None:
                     # That's a very bad case - we cannot simply add new category, DB may become inconsistent
                     print("ERROR: No category " + cat_name + " in DB")
                     return
-                new_cat_record = self.CategoryToModel(categoryFromDB.ID, new_model.ID)
+                new_cat_record = self.CategoryToModel(category_from_db.ID, new_model.ID)
                 self.sess.add(new_cat_record)
             self.sess.commit()
             model_from_db = new_model
@@ -618,7 +758,10 @@ class dbModule:
 
         # We do not check if metric is valid - module user should keep track on consistency of these records
         for key, value in metrics.items():
-            new_train_result = self.TrainResult(key, value, model_from_db.ID, abs_history_address)
+            new_train_result = self.TrainResult(metric_name=key,
+                                                metric_value=value,
+                                                model_id=model_from_db.ID,
+                                                history_address=abs_history_address)
             self.sess.add(new_train_result)
             self.sess.commit()
         return
@@ -649,7 +792,10 @@ class dbModule:
                 return True
         # no such metric was found - add new train result
         print('Adding new metric for this model, metric name:', metric_name)
-        new_train_result = self.TrainResult(metric_name, metric_value, model_from_db.ID, abs_history_address)
+        new_train_result = self.TrainResult(metric_name=metric_name,
+                                            metric_value=metric_value,
+                                            model_id=model_from_db.ID,
+                                            history_address=abs_history_address)
         self.sess.add(new_train_result)
         self.sess.commit()
         return True
@@ -673,7 +819,7 @@ class dbModule:
 
         for trRes in model_from_db.train_results:
             if trRes.metric_name == metric_name:
-                ret = self.sess.query(self.TrainResult).filter_by(ID=trRes.ID).delete()
+                self.sess.query(self.TrainResult).filter_by(ID=trRes.ID).delete()
                 self.sess.commit()
                 return True
         print('ERROR: Such train result record was not found')
@@ -773,6 +919,38 @@ class dbModule:
                 result.append(query[0])
         return result
 
-    def get_dataset_info(self, ds_info):
-        # TODO - implement
-        return 0
+    def get_full_dataset_info(self, ds_id):
+        """
+        Parameters
+        ----------
+            ds_id : int
+                identifier of a dataset inside database (IDs can be aquired by, i.e., get_all_datasets method)
+
+        Returns
+        -------
+        dict
+            full information about dataset given its ID in database in a dictionary
+
+            dictionary keys:
+               - 'dataset_info' -> brief info on dataset
+               - 'categories' -> explicit number of specific categories in this dataset
+        """
+        result = {}
+        query = self.sess.query(self.Dataset).filter(self.Dataset.ID == ds_id)
+        df = pd.read_sql(query.statement, query.session.bind)
+        result['dataset_info'] = df.to_dict()
+        cat_query = self.sess.query(self.Annotation.category_id).join(self.Image).filter(self.Image.dataset_id == ds_id)
+        cat_counts = self.sess.query(self.Annotation.category_id, func.count(self.Annotation.category_id)) \
+            .join(self.Image).filter(self.Image.dataset_id == ds_id).group_by(self.Annotation.category_id).all()
+        cat_counts_dict = {}
+        for record in cat_counts:
+            cat_counts_dict[record[0]] = record[1]
+        categories_in_ds = cat_query.group_by(self.Annotation.category_id).all()
+        categories_in_ds = list(np.array(categories_in_ds).flatten())
+        cats_df = self.get_all_categories()
+        result['categories'] = {}
+        for cat_id in categories_in_ds:
+            cat_name = cats_df.loc[cats_df['ID'] == cat_id].values[0][2]
+            cat_count = cat_counts_dict[cat_id]
+            result['categories'][cat_id] = [cat_name, cat_count]
+        return result

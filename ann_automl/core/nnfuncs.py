@@ -38,17 +38,31 @@ def set_db_file(db_file):
 # !!! гиперпараметры и их значения сгенерированы автоматически !!!
 # TODO: проверить их на корректность
 hyperparameters = {
-    'batch_size': {'type': 'int', 'range': [1, 128], 'default': 32, 'step': 2, 'scale': 'log', 'name': "размер батча"},
+    'batch_size': {
+        'type': 'int',
+        'range': [1, 128],
+        'default': 32,
+        'step': 2,
+        'scale': 'log',
+        'name': "размер батча",
+        'description': "Размер батча, используемый при обучении нейронной сети"
+    },
     'epochs': {'type': 'int', 'range': [10, 1000], 'default': 150, 'step': 10, 'scale': 'lin', 'name': "количество эпох"},
-    'optimizer': {'type': 'str', 'values': {
-        'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
-        'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
-        'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
-        'Adagrad': {'params': ['epsilon']},
-        'Adadelta': {'params': ['rho', 'epsilon']},
-        'Adamax': {'params': ['beta_1', 'beta_2', 'epsilon']},
-        'Nadam': {'params': ['beta_1', 'beta_2', 'epsilon']},
-    }, 'default': 'Adam', 'name': "оптимизатор"},
+    'optimizer': {
+        'type': 'str',
+        'values': {
+            'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
+            'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
+            'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
+            'Adagrad': {'params': ['epsilon']},
+            'Adadelta': {'params': ['rho', 'epsilon']},
+            'Adamax': {'params': ['beta_1', 'beta_2', 'epsilon']},
+            'Nadam': {'params': ['beta_1', 'beta_2', 'epsilon']},
+        },
+        'default': 'Adam',
+        'name': "оптимизатор",
+        'description': "Оптимизатор, используемый при обучении нейронной сети:\n"
+    },
     'learning_rate': {'type': 'float', 'range': [1e-5, 1e-1], 'default': 1e-3, 'step': 2, 'scale': 'log',
                       'name': "скорость обучения"},
     'decay': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',

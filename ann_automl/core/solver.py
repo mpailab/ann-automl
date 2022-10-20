@@ -1,13 +1,8 @@
-import os
 import sys
-import traceback
 from abc import ABC, abstractmethod
-from datetime import datetime
-from multiprocessing import Process
+from collections import defaultdict
 
-from pytz import timezone
-
-from ..utils.process import request, NoHandlerError, pcall
+from ..utils.process import request, NoHandlerError
 
 _log_dir = '.'
 
@@ -73,6 +68,7 @@ class Task:
         self._state = self         # Состояние решения задачи
         self._answer = None        # Ответ задачи
         self._solver_state = None  # Глобальное состояние решателя
+        self.stages = []           # Список этапов решения задачи
 
     def _init_solver_state(self, solver_state, global_params, rules):
         if rules is None:
@@ -89,7 +85,8 @@ class Task:
     def solve(self, solver_state=None, rules=None, state=None, global_params=None):
         """
         Базовая функция решения задачи
-        :param solver_state: Глобальное состояние решателя (если нет, то начальное состояние инициализируется по умолчанию)
+        :param solver_state: Глобальное состояние решателя
+            (если нет, то начальное состояние инициализируется по умолчанию)
         :param rules: Дополнительные правила для решения данной задачи
         :param state: Состояние решения общей задачи (может передаваться в подзадачи)
         :param global_params: Глобальные параметры решателя (флаги трассировки, отладки и т.п.)
@@ -99,26 +96,34 @@ class Task:
         rules, solver_state = self._init_solver_state(solver_state, global_params, rules)
 
         if self._solver_state.global_params.get('trace_solution', False):
-            print(f'##########  Start solve task of type {self.__class__.__name__}  ##########')
+            printlog(f'##########  Start solve task of type {self.__class__.__name__}  ##########')
+
+        stages = self.stages or [0]
+        if not isinstance(rules, dict):
+            rules = {stage: rules for stage in stages}
 
         nstate = self.prepare_state(state)
         if state is None:
             state = nstate
         self._state = state if state is not None else self
 
-        while not self.solved:
-            applied = 0
-            for r in rules:
-                if r.can_apply(self, self._state):
-                    if self._solver_state.global_params.get('trace_solution', False):
-                        print(f'    Apply rule {r.__class__.__name__} ')
-                    r.apply(self, self._state)
-                    applied += 1
-            if not applied:
-                raise CannotSolve(self)
+        for stage in stages:
+            if self._solver_state.global_params.get('trace_solution', False):
+                printlog(f'##########  Start stage {stage}  ##########')
+            applied = 1
+            while applied:
+                applied = 0
+                for r in rules.get(stage, []):
+                    if r.can_apply(self, self._state):
+                        if self._solver_state.global_params.get('trace_solution', False):
+                            printlog(f'    Apply rule {r.__class__.__name__} ')
+                        r.apply(self, self._state)
+                        applied += 1
+            # if not applied:
+            #    raise CannotSolve(self)
 
         if self._solver_state.global_params.get('trace_solution', False):
-            print(f'##########  Finish solve task of type {self.__class__.__name__}  #########')
+            printlog(f'##########  Finish solve task of type {self.__class__.__name__}  #########')
 
         return self.answer
 
@@ -153,18 +158,14 @@ class Task:
     @property
     def rules(self):
         """ Правила, отнесённые к задачам данного типа, включая все правила для базовых классов задач """
-        r = []
-        # cls = self.__class__
+        r = {}
         for cls in self.__class__.mro():
-            if hasattr(cls, '_rules'):
-                r += cls._rules
-            # cls = super(cls)
-        # if hasattr(cls, '_rules'):
-        #    r += cls._rules
+            for stage, rules in getattr(cls, '_rules', {}).items():
+                r.setdefault(stage, []).append(rules)
         return r
 
 
-def rule(*task_classes):
+def rule(*task_classes, stage=None):
     """
     Декоратор для классов приёмов.
     Добавляет данный приём к типам задач, указанных в качестве параметров декоратора.
@@ -176,10 +177,15 @@ def rule(*task_classes):
         instance = rule_cls()
         for task_cls in task_classes:
             if not hasattr(task_cls, '_rules'):
-                task_cls._rules = [instance]
-            else:
-                task_cls._rules.append(instance)
+                task_cls._rules = {}
+            stages = [stage] if not isinstance(stage, (list, tuple, set)) else list(stage)
+            for s in getattr(instance, 'stages', ()):
+                if s not in stages:
+                    stages.append(s)
+            for s in stages:
+                task_cls._rules.setdefault(s, []).append(instance)
         return instance
+
     return apply
 
 
@@ -263,3 +269,37 @@ class RuleFL(Rule):
 class FinishTask(RuleFL, ABC):
     def apply(self, task: Task, state):
         task.solved = True
+
+
+class RecommendTask(Task):
+    def __init__(self, goals):
+        super().__init__(goals=goals)
+        self.recommendations = {}
+        self.votes = defaultdict(lambda: 0)
+        self.stages = ['Recommend', 'Vote', 'Select']
+
+
+class Recommender(Rule, ABC):
+    stages = ['Recommend']
+
+    def __init__(self):
+        self.key = self.__class__.__name__
+
+    def can_recommend(self, task) -> bool:
+        return True
+
+    def can_apply(self, task: RecommendTask, state: SolverState) -> bool:
+        return self.key not in task.recommendations and self.can_recommend(task)
+
+
+class VoteRule(Rule, ABC):
+    stages = ['Vote']
+
+    def __init__(self):
+        self.key = self.__class__.__name__
+
+    def can_vote(self, task) -> bool:
+        return True
+
+    def can_apply(self, task: RecommendTask, state: SolverState) -> bool:
+        return self.key not in task.votes and self.can_vote(task)
