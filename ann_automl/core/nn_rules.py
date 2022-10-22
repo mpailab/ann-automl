@@ -16,7 +16,7 @@ from pytz import timezone
 from .solver import Rule, rule, State, Task, printlog
 from ..utils.process import request, NoHandlerError
 
-myDB = db_module.dbModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточнить путь к файлу базы данных
+myDB = db_module.DBModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточнить путь к файлу базы данных
 
 
 _data_dir = 'data'
