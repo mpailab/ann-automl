@@ -293,7 +293,7 @@ class dbModule:
                            "version": "1.0", "year": 2012, "contributor": "ImageNet", "date_created": "2012/01/01"}
             dsID = self.add_dataset_info(ds_info)
         else:
-            dsID = self.get_dataset_info(ds_info)
+            dsID = 3 #TODO: this is just a patch for ImageNet, since in 'clear' dataset imageNet is filled last
         # Then we take all the associations from the assoc_file and create some categories if needed
         assoc = {}
         with open(assoc_file) as file:
