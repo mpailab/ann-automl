@@ -202,11 +202,11 @@ class dbModule:
             return
         self.create_sqlite_file()
         self.fill_coco(annoFileName=annoFileName_, firstTime=True)
-        self.fill_cats_dogs()
+        self.fill_Kaggle_CatsVsDogs()
         self.fill_imagenet(first_time = True)
         return
 
-    def fill_cats_dogs(self, annoFileName='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
+    def fill_Kaggle_CatsVsDogs(self, annoFileName='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         INPUT:
             annoFileName - file with json annotation in COCO format for cats and dogs
@@ -214,8 +214,16 @@ class dbModule:
             None
         """
         print('Start filling DB with Kaggle CatsVsDogs')
+        if not os.path.isfile(annoFileName):
+            print('Error: no file',annoFileName,'found')
+            print('Stop filling dataset')
+            return
         with open(annoFileName) as json_file:
             data = json.load(json_file)
+        if not os.path.isfile(file_prefix + data['images'][0]['file_name']):
+            print('Error in json file, missing images stored on disc (i.e.',file_prefix + im_data['file_name'],')')
+            print('Stop filling dataset')
+            return
         dataset_info = data['info']
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
                                dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
@@ -249,6 +257,11 @@ class dbModule:
         OUTPUT:
             None
         """
+        print('Start filling DB with COCO-format dataset from file',annoFileName)
+        if not os.path.isfile(annoFileName):
+            print('Error: no file',annoFileName,'found')
+            print('Stop filling dataset')
+            return
         coco = COCO(annoFileName)
         cats = coco.loadCats(coco.getCatIds())
         # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
@@ -445,7 +458,7 @@ class dbModule:
         """
         train_end = int(split_points[0] * len(df))
         val_end = int(split_points[1] * len(df))
-        train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])
+        train, validate, test = np.split(df.sample(frac=1), [train_end, val_end]) #we shuffle and split
         np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header=headers_string, comments='')
         np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header=headers_string, comments='')
         np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
@@ -459,6 +472,8 @@ class dbModule:
         kwargs['with_segmentation'] -> if True, only annotations with segmentation will be returned
         kwargs['split_points'] -> stores quantiles for train_test_validation split (default 0.6,0.8)
         kwargs['normalize_cats'] -> set for test purposes only, changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
+        kwargs['balance_by_min_category'] -> boolean, set to True to balance by minimum amount in some category
+        kwargs['balance_by_categories'] -> dictionary with number of elements of each category to query (i.e. {'cat':100,'dog':200})
         """
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
@@ -472,6 +487,23 @@ class dbModule:
             df_new = pd.DataFrame(columns=['images', 'target', 'segmentation'], data=df[['file_name','category_id', 'segmentation']].values)
             df_new.dropna(subset=['segmentation'], inplace=True)
             headers_string = 'images,target,segmentation'
+        if kwargs.get('balance_by_min_category', False):
+            g = df_new.groupby('target', group_keys=False)
+            df_new = g.apply(lambda x: x.sample(g.size().min()).reset_index(drop=True)) #code to balance-out too large categories with random selection
+        if kwargs.get('balance_by_categories', False):
+            cat_names = [el for el in kwargs['balance_by_categories']]
+            cat_ids = self.get_cat_IDs_by_names(cat_names)
+            cat_ids_dict = {}
+            print(cat_names)
+            print(cat_ids)
+            for i in range(len(cat_ids)):
+                if cat_ids[i] != -1:
+                    cat_ids_dict[cat_ids[i]] = kwargs['balance_by_categories'][cat_names[i]]
+            print(cat_ids_dict)
+            g = df_new.groupby('target', group_keys=False)
+            print('----------------------')
+            df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True)) #code to balance by given nums
+            print('----------------------')
         if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
@@ -598,6 +630,10 @@ class dbModule:
         -------
         None
         """
+        if not os.path.isfile(file_prefix + images[0]['file_name']):
+            print('Error in json file, missing images stored on disc (i.e.',file_prefix + imgs[0]['file_name'],')')
+            print('Stop filling dataset')
+            return
         print('Adding images')
         buf_images = {}
         for im_data in images:
