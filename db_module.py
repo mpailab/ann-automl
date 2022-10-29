@@ -494,16 +494,11 @@ class dbModule:
             cat_names = [el for el in kwargs['balance_by_categories']]
             cat_ids = self.get_cat_IDs_by_names(cat_names)
             cat_ids_dict = {}
-            print(cat_names)
-            print(cat_ids)
             for i in range(len(cat_ids)):
                 if cat_ids[i] != -1:
                     cat_ids_dict[cat_ids[i]] = kwargs['balance_by_categories'][cat_names[i]]
-            print(cat_ids_dict)
             g = df_new.groupby('target', group_keys=False)
-            print('----------------------')
             df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True)) #code to balance by given nums
-            print('----------------------')
         if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
