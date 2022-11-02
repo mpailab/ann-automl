@@ -130,7 +130,7 @@ class State:
 class Rule(ABC):
     '''
     Базовый тип приёма
-    Имеет два абязательных метода can_apply и apply
+    Имеет два обязательных метода can_apply и apply
     '''
 
     @abstractmethod

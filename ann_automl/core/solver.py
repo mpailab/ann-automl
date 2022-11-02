@@ -86,7 +86,7 @@ class State:
     Состояние решателя
     """
 
-    def __init__(self, task, log_name):
+    def __init__(self, task, log_name, res_name):
         """
         Инициализация состояния решателя.
 
@@ -98,8 +98,9 @@ class State:
             Имя лог-файла
         """
         self.task = task  # решаемая задача
-        self.curState = 'FirstCheck'  # текущее состояние решателя
+        self.curState = 'Initial'  # текущее состояние решателя
         self.logName = log_name
+        self.resName = res_name
 
         # Атрибуты решателя,котоые используются для взаимодействия с пользователем
         # state.message =  str.format    #сообщение для пользователя
@@ -186,7 +187,16 @@ def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
         log_name = f'{_log_dir}/Logs/Experiment_log_{tt}.txt'
         if not os.path.exists(f'{_log_dir}/Logs'):
             os.makedirs(f'{_log_dir}/Logs')
+    
+        # создаём директорию для логов
+        res_name = f'{_log_dir}/Results/Results_log_{tt}.txt'
+        if not os.path.exists(f'{_log_dir}/Results'):
+            os.makedirs(f'{_log_dir}/Results')
+        with open(res_name, 'w') as f:
+            f.write('Results of Experiment ' + tt + '\n')
         num_steps = 0
+    
+
 
         state = State(task, log_name)
         pcall("set_state", state)
