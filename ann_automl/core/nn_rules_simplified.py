@@ -5,6 +5,8 @@ import sys
 import time
 from collections import defaultdict
 from functools import reduce
+import random
+from copy import copy
 from typing import Any
 
 import pandas as pd
@@ -18,9 +20,9 @@ from pytz import timezone
 
 from .hw_devices import tf_devices_memory
 from .nnfuncs import hyperparameters, nnDB, _data_dir, create_model, create_generators, fit_model, create_data_subset
-from .solver import Rule, rule, Task, printlog, SolverState
+from .solver import Rule, rule, Task, printlog, SolverState, Recommender
 from ..utils.process import request, NoHandlerError
-from .nn_solver import NNTask
+from .nn_solver import NNTask, SetectHParamsTask
 
 
 def find_zero_neighbor(center, table, radius=1):
@@ -31,24 +33,15 @@ def find_zero_neighbor(center, table, radius=1):
     return None
 
 
-class SetectHParamsTask(Task):
-    def __init__(self, nn_task: NNTask):
-        super().__init__(goals={})
-        self.nn_task = nn_task
-        self.hparams = {param: hyperparameters[param]['default'] for param in hyperparameters}
-        self.hparams['pipeline'] = None
-        self.recommendations = {}
-
-
-class Recommender(Rule, abc.ABC):
-    def __init__(self):
-        self.key = self.__class__.__name__
-
-    def can_recommend(self, task) -> bool:
-        return True
-
-    def can_apply(self, task, state: SolverState) -> bool:
-        return self.key not in task.recommendations and self.can_recommend(task)
+# class Recommender(Rule, abc.ABC):
+#     def __init__(self):
+#         self.key = self.__class__.__name__
+#
+#     def can_recommend(self, task) -> bool:
+#         return True
+#
+#     def can_apply(self, task, state: SolverState) -> bool:
+#         return self.key not in task.recommendations and self.can_recommend(task)
 
 
 # Базовые приёмы для начальной рекомендации гиперпараметров
@@ -123,7 +116,7 @@ class RecommendFromHistory(Recommender):
 
 def estimate_batch_size(model: keras.Model, precision: int = 4) -> int:
     """ Оценка размера батча, который может поместиться в память """
-    weight_multiplier = 5
+    weight_multiplier = 3
     mem = min(tf_devices_memory())  # batch size is limited by the smallest device
     num_params = sum(np.prod(layer.output_shape[1:]) for layer in model.layers) + \
                  sum(keras.backend.count_params(x) for x in model.trainable_weights) + \
@@ -140,6 +133,37 @@ class RecommendBatchSize(Recommender):
     def apply(self, task: SetectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         prec['batch_size'] = estimate_batch_size(task.nn_task.model)  # recommends max possible batch size
+
+
+def get_history(task: NNTask, exact_category_match=False):
+    """ Получает рекомендации из истории запусков """
+    ch_res = nnDB.get_models_by_filter({
+        'min_metrics': task.goals,
+        'task_type': task.task_type,
+        'categories': list(task.objects)},
+        exact_category_match=exact_category_match)
+    n = len(ch_res.index)
+    candidates = []
+    for i in range(n):
+        hist_file = ch_res.iloc[i]['history_address']  # csv-файл с историей запусков
+        if os.path.exists(hist_file):  # add all rows from history to candidates
+            hist = pd.read_csv(hist_file)
+            nrows = hist.shape[0]
+            for row in range(nrows):
+                candidates.append(hist.iloc[row].to_dict())
+    return candidates
+
+
+@rule(SetectHParamsTask)
+class RecommendFromHistory(Recommender):
+    """ Предлагает параметры, которые были использованы в предыдущих
+        аналогичных запусках (может рекомендовать любые параметры)
+    """
+    def apply(self, task: SetectHParamsTask, state: SolverState):
+        prec = task.recommendations[self.key] = {}
+        candidates = get_history(task.nn_task)
+        if len(candidates) > 0:
+            prec.update(random.choice(candidates))
 
 
 @rule(NNTask)
@@ -203,7 +227,8 @@ class CheckSuitableModelExistence(Rule):
                           list(task.goals.keys())[0]: ch_res.iloc[i]['metric_value']})
 
             task.cur_state = 'UserDec'
-            task.message = 'There is a suitable model in our base of trained models. Would you like to train an another model? "No" - 0; "Yes" - 1. '
+            task.message = 'There is a suitable model in our base of trained models.' \
+                           'Would you like to train an another model? "No" - 0; "Yes" - 1. '
             task.actions = {'0': 'Done', '1': 'DB'}
         task.suitModels = s
 
@@ -445,217 +470,4 @@ class FitModel(Rule):
             print(scores, file=log_file)
 
         task.cur_state = 'GridStep'
-
-
-@rule
-class GridStep(Rule):
-    """ Прием для перехода к следующей точке сетки """
-
-    def can_apply(self, task):
-        return task.task_ct == "train" and task.cur_state == 'GridStep'
-
-    def apply(self, task):
-
-        printlog('GRID')
-        printlog('central hp', task.cur_C_hp)
-        # print(task.cur_central_point, task.cur_training_point)
-        # print(task.hp_grid)
-
-        with open(task.log_name, 'a') as log_file:
-            print('\n', file=log_file)
-            print(task.hp_grid, file=log_file)
-            print('\n', file=log_file)
-            print('GRID', file=log_file)
-            print('central hp', task.cur_C_hp, file=log_file)
-
-        if not hasattr(task, 'best_model') or task.hp_grid[tuple(task.cur_training_point)] > \
-                task.hp_grid[tuple(task.best_model)]:
-            task.best_model = task.cur_training_point.copy()
-            task.best_num = task.counter
-
-        # пройтись по окрестности центральной точки, на наличие необученного соседа
-        checkN, cur = neighborhood(task.cur_central_point, task.hp_grid)
-
-        if not checkN:
-
-            printlog('neighboor exists')
-
-            with open(task.log_name, 'a') as log_file:
-                print('neighboor exists', file=log_file)
-
-            # если есть нулевой сосед
-            task.cur_training_point = cur
-
-            vC = task.cur_central_point
-            vN = task.cur_training_point
-
-            # print(vC, vN)
-
-            if vC[0] != vN[0]:
-                # print('total')
-
-                # поменяла оптимизатор => меняем все три гиперпараметра по массивам
-                task.cur_hp['optimizer'] = task.hyperParams['optimizer'][vN[0]]
-                task.cur_hp['batch_size'] = task.hyperParams['batch_size'][vN[2]]
-
-                if task.cur_hp['optimizer'] == 'SGD':
-                    task.cur_hp['learning_rate'] = task.hyperParams['lr_SGD'][vN[1]]
-                else:
-                    task.cur_hp['learning_rate'] = task.hyperParams['lr_A_R'][vN[1]]
-
-            elif vC[1] != vN[1]:
-                # print('lr+bs')
-                # поменяла learning rate => должен пропорционально поменяться batch size
-                task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-
-                if task.cur_hp['optimizer'] == 'SGD':
-                    task.cur_hp['learning_rate'] = task.hyperParams['lr_SGD'][vN[1]]
-                else:
-                    task.cur_hp['learning_rate'] = task.hyperParams['lr_A_R'][vN[1]]
-
-                task.cur_hp['batch_size'] = int(task.cur_C_hp['batch_size'] * 2 ** (
-                            (vN[2] - vC[2]) + (vN[1] - vC[1])))  # изменение батча из-за learning rate см бумаги
-
-            else:
-                # print('only bs')
-                task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-                task.cur_hp['learning_rate'] = task.cur_C_hp['learning_rate']
-
-                # если изменили только batch size, то просто умножили или поделили на два текущее значение
-                # (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
-                task.cur_hp['batch_size'] = int(task.cur_C_hp['batch_size'] * 2 ** (vN[2] - vC[2]))
-
-            if task.cur_hp['batch_size'] > 64:
-                task.cur_hp['batch_size'] = 64
-
-            # print(task.cur_hp)
-            # task.hp_grid[tuple(vN)]=0.5
-
-        else:
-            # все соседи уже обработаны
-
-            with open(task.log_name, 'a') as log_file:
-                print('checkN of our central point is equal -1 => Step', file=log_file)
-                print(task.hp_grid, file=log_file)
-
-            printlog('checkN of our central point is equal -1 => Step')
-            printlog(task.hp_grid)
-
-            if task.best_model == task.cur_central_point:
-
-                with open(task.log_name, 'a') as log_file:
-                    print('task.best_model == task.cur_central_point -- local maximum', file=log_file)
-
-                printlog('task.best_model == task.cur_central_point -- local maximum')
-                # осмотрела всю окрестность, но лучше результата нет => попали в локальный максимум => сохранить реузультаты и закончить работу
-                # ЛУЧШИЙ РЕЗУЛЬТАТ ЭКСПЕРИМЕНТА ЗАПИСАТЬ В БД
-                best = task.history['Index'] == task.best_num  # является ли текущий индекс лучшим
-                loc = task.history.loc[best]
-                prefix = f"{_data_dir}/trainedNN/{loc['exp_name'].iloc[0]}/{loc['train_subdir'].iloc[0]}/{loc['train_subdir'].iloc[0]}"
-                nnDB.add_model_record(task_type=task.task_type,
-                                      categories=list(task.objects),  # категории объектов
-                                      model_address=prefix + '__Model.h5',  # путь к файлу, где лежит модель
-                                      metrics={list(task.goal.keys())[0]: loc['metric_test_value'].iloc[0]},  # значения метрик
-                                      history_address=prefix + '__History.h5')  # путь к файлу, где лежит история обучения
-                task.cur_state = 'Done'
-                return
-
-            else:
-                # поменяла центральную точку => надо осмотреть её окрестность
-
-                with open(task.log_name, 'a') as log_file:
-                    print('have found a new central point => change it anf it\'s hyperParams ', file=log_file)
-
-                printlog('have found a new central point => change it anf it\'s hyperParams ')
-                task.cur_central_point = task.best_model.copy()
-                task.cur_C_hp['optimizer'] = task.hyperParams['optimizer'][task.cur_central_point[0]]
-                task.cur_C_hp['batch_size'] = task.hyperParams['batch_size'][task.cur_central_point[2]]
-
-                if task.cur_C_hp['optimizer'] == 'SGD':
-                    task.cur_C_hp['learning_rate'] = task.hyperParams['lr_SGD'][task.cur_central_point[1]]
-                else:
-                    task.cur_C_hp['learning_rate'] = task.hyperParams['lr_A_R'][task.cur_central_point[1]]
-
-                checkN, cur = neighborhood(task.cur_central_point, task.hp_grid)
-
-                if not checkN:
-
-                    with open(task.log_name, 'a') as log_file:
-                        print('neighboor of a new central point exists', file=log_file)
-
-                    printlog('neighboor of a new central point exists')
-
-                    # если есть нулевой сосед
-                    task.cur_training_point = cur
-
-                    vC = task.cur_central_point
-                    vN = task.cur_training_point
-
-                    # print(vC, vN)
-
-                    if vC[0] != vN[0]:
-                        # print('total')
-
-                        # поменяла оптимизатор => меняем все три гиперпараметра по массивам
-                        task.cur_hp['optimizer'] = task.hyperParams['optimizer'][vN[0]]
-                        task.cur_hp['batch_size'] = task.hyperParams['batch_size'][vN[2]]
-
-                        if task.cur_hp['optimizer'] == 'SGD':
-                            task.cur_hp['learning_rate'] = task.hyperParams['lr_SGD'][vN[1]]
-                        else:
-                            task.cur_hp['learning_rate'] = task.hyperParams['lr_A_R'][vN[1]]
-
-                    elif vC[1] != vN[1]:
-                        # print('lr+bs')
-                        # поменяла learning rate => должен пропорционально поменяться batch size
-                        task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-
-                        if task.cur_hp['optimizer'] == 'SGD':
-                            task.cur_hp['learning_rate'] = task.hyperParams['lr_SGD'][vN[1]]
-                        else:
-                            task.cur_hp['learning_rate'] = task.hyperParams['lr_A_R'][vN[1]]
-
-                        task.cur_hp['batch_size'] = int(task.cur_C_hp['batch_size'] * 2 ** ((vN[2] - vC[2]) + (vN[1] - vC[1])))  # изменение батча из-за learning rate см бумаги
-
-                    else:
-                        # print('only bs')
-                        task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-                        task.cur_hp['learning_rate'] = task.cur_C_hp['learning_rate']
-
-                        # если изменили только batch size, то просто умножили или поделили на два текущее значение
-                        # (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
-                        task.cur_hp['batch_size'] = int(task.cur_C_hp['batch_size'] * 2 ** (vN[2] - vC[2]))
-
-                    if task.cur_hp['batch_size'] > 64:
-                        task.cur_hp['batch_size'] = 64
-
-                    # print(task.cur_hp)
-                    # tate.task.hp_grid[tuple(vN)]=0.5
-
-                else:
-
-                    with open(task.log_name, 'a') as log_file:
-                        print('set a new central point, but it\'s neighborhood has already filled => local maximum',
-                              file=log_file)
-
-                    printlog('set a new central point, but it\'s neighborhood has already filled => local maximum')
-                    # осмотрела всю окрестность, но лучше результата нет => попали в локальный максимум => сохранить реузультаты и закончить работу
-                    # ЛУЧШИЙ РЕЗУЛЬТАТ ЭКСПЕРИМЕНТА ЗАПИСАТЬ В БД
-                    best = task.history['Index'] == task.best_num  # является ли текущий индекс лучшим
-                    loc = task.history.loc[best]
-                    prefix = f"{_data_dir}/trainedNN/{loc['exp_name'].iloc[0]}/{loc['train_subdir'].iloc[0]}/{loc['train_subdir'].iloc[0]}"
-                    nnDB.add_model_record(task_type=task.task_type,
-                                          categories=list(task.objects),
-                                          model_address=prefix + '__Model.h5',
-                                          metrics={list(task.goal.keys())[0]: loc['metric_test_value'].iloc[0]},
-                                          history_address=prefix + 'History.h5')  # TODO: почему здесь "History.h5", а не "__History.h5"?
-
-                    task.cur_state = 'Done'
-                    return
-
-        task.counter += 1
-        task.cur_state = 'Training_Gen'
-        if task.counter > 600:
-            task.cur_state = 'Done'
-
 

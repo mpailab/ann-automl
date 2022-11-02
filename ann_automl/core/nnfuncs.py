@@ -14,7 +14,7 @@ from .solver import printlog
 _data_dir = 'data'
 _db_file = 'tests.sqlite'
 
-nnDB = db_module.dbModule(dbstring=f'sqlite:///{_db_file}')  # TODO: уточнить путь к файлу базы данных
+nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')  # TODO: уточнить путь к файлу базы данных
 
 
 def set_data_dir(data_dir):
@@ -37,6 +37,26 @@ def set_db_file(db_file):
 
 # !!! гиперпараметры и их значения сгенерированы автоматически !!!
 # TODO: проверить их на корректность
+augmen_params_list = {
+    'rotation_range': {'type': 'float_range', 'range': [0, 180], 'default': None, 'name': 'угол поворота'},
+    'width_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'сдвиг по ширине'},
+    'height_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'сдвиг по высоте'},
+    'shear_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'угол наклона'},
+    'zoom_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'масштаб'},
+    'channel_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'сдвиг по цвету'},
+    'fill_mode': {'type': 'str', 'values': ['constant', 'nearest', 'reflect', 'wrap'], 'default': 'constant',
+                  'name': 'режим заполнения'},
+    'cval': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'name': 'значение заполнения'},
+    'horizontal_flip': {'type': 'bool', 'default': False, 'name': 'горизонтальное отражение'},
+    'vertical_flip': {'type': 'bool', 'default': False, 'name': 'вертикальное отражение'},
+    'rescale': {'type': 'float', 'range': [0, 1], 'default': None, 'name': 'масштабирование'},
+    'preprocessing_function': {'type': 'str', 'values': ['auto', 'None', 'rescale', 'preprocess_input'],
+                               'default': 'auto', 'name': 'функция предобработки'},
+    'data_format': {'type': 'str', 'values': ['channels_last', 'channels_first'], 'default': 'channels_last',
+                    'name': 'формат данных'},
+}
+
+
 hyperparameters = {
     'batch_size': {
         'type': 'int',
@@ -100,6 +120,9 @@ hyperparameters = {
                           'default': 'auto', 'name': 'ограничение весов'},
     'bias_constraint': {'type': 'str', 'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
                         'default': 'auto', 'name': 'ограничение смещений'},
+    'augmen_params': {'type': 'dict', 'default': {},
+                      'params': augmen_params_list,
+                      'name': 'параметры аугментации'},
 
     # conditional parameters (for optimizers)
     'nesterov': {'type': 'bool', 'default': False, 'name': 'Nesterov momentum', 'cond': True},  # для SGD

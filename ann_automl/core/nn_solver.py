@@ -1,10 +1,12 @@
 import os
 import sys
 import traceback
+from copy import copy
 from datetime import datetime
 from pytz import timezone
 
-from .solver import Task, set_log_dir, printlog, _log_dir
+from .nnfuncs import hyperparameters
+from .solver import Task, set_log_dir, printlog, _log_dir, RecommendTask
 from ..utils.process import pcall
 
 
@@ -89,3 +91,21 @@ class NNTask(Task):
             printlog(traceback.format_exc(), file=sys.stderr)
             raise
 
+
+class SetectHParamsTask(RecommendTask):
+    def __init__(self, nn_task: NNTask):
+        super().__init__(goals={})
+        self.nn_task = nn_task
+        self.hparams = {param: hyperparameters[param]['default'] for param in hyperparameters}
+        self.hparams['pipeline'] = None
+        self.recommendations = {}
+
+    def set_selected_options(self, options):
+        self.hparams.update(options)
+
+
+def recommend_hparams(task: NNTask, solve_params=None) -> dict:
+    """ Рекомендует гиперпараметры для задачи """
+    htask = SetectHParamsTask(task)
+    htask.solve(global_params=solve_params)
+    return htask.hparams

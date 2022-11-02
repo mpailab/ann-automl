@@ -276,7 +276,10 @@ class RecommendTask(Task):
         super().__init__(goals=goals)
         self.recommendations = {}
         self.votes = defaultdict(lambda: 0)
-        self.stages = ['Recommend', 'Vote', 'Select']
+        self.stages = ['Recommend', 'Vote', 'Select', 'Finalize']
+
+    def set_selected_options(self, options):
+        self.answer = options
 
 
 class Recommender(Rule, ABC):
@@ -303,3 +306,22 @@ class VoteRule(Rule, ABC):
 
     def can_apply(self, task: RecommendTask, state: SolverState) -> bool:
         return self.key not in task.votes and self.can_vote(task)
+
+
+@rule(RecommendTask)
+class SelectRecommendation(Rule):
+    stages = ['Finalize']
+
+    def can_apply(self, task: RecommendTask, state: SolverState) -> bool:
+        return len(task.recommendations) > 0 and task.answer is None
+
+    def apply(self, task: RecommendTask, state: SolverState):
+        keys = {k for rn, rec in task.recommendations for k, v in rec}
+        res = {}
+        for k in keys:
+            votes = defaultdict(lambda: 0.0)
+            for rn, rec in task.recommendations:
+                if k in rec:
+                    votes[rec[k]] += task.votes.get(rn, 1)
+            res[k] = max(votes.items(), key=lambda x: x[1])[0]
+        task.set_selected_options(res)
