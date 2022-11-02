@@ -1,0 +1,36 @@
+SQL datasets structure:
+
+Dataset
+
+ID (int) | Description (string) | URL (string) | Version(string) | Year (int) | Contributor(string) | Date_created (string)
+
+
+Category
+
+ID(int) | Supercategory (string) | Name (string)
+
+
+Licences
+
+ID (int) | Name (string) | URL (string)
+
+
+Images
+
+ID (int) | Dataset_ID (int) | Licence_ID(int) | File_name (string) | Coco_URL (string) | Height (int) | Width (int) | Date_captured(string) |  flickr_url (string)
+
+
+Annotation
+
+ID (int) | Image_ID(int) | Category_ID (int) | Bbox (string) | Segmentation (string) | IsCrowd (int) | Area (float)
+
+
+
+Прием должен быть один - LoadDataset (он уже присутствует), однако должен обрабатывать наборы аттрибутов:
+1) load_specific_datasets = [ds1,ds2,...,dsk]
+2) load_specific_categories = [c1,c2,...,cl]
+3) filter_image_dims = [min_width, min_height]
+4) filter_specific_licences = [l1,l2,..,ln]
+5) only_with_segmentation (bool)
+
+Результат выполнения приема - Pandas dataframe (keras умеет читать с него нативно), хранить в формате json большой необходимости нет(усложняется навигация и поиск).
