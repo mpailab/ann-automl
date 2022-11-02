@@ -80,6 +80,12 @@ class Task:
         """ Возвращает цели задачи """
         return self._goal
 
+    def __str__(self) -> str:
+        return f"Категория задачи:\n    {self.taskCt}\n" + \
+            f"Тип задачи:\n    {self.taskType}\n" + \
+            f"Категории объектов интереса:\n    {str(self.objects)}\n" + \
+            f"Цели задачи:\n    {str(self.goal)}"
+
 
 class State:
     """
@@ -216,7 +222,7 @@ def solve(task: Task, rules=None, max_num_steps=500, debug_mode=False):
             pos = (pos + 1) % len(rules)
             if num_steps > max_num_steps:
                 printlog(f'Превышено максимальное число шагов ({max_num_steps})')
-                break
+            break
 
         return state
     except Exception as e:
