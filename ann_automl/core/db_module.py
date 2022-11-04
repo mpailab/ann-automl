@@ -983,5 +983,5 @@ class DBModule:
         for cat_id in categories_in_ds:
             cat_name = cats_df.loc[cats_df['ID'] == cat_id].values[0][2]
             cat_count = cat_counts_dict[cat_id]
-            result['categories'][cat_id] = [cat_name, cat_count]
+            result['categories'][str(cat_id)] = [cat_name, cat_count]
         return result

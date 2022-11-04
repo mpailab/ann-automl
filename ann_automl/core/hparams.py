@@ -1,16 +1,18 @@
-# !!! гиперпараметры и их значения сгенерированы автоматически !!!
+# !!! некоторые гиперпараметры и их значения сгенерированы автоматически !!!
 # TODO: проверить их на корректность
 hyperparameters = {
-    'batch_size': {
-        'type': 'int',
-        'range': [1, 128],
-        'default': 32,
-        'step': 2,
-        'scale': 'log',
-        'name': "размер батча",
-        'description': "Размер батча, используемый при обучении нейронной сети"
+    'epochs': {
+        'type': 'int', 
+        'range': [10, 1000], 
+        'default': 150, 
+        'step': 10, 
+        'scale': 'lin', 
+        'title': "Количество эпох",
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Learning'
+        }
     },
-    'epochs': {'type': 'int', 'range': [10, 1000], 'default': 150, 'step': 10, 'scale': 'lin', 'name': "количество эпох"},
     'optimizer': {
         'type': 'str',
         'values': {
@@ -23,33 +25,58 @@ hyperparameters = {
             'Nadam': {'params': ['beta_1', 'beta_2', 'epsilon']},
         },
         'default': 'Adam',
-        'name': "оптимизатор",
-        'description': "Оптимизатор, используемый при обучении нейронной сети:\n"
-                       "- Adam - адаптивный метод градиентного спуска, основанный на оценках первого и второго моментов градиента\n"
-                       "- SGD - стохастический градиентный спуск\n"
-                       "- RMSprop - адаптивный метод градиентного спуска, основанный на оценках второго момента градиента\n"
+        'title': "Оптимизатор",
+        'description': """
+Оптимизатор, используемый при обучении нейронной сети:
+- Adam - адаптивный метод градиентного спуска, основанный на оценках первого и второго моментов градиента
+- SGD - стохастический градиентный спуск
+- RMSprop - адаптивный метод градиентного спуска, основанный на оценках второго момента градиента
+""",
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
     },
-    'learning_rate': {'type': 'float',
-                      'range': [1e-5, 1e-1],
-                      'default': 1e-3,
-                      'step': 2,
-                      'scale': 'log',
-                      'name': "скорость обучения",
-                      },
-    'decay': {'type': 'float',
-              'range': [0, 1],
-              'default': 0.0,
-              'step': 0.01,
-              'scale': 'lin',
-              'name': 'декремент скорости обучения',
-              'description': "Декремент скорости обучения. Если значение больше нуля, "
-                             "то скорость обучения будет уменьшаться по формуле:\n"
-                             "learning_rate = learning_rate * 1 / (1 + decay * epoch)"
-              },
-    'activation': {'type': 'str', 'values': ['softmax', 'elu', 'selu', 'softplus',
-                                             'softsign', 'relu', 'tanh',
-                                             'sigmoid', 'hard_sigmoid', 'linear'],
-                   'default': 'relu', 'name': 'функция активации'},
+    'learning_rate': {
+        'type': 'float',
+        'range': [1e-5, 1e-1],
+        'default': 1e-3,
+        'step': 2,
+        'scale': 'log',
+        'title': "Скорость обучения",
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Learning'
+        }
+    },
+    'decay': {
+        'type': 'float',
+        'range': [0, 1],
+        'default': 0.0,
+        'step': 0.01,
+        'scale': 'lin',
+        'title': 'Декремент скорости обучения',
+        'description': """
+Декремент скорости обучения. Если значение больше нуля, то скорость обучения будет уменьшаться по формуле:
+learning_rate = learning_rate * 1 / (1 + decay * epoch)
+""",
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Learning'
+        }
+    },
+    'activation': {
+        'type': 'str', 
+        'values': ['softmax', 'elu', 'selu', 'softplus',
+                   'softsign', 'relu', 'tanh',
+                   'sigmoid', 'hard_sigmoid', 'linear'],
+        'default': 'relu', 
+        'title': 'Функция активации',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
     'loss': {
         'type': 'str',
         'values': ['mean_squared_error', 'mean_absolute_error', 'mean_absolute_percentage_error',
@@ -58,8 +85,14 @@ hyperparameters = {
                    'binary_crossentropy', 'kullback_leibler_divergence', 'poisson',
                    'cosine_proximity'],
         'default': 'mean_squared_error',
-        'name': 'функция потерь',
-        'description': "Функция потерь. При обучении нейронной сети эта функция минимизируется.\n"
+        'title': 'Функция потерь',
+        'description': """
+Функция потерь. При обучении нейронной сети эта функция минимизируется.
+""",
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
     },
     'metrics': {
         'type': 'str',
@@ -67,65 +100,198 @@ hyperparameters = {
                    'sparse_categorical_accuracy', 'top_k_categorical_accuracy',
                    'sparse_top_k_categorical_accuracy'],
         'default': 'accuracy',
-        'name': 'метрика'
+        'title': 'Метрика',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
     },
     'dropout': {
         'type': 'float',
         'range': [0, 1],
+        'step': 0.01,
+        'scale': 'lin',
         'default': 0.0,
-        'name': 'dropout',
-        'description': "Вероятность отключения нейронов. Если значение больше нуля, то во время "
-                       "обучения нейроны будут отключаться случайным образом c такой вероятностью."
+        'title': 'Dropout',
+        'description': """
+Вероятность отключения нейронов. Если значение больше нуля, то во время обучения нейроны будут отключаться случайным образом c такой вероятностью.
+""",
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Learning'
+        }
     },
-    # доля нейронов, которые отключаются при обучении
-    'kernel_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
-                                                     'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
-                                                     'glorot_normal', 'glorot_uniform', 'he_normal', 'lecun_normal',
-                                                     'he_uniform'],
-                           'default': 'glorot_uniform', 'name': 'инициализатор весов'},
-    'bias_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
-                                                   'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
-                                                   'glorot_normal', 'glorot_uniform', 'he_normal', 'lecun_normal',
-                                                   'he_uniform'], 'default': 'zeros', 'name': 'инициализатор смещений'},
-    'kernel_regularizer': {'type': 'str', 'values': ['auto', 'l1', 'l2', 'l1_l2'],
-                           'default': 'auto', 'name': 'регуляризатор весов'},
-    'bias_regularizer': {'type': 'str', 'values': ['auto', 'l1', 'l2', 'l1_l2'],
-                         'default': 'auto', 'name': 'регуляризатор смещений'},
-    'activity_regularizer': {'type': 'str', 'values': ['auto', 'l1', 'l2', 'l1_l2'],
-                             'default': 'auto', 'name': 'регуляризатор активации'},
-    'kernel_constraint': {'type': 'str', 'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
-                          'default': 'auto', 'name': 'ограничение весов'},
-    'bias_constraint': {'type': 'str', 'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
-                        'default': 'auto', 'name': 'ограничение смещений'},
+    'kernel_initializer': {
+        'type': 'str', 
+        'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
+                   'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
+                   'glorot_normal', 'glorot_uniform', 'he_normal', 'lecun_normal',
+                   'he_uniform'],
+        'default': 'glorot_uniform', 
+        'title': 'Инициализатор весов',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
+    'bias_initializer': {
+        'type': 'str', 
+        'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
+                   'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
+                   'glorot_normal', 'glorot_uniform', 'he_normal', 'lecun_normal',
+                   'he_uniform'], 
+        'default': 'zeros', 
+        'title': 'Инициализатор смещений',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
+    'kernel_regularizer': {
+        'type': 'str', 
+        'values': ['auto', 'l1', 'l2', 'l1_l2'],
+        'default': 'auto', 
+        'title': 'Регуляризатор весов',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
+    'bias_regularizer': {
+        'type': 'str', 
+        'values': ['auto', 'l1', 'l2', 'l1_l2'],
+        'default': 'auto', 
+        'title': 'Регуляризатор смещений',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
+    'activity_regularizer': {
+        'type': 'str', 
+        'values': ['auto', 'l1', 'l2', 'l1_l2'],
+        'default': 'auto', 
+        'title': 'Регуляризатор активации',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
+    'kernel_constraint': {
+        'type': 'str', 
+        'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
+        'default': 'auto', 
+        'title': 'Ограничение весов',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
+    'bias_constraint': {
+        'type': 'str', 
+        'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
+        'default': 'auto', 
+        'title': 'Ограничение смещений',
+        'gui': {
+            'widget': 'Select',
+            'group': 'Learning'
+        }
+    },
 
     # conditional parameters (for optimizers)
-    'nesterov': {  # для SGD
+    'nesterov': { 
         'type': 'bool',
         'default': False,
-        'name': 'Nesterov momentum',
-        'cond': True,
+        'title': 'Nesterov momentum',
+        'cond': [('optimizer', set(['SGD']))],
+        'gui': {
+            'widget': 'Checkbox',
+            'group': 'Optimizer'
+        }
     },
-    'centered': {  # для RMSprop
+    'centered': { 
         'type': 'bool',
         'default': False,
-        'name': 'centered',
-        'cond': True,
+        'title': 'Centered',
+        'cond': [('optimizer', set(['RMSprop']))],
+        'gui': {
+            'widget': 'Checkbox',
+            'group': 'Optimizer'
+        }
     },
-    'amsgrad': {  # для Adam
+    'amsgrad': {
         'type': 'bool',
         'default': False,
-        'name': 'amsgrad для Adam',
-        'cond': True
+        'title': 'Amsgrad',
+        'cond': [('optimizer', set(['Adam']))],
+        'gui': {
+            'widget': 'Checkbox',
+            'group': 'Optimizer'
+        }
     },
-
-    'momentum': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
-                 'name': 'momentum', 'cond': True},  # момент для SGD
-    'rho': {'type': 'float', 'range': [0.5, 0.99], 'default': 0.9, 'name': 'rho', 'cond': True,
-            'step': 2**0.25, 'scale': 'loglog'},  # коэффициент затухания для RMSprop
-    'epsilon': {'type': 'float', 'range': [1e-8, 1e-1], 'default': 1e-7, 'step': 10, 'scale': 'log',
-                'name': 'epsilon', 'cond': True},  # для RMSprop, Adagrad, Adadelta, Adamax, Nadam
-    'beta_1': {'type': 'float', 'range': [0.5, 0.999], 'default': 0.9, 'name': 'beta_1 для Adam', 'cond': True,
-               'step': 2**0.25, 'scale': 'loglog'},  # для Adam, Nadam, Adamax
-    'beta_2': {'type': 'float', 'range': [0.5, 0.9999], 'default': 0.999, 'name': 'beta_2 для Adam', 'cond': True,
-               'step': 2**0.25, 'scale': 'loglog'},  # для Adam, Nadam, Adamax
+    'momentum': {
+        'type': 'float', 
+        'range': [0, 1], 
+        'default': 0.0, 
+        'step': 0.01, 
+        'scale': 'lin',
+        'title': 'momentum', 
+        'cond': [('optimizer', set(['SGD']))],
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Optimizer'
+        }
+    },
+    'rho': {
+        'type': 'float', 
+        'range': [0.5, 0.99], 
+        'default': 0.9,
+        'step': 2**0.25, 
+        'scale': 'loglog', 
+        'title': 'rho', 
+        'cond': [('optimizer', set(['RMSprop']))],
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Optimizer'
+        }
+    },
+    'epsilon': {
+        'type': 'float', 
+        'range': [1e-8, 1e-1], 
+        'default': 1e-7, 
+        'step': 10, 
+        'scale': 'log',
+        'title': 'epsilon', 
+        'cond': [('optimizer', set(['RMSprop', 'Adagrad', 'Adadelta', 'Adamax', 'Nadam']))],
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Optimizer'
+        }
+    },
+    'beta_1': {
+        'type': 'float', 
+        'range': [0.5, 0.999], 
+        'default': 0.9,
+        'step': 2**0.25, 
+        'scale': 'loglog', 
+        'title': 'beta_1', 
+        'cond': [('optimizer', set(['Adam', 'Nadam', 'Adamax']))],
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Optimizer'
+        }
+    },
+    'beta_2': {
+        'type': 'float', 
+        'range': [0.5, 0.9999], 
+        'default': 0.999,
+        'step': 2**0.25, 
+        'scale': 'loglog', 
+        'title': 'beta_2', 
+        'cond': [('optimizer', set(['Adam', 'Nadam', 'Adamax']))],
+        'gui': {
+            'widget': 'Slider',
+            'group': 'Optimizer'
+        }
+    }, 
 }
