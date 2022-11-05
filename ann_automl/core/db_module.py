@@ -23,6 +23,32 @@ Base = declarative_base()
 class DBModule:
 
     ############################################################
+    ##########              Helpers          ###################
+    ############################################################
+    def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
+        """
+        Helper to display progress bar, source from https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
+        Call in a loop to create terminal progress bar
+        @params:
+            iteration   - Required  : current iteration (Int)
+            total       - Required  : total iterations (Int)
+            prefix      - Optional  : prefix string (Str)
+            suffix      - Optional  : suffix string (Str)
+            decimals    - Optional  : positive number of decimals in percent complete (Int)
+            length      - Optional  : character length of bar (Int)
+            fill        - Optional  : bar fill character (Str)
+            printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+        """
+        percent = ("{0:." + str(decimals) + "f}").format(100 *
+                                                         (iteration / float(total)))
+        filledLength = int(length * iteration // total)
+        bar = fill * filledLength + '-' * (length - filledLength)
+        print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=printEnd)
+        # Print New Line on Complete
+        if iteration == total:
+            print()
+
+    ############################################################
     ##########        DB ORM description     ###################
     ############################################################
 
@@ -207,11 +233,11 @@ class DBModule:
             return
         self.create_sqlite_file()
         self.fill_coco(anno_file_name=anno_file_name, first_time=True)
-        self.fill_cats_dogs()
+        self.fill_kaggle_cats_vs_dogs()
         self.fill_imagenet(first_time=True)
         return
 
-    def fill_cats_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
+    def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         Parameters
         ----------
@@ -232,7 +258,8 @@ class DBModule:
         with open(anno_file_name) as json_file:
             data = json.load(json_file)
         if not os.path.isfile(file_prefix + data['images'][0]['file_name']):
-            print('Error in json file, missing images stored on disc (i.e.', file_prefix + data['images'][0]['file_name'], ')')
+            print('Error in json file, missing images stored on disc (i.e.',
+                  file_prefix + data['images'][0]['file_name'], ')')
             print('Stop filling dataset')
             return
         dataset_info = data['info']
@@ -242,14 +269,24 @@ class DBModule:
         self.sess.commit()  # adding dataset
         ###################################
         im_objects = {}
+        self.printProgressBar(
+            0, len(data['images']), prefix='Adding images:', suffix='Complete', length=50)
+        im_counter = 0
         for im_data in data['images']:
             image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
                                im_data['license'])
+            self.printProgressBar(im_counter, len(
+                data['images']), prefix='Adding images:', suffix='Complete', length=50)
+            im_counter += 1
             im_objects[im_data['id']] = image
             self.sess.add(image)
         self.sess.commit()  # adding images
         ###################################
+
+        self.printProgressBar(0, len(
+            data['annotations']), prefix='Adding annotations:', suffix='Complete', length=50)
+        an_counter = 0
         for an_data in data['annotations']:
             # TODO: +1 because of error in json - should be fixed later
             real_id = im_objects[an_data['image_id']].ID
@@ -259,6 +296,9 @@ class DBModule:
                                          segmentation=';'.join(an_data['segmentation']),
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'])
+            self.printProgressBar(an_counter, len(data['annotations']),
+                                  prefix='Adding annotations:', suffix='Complete', length=50)
+            an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
         print('Finished with Kaggle CatsVsDogs')
@@ -284,7 +324,7 @@ class DBModule:
         """
         print('Start filling DB with COCO-format dataset from file',anno_file_name)
         if not os.path.isfile(anno_file_name):
-            print('Error: no file',anno_file_name,'found')
+            print('Error: no file',anno_file_name, 'found')
             print('Stop filling dataset')
             return
         coco = COCO(anno_file_name)
@@ -378,7 +418,8 @@ class DBModule:
         # Then we iterate over all the images from dataset.
         # For each image we check if there are bbox in XML files.
         # If so - this information is added to annotation.
-        img_files = glob.glob(file_prefix + '/*/*.JPEG', recursive=True)  # ImageNet file structure requires /*/*.JPEG
+        # ImageNet file structure requires /*/*.JPEG
+        img_files = glob.glob(file_prefix + '/*/*.JPEG', recursive=True)
         print('Len img_files:', len(img_files))
         images = []
         annotations = []
@@ -426,10 +467,20 @@ class DBModule:
         self.add_images_and_annotations(images, annotations, ds_id)
         return images, annotations
 
-    def get_all_datasets(self):
+    def get_all_datasets(self, full_info=False):
+        if not os.path.exists(self.dbstring_.split('/')[-1]):
+            self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
-        return df
+        df_rec = df.to_dict('record')
+        df_dict = {}
+        for el in df_rec:
+            if not full_info:
+                df_dict[el['ID']] = el
+                del df_dict[el['ID']]['ID']
+            else:
+                df_dict[el['ID']] = self.get_full_dataset_info(el['ID'])
+        return df_dict
 
     def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
         """Method to load annotations from specific datasets, given their IDs.
@@ -451,7 +502,8 @@ class DBModule:
                                 ).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
         if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
-            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
+            df_new = pd.DataFrame(columns=['images', 'target'],
+                                  data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
             return df_new
@@ -481,7 +533,8 @@ class DBModule:
             if row['bbox'] != '':
                 bbox = ast.literal_eval(row['bbox'])
             if len(bbox) != 4:
-                new_row = {'file_name': row['file_name'], 'category_id': row['category_id']}
+                new_row = {'file_name': row['file_name'],
+                           'category_id': row['category_id']}
                 buf_df = buf_df.append(new_row, ignore_index=True)  # nothing to cut
                 continue
             image = cv2.imread(files_dir + row['file_name'])
@@ -501,7 +554,7 @@ class DBModule:
         """
         train_end = int(split_points[0] * len(df))
         val_end = int(split_points[1] * len(df))
-        train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])
+        train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])  # we shuffle and split
         np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header=headers_string, comments='')
         np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header=headers_string, comments='')
         np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
@@ -535,7 +588,8 @@ class DBModule:
             headers_string = 'images,target,segmentation'
         if kwargs.get('balance_by_min_category', False):
             g = df_new.groupby('target', group_keys=False)
-            df_new = g.apply(lambda x: x.sample(g.size().min()).reset_index(drop=True))  # code to balance-out too large categories with random selection
+            # balance-out too large categories with random selection:
+            df_new = g.apply(lambda x: x.sample(g.size().min()).reset_index(drop=True))
         if kwargs.get('balance_by_categories', False):
             cat_names = [el for el in kwargs['balance_by_categories']]
             cat_ids = self.get_cat_IDs_by_names(cat_names)
@@ -576,7 +630,7 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         if with_segmentation:
-            query = query.filter(func.length(self.Annotation.segmentation) > 2)  #TODO: somehow length 0 and 1 do not work?
+            query = query.filter(func.length(self.Annotation.segmentation) > 2)  # TODO: somehow length 0 and 1 do not work?
         return self._process_query(query, with_segmentation, kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
@@ -624,7 +678,8 @@ class DBModule:
                                 ).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
         if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
-            df_new = pd.DataFrame(columns=['images', 'target'], data=df[['file_name', 'category_id']].values)
+            df_new = pd.DataFrame(columns=['images', 'target'],
+                                  data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
             return df_new
@@ -704,11 +759,15 @@ class DBModule:
         None
         """
         if not os.path.isfile(file_prefix + images[0]['file_name']):
-            print('Error in json file, missing images stored on disc (i.e.', file_prefix + images[0]['file_name'], ')')
+            print('Error in json file, missing images stored on disc (i.e.',
+                  file_prefix + images[0]['file_name'], ')')
             print('Stop filling dataset')
             return
         print('Adding images')
         buf_images = {}
+        self.printProgressBar(
+            0, len(images), prefix='Adding images:', suffix='Complete', length=50)
+        im_counter = 0
         for im_data in images:
             im_id = None
             if respect_ids is True:
@@ -723,10 +782,16 @@ class DBModule:
                                license_id=im_data['license'],
                                ID=im_id)
             buf_images[im_data['id']] = image
+            self.printProgressBar(im_counter, len(images),
+                                  prefix='Adding images:', suffix='Complete', length=50)
+            im_counter += 1
             self.sess.add(image)
         self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0
+        self.printProgressBar(0, len(annotations),
+                              prefix='Adding annotations:', suffix='Complete', length=50)
+        an_counter = 0
         for an_data in annotations:
             # print(counter)
             counter += 1
@@ -743,6 +808,9 @@ class DBModule:
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'],
                                          ID=anno_id)
+            self.printProgressBar(an_counter, len(annotations),
+                                  prefix='Adding annotations:', suffix='Complete', length=50)
+            an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
 
@@ -767,7 +835,8 @@ class DBModule:
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
-        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()  # model should be identified by its address uniquely
+        # model should be identified by its address uniquely
+        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
         if model_from_db is None:
             # Model not in DB - add it (that's OK)
             new_model = self.Model(model_address=abs_model_address, task_type=task_type)
@@ -969,8 +1038,12 @@ class DBModule:
         result = {}
         query = self.sess.query(self.Dataset).filter(self.Dataset.ID == ds_id)
         df = pd.read_sql(query.statement, query.session.bind)
-        result['dataset_info'] = df.to_dict()
-        cat_query = self.sess.query(self.Annotation.category_id).join(self.Image).filter(self.Image.dataset_id == ds_id)
+        result = df.to_dict('list')
+        for key in result:
+            # to be consistent with ds_info default dict
+            result[key] = result[key][0]
+        cat_query = self.sess.query(self.Annotation.category_id) \
+            .join(self.Image).filter(self.Image.dataset_id == ds_id)
         cat_counts = self.sess.query(self.Annotation.category_id, func.count(self.Annotation.category_id)) \
             .join(self.Image).filter(self.Image.dataset_id == ds_id).group_by(self.Annotation.category_id).all()
         cat_counts_dict = {}
@@ -983,5 +1056,5 @@ class DBModule:
         for cat_id in categories_in_ds:
             cat_name = cats_df.loc[cats_df['ID'] == cat_id].values[0][2]
             cat_count = cat_counts_dict[cat_id]
-            result['categories'][str(cat_id)] = [cat_name, cat_count]
+            result['categories'][cat_name] = cat_count
         return result
