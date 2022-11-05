@@ -1,15 +1,20 @@
+from datetime import datetime
+import hashlib
 import itertools
 import math
 import os
 import time
+import warnings
 from collections import defaultdict
 
 import keras
 import numpy as np
 import pandas as pd
+from pytz import timezone
 
 from . import db_module
 from .solver import printlog
+from ..utils.process import pcall
 
 _data_dir = 'data'
 _db_file = 'tests.sqlite'
@@ -57,7 +62,7 @@ augmen_params_list = {
 }
 
 
-hyperparameters = {
+nn_hparams = {
     'batch_size': {
         'type': 'int',
         'range': [1, 128],
@@ -132,14 +137,43 @@ hyperparameters = {
     'momentum': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
                  'name': 'momentum', 'cond': True},  # момент для SGD
     'rho': {'type': 'float', 'range': [0.5, 0.99], 'default': 0.9, 'name': 'rho', 'cond': True,
-            'step': 2**0.25, 'scale': 'loglog'},  # коэффициент затухания для RMSprop
+            'step': 2**0.25, 'scale': '1-log'},  # коэффициент затухания для RMSprop
     'epsilon': {'type': 'float', 'range': [1e-8, 1e-1], 'default': 1e-7, 'step': 10, 'scale': 'log',
                 'name': 'epsilon', 'cond': True},  # для RMSprop, Adagrad, Adadelta, Adamax, Nadam
     'beta_1': {'type': 'float', 'range': [0.5, 0.999], 'default': 0.9, 'name': 'beta_1 для Adam', 'cond': True,
-               'step': 2**0.25, 'scale': 'loglog'},  # для Adam, Nadam, Adamax
+               'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
     'beta_2': {'type': 'float', 'range': [0.5, 0.9999], 'default': 0.999, 'name': 'beta_2 для Adam', 'cond': True,
-               'step': 2**0.25, 'scale': 'loglog'},  # для Adam, Nadam, Adamax
+               'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
 }
+
+
+tune_hparams = {
+    'method': {'type': 'str', 'values': {'grid': {'params': ['radius', 'metric', 'start']}}},
+    # conditional parameters:
+    'radius': {'type': 'int', 'range': [1, 5], 'default': 1},
+    'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1'},
+    'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto'},
+}
+
+
+def get_hparams(params_table, **kwargs):
+    res = {key: value['default'] for key, value in params_table.items()}
+    res.update(kwargs)
+    cond_active = set()
+    for key, value in kwargs.items():
+        if 'values' in params_table[key]:
+            if value not in params_table[key]['values']:
+                raise ValueError(f'Значение {value} не входит в список возможных значений параметра {key}')
+            if isinstance(params_table[key]['values'], dict):
+                cond_active.update(params_table[key]['values'][value])
+
+    for key, value in params_table.items():
+        if 'cond' in value and value['cond']:
+            if key not in cond_active:
+                if key in kwargs:
+                    warnings.warn(f'Зависимый параметр {key} не используется при заданных значениях других параметров')
+                del res[key]
+    return res
 
 
 class TimeHistory(keras.callbacks.Callback):
@@ -157,7 +191,7 @@ class TimeHistory(keras.callbacks.Callback):
         self.total_time = (time.time() - self.start_of_train)
 
 
-def create_data_subset(objects, temp_dir='tmp'):
+def create_data_subset(objects, temp_dir='tmp', crop_bbox=True):
     """ Создание подвыборки данных для обучения
 
     Parameters
@@ -166,13 +200,15 @@ def create_data_subset(objects, temp_dir='tmp'):
         Список категорий, для которых необходимо создать подвыборку
     temp_dir : str
         Путь к папке, в которой будут созданы подвыборки
+    crop_bbox : bool
+        Если True, то изображения будут обрезаны по границам объектов
     """
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir, exist_ok=True)
     return nnDB.load_specific_categories_annotations(list(objects), normalizeCats=True,
                                                      splitPoints=[0.7, 0.85],
                                                      curExperimentFolder=temp_dir,
-                                                     crop_bbox=True,
+                                                     crop_bbox=crop_bbox,
                                                      cropped_dir=temp_dir + '/crops/')
 
 
@@ -215,13 +251,13 @@ def create_model(base, last_layers):
 
 
 class ExperimentHistory:
-    def __init__(self, task):
+    def __init__(self, task, exp_name, exp_path, data):
         self.experiment_number = 0
-        self.exp_name = task.exp_name
-        self.exp_path = task.exp_path
+        self.exp_name = exp_name
+        self.exp_path = exp_path
+        self.data = data
         self.task_type = task.task_type
         self.objects = task.objects
-        self.data = task.data
 
         self.history = pd.DataFrame(columns=['Index', 'task_type', 'objects', 'exp_name', 'pipeline', 'last_layers',
                                              'augmen_params', 'loss', 'metrics', 'epochs', 'stop_criterion', 'data',
@@ -282,6 +318,9 @@ class StopFlag:
     def __init__(self):
         self.flag = False
 
+    def __call__(self):
+        self.flag = True
+
 
 class CheckStopCallback(keras.callbacks.Callback):
     def __init__(self, stop_flag):
@@ -291,6 +330,20 @@ class CheckStopCallback(keras.callbacks.Callback):
     def on_batch_end(self, batch, logs=None):
         if self.stop_flag.flag:
             self.model.stop_training = True
+
+
+class NotifyCallback(keras.callbacks.Callback):
+    def on_batch_end(self, batch, logs=None):
+        pcall('train_callback', 'batch', batch='batch', logs=logs, model=self.model)
+
+    def on_epoch_end(self, epoch, logs=None):
+        pcall('train_callback', 'epoch', epoch=epoch, logs=logs, model=self.model)
+
+    def on_train_end(self, logs=None):
+        pcall('train_callback', 'finish', logs=logs, model=self.model)
+
+    def on_train_begin(self, logs=None):
+        pcall('train_callback', 'start', logs=logs, model=self.model)
 
 
 def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=None):
@@ -316,7 +369,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
     """
 
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
-    opt_args = ['decay'] + hyperparameters['optimizer']['values'][optimizer].get('params', [])
+    opt_args = ['decay'] + hparams['optimizer']['values'][optimizer].get('params', [])
     kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
     optimizer = getattr(keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
     model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=[hparams['metrics']])
@@ -328,7 +381,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
                                            save_best_only=True, save_weights_only=False, mode='auto')
     c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
     c_t = TimeHistory()
-    callbacks = [c_log, c_ch, c_es, c_t]
+    callbacks = [c_log, c_ch, c_es, c_t, NotifyCallback()]
     if stop_flag is not None:
         callbacks.append(CheckStopCallback(stop_flag))
 
@@ -374,6 +427,27 @@ def create_and_train_model(hparams, data, cur_subdir, history=None, stop_flag=No
     return fit_model(model, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag)
 
 
+def train(nn_task, hparams, stop_flag=None, db_params=None):
+    """
+    Parameters
+    ----------
+    nn_task: NNTask
+        задача обучения нейронной сети
+    hparams: dict
+        словарь с гиперпараметрами обучения
+    stop_flag: Optional[StopFlag]
+        флаг, с помощью которой можно остановить обучение из другого потока
+    Returns
+    -------
+    List[float]
+        Достигнутые значения метрик на тестовой выборке во время обучения
+    """
+    data = create_data_subset(nn_task.objects)
+    exp_name, exp_dir = create_exp_dir('train', nn_task)
+    history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
+    return create_and_train_model(hparams, data, exp_dir, history=history, stop_flag=stop_flag)
+
+
 grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
     # TODO: объединить как-то с hyperparameters
     'optimizer': {'values': [
@@ -389,15 +463,15 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
     'decay': {'type': 'float', 'range': [1/2**5, 1], 'default': 0.0, 'step': 2, 'scale': 'log', 'zero_point': 1},
 
     # conditonal params
-    'amsgrad': {'values': [True, False], 'default': False, 'cond': True},  # для Adam
-    'nesterov': {'values': [True, False], 'default': True, 'cond': True},  # для SGD
+    'amsgrad': {'values': [True, False], 'default': False, 'cond': True},   # для Adam
+    'nesterov': {'values': [True, False], 'default': True, 'cond': True},   # для SGD
     'centered': {'values': [True, False], 'default': False, 'cond': True},  # для RMSprop
 
-    'beta_1': {'range': [0.5, 0.999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': 'loglog'},  # для Adam
-    'beta_2': {'range': [0.5, 0.9999], 'default': 0.999, 'cond': True, 'step': 2, 'scale': 'loglog'},  # для Adam
-    'rho': {'range': [0.5, 0.9999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': 'loglog'},  # для RMSprop
+    'beta_1': {'range': [0.5, 0.999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': '1-log'},     # для Adam
+    'beta_2': {'range': [0.5, 0.9999], 'default': 0.999, 'cond': True, 'step': 2, 'scale': '1-log'},  # для Adam
+    'rho': {'range': [0.5, 0.9999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': '1-log'},  # для RMSprop
     'epsilon': {'range': [1e-8, 1], 'default': 1e-7, 'cond': True, 'step': 10, 'scale': 'log'},  # для Adam, RMSprop
-    'momentum': {'range': [0, 1], 'default': 0.0, 'cond': True, 'step': 0.1, 'scale': 'lin'},  # для SGD, RMSprop
+    'momentum': {'range': [0, 1], 'default': 0.0, 'cond': True, 'step': 0.1, 'scale': 'lin'},    # для SGD, RMSprop
 }
 
 
@@ -407,10 +481,10 @@ def param_values(range=None, default=None, values=None, step=None, scale=None, z
             back = round(math.log(range[0]/default, step))
             forward = round(math.log(range[1]/default, step))
             res = [default * step ** i for i in range(back, forward + 1)]
-        elif scale == 'loglog':
-            back = round(math.log(math.log(range[0])/math.log(default), step))
-            forward = round(math.log(math.log(range[1])/math.log(default), step))
-            res = [default ** (step ** i) for i in range(back, forward + 1)]
+        elif scale == '1-log':
+            back = round(math.log((1-range[1])/default, step))
+            forward = round(math.log((1-range[0])/default, step))
+            res = [1-default * step ** i for i in range(forward, back-1, -1)]
         elif scale == 'lin':
             back = round((range[0] - default) / step)
             forward = round((range[1] - default) / step)
@@ -525,7 +599,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
     gridmap: callable
         Функция, которая преобразует точку сетки в кортеж (key, args, kwargs), где
         key - ключ для кэширования, args и kwargs - аргументы функции func.
-    start_point:    Union[tuple, str]
+    start_point: Union[tuple, str]
         Начальная точка. Если 'random', то начальная точка выбирается случайно.
     grid_metric: str
         Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
@@ -571,7 +645,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
         cur_value = best_value
 
 
-def hparams_grid_tune(nn_task, data, exp_dir, hparams, tuned_params, stop_flag=None,
+def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None,
                       start_point='random', grid_metric='l1', radius=1):
     """
     Оптимизирует параметры нейронной сети на сетке.
@@ -582,11 +656,13 @@ def hparams_grid_tune(nn_task, data, exp_dir, hparams, tuned_params, stop_flag=N
         Задача, для которой оптимизируются параметры.
     data: tuple
         Кортеж, с генераторами для обучения, валидации и тестирования.
+    exp_name: str
+        Имя эксперимента.
     exp_dir: str
         Путь к директории, в которой сохраняются результаты оптимизации.
     hparams: dict
         Исходные гиперпараметры, часть из них будет оптимизироваться.
-    tuned_params: dict
+    tuned_params: list
         Параметры, которые будут оптимизироваться.
     stop_flag: optional StopFlag
         Флаг, который можно использовать для остановки оптимизации.
@@ -601,7 +677,7 @@ def hparams_grid_tune(nn_task, data, exp_dir, hparams, tuned_params, stop_flag=N
     grid_size = list(map(len, grid.axis))
     cat_axis = ['values' in grid_hparams_space[p] for p in tuned_params]
 
-    history = ExperimentHistory(nn_task)
+    history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
 
     def fit_and_get_score(params):
         scores = create_and_train_model(params, data, exp_dir, history=history, stop_flag=stop_flag)
@@ -612,16 +688,49 @@ def hparams_grid_tune(nn_task, data, exp_dir, hparams, tuned_params, stop_flag=N
                                                 grid, start_point, grid_metric, radius):
         if stop_flag is not None and stop_flag.stop:
             break
-        printlog(f'Evaluated point: {point}, value: {value}')
+        printlog(f"Evaluated point: {point}, value: {value}")
+        pcall('tune_step', point, value)
         if is_max:
             best_point, best_value = point, value
             if not nn_task.goals.get('maximize', True) and best_value >= nn_task.goals['target']:
                 break
 
-    printlog(f'Best point: {best_point}, value: {best_value}')
+    printlog(f"Best point: {best_point}, value: {best_value}")
     if best_value is not None and best_value >= nn_task.goals['target']:
         printlog("achieved target score")
     else:
         printlog("did not achieve target score")
 
     return best_point, best_value
+
+
+def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, **kwargs):
+    exp_name, exp_path = create_exp_dir(f'tune_{method}', nn_task)
+    if not os.path.exists(exp_path):
+        os.makedirs(exp_path, exist_ok=True)
+    printlog(f"Experiment path: {exp_path}")
+    if hparams is None:
+        # взять дефолтные значения
+        hparams = get_hparams(nn_hparams)
+
+    data = create_data_subset(nn_task.objects)
+    if method == 'grid':
+        tune_func = hparams_grid_tune
+    else:
+        raise ValueError(f'Unknown tuning method: {method}')
+    return tune_func(nn_task, data, exp_name, exp_path, hparams, tuned_params, stop_flag=stop_flag, **kwargs)
+
+
+def create_exp_dir(prefix, nn_task):
+    obj_set = sorted(nnDB.get_cat_IDs_by_names(list(nn_task.objects)))
+    if len(obj_set) > 10:
+        obj_set = obj_set[:10]+['etc']
+    obj_str = '_'.join(map(str, obj_set))
+    msk = timezone('Europe/Moscow')
+    msk_time = datetime.now(msk)
+    tt = msk_time.strftime('%Y_%m_%d_%H_%M_%S')
+    exp_name = f'{prefix}_{obj_str}_DT_{tt}'
+    exp_path = f"{_data_dir}/trainedNN/{exp_name}"
+    if not os.path.exists(exp_path):
+        os.makedirs(exp_path, exist_ok=True)
+    return exp_name, exp_path

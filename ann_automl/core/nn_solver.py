@@ -5,7 +5,7 @@ from copy import copy
 from datetime import datetime
 from pytz import timezone
 
-from .nnfuncs import hyperparameters
+from .nnfuncs import nn_hparams, tune_hparams, get_hparams
 from .solver import Task, set_log_dir, printlog, _log_dir, RecommendTask
 from ..utils.process import pcall
 
@@ -13,7 +13,7 @@ from ..utils.process import pcall
 class NNTask(Task):
     """ Класс, задающий задачу на обучение нейронной сети """
 
-    def __init__(self, task_ct, task_type=None, obj_set=None, goals=None):
+    def __init__(self, task_ct, task_type=None, objects=None, goals=None):
         """
         Инициализация задачи.
 
@@ -34,8 +34,8 @@ class NNTask(Task):
 
         # Необязательные входные параметры задачи, нужны при категориях "train" и "test"
         self._task_type = task_type  # str - тип задачи {classification, detection, segmentation}
-        self._objects = obj_set  # set of strings - набор категорий объектов интереса
-        self.input_type = 'image'  # тип объектов задачи (image, video, audio, text)
+        self._objects = objects      # set of strings - набор категорий объектов интереса
+        self.input_type = 'image'    # тип объектов задачи (image, video, audio, text)
         self.object_category = 'object'  # категория объектов задачи (object, symbol)
         self.log_name = ''
         self.cur_state = 'FirstCheck'
@@ -92,11 +92,11 @@ class NNTask(Task):
             raise
 
 
-class SetectHParamsTask(RecommendTask):
+class SelectHParamsTask(RecommendTask):
     def __init__(self, nn_task: NNTask):
         super().__init__(goals={})
         self.nn_task = nn_task
-        self.hparams = {param: hyperparameters[param]['default'] for param in hyperparameters}
+        self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
         self.hparams['pipeline'] = None
         self.recommendations = {}
 
@@ -104,8 +104,8 @@ class SetectHParamsTask(RecommendTask):
         self.hparams.update(options)
 
 
-def recommend_hparams(task: NNTask, solve_params=None) -> dict:
+def recommend_hparams(task: NNTask, **kwargs) -> dict:
     """ Рекомендует гиперпараметры для задачи """
-    htask = SetectHParamsTask(task)
-    htask.solve(global_params=solve_params)
+    htask = SelectHParamsTask(task)
+    htask.solve(global_params=kwargs)
     return htask.hparams

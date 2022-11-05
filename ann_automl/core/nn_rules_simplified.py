@@ -19,10 +19,10 @@ from datetime import datetime
 from pytz import timezone
 
 from .hw_devices import tf_devices_memory
-from .nnfuncs import hyperparameters, nnDB, _data_dir, create_model, create_generators, fit_model, create_data_subset
+from .nnfuncs import nn_hparams, nnDB, _data_dir, create_model, create_generators, fit_model, create_data_subset
 from .solver import Rule, rule, Task, printlog, SolverState, Recommender
 from ..utils.process import request, NoHandlerError
-from .nn_solver import NNTask, SetectHParamsTask
+from .nn_solver import NNTask, SelectHParamsTask
 
 
 def find_zero_neighbor(center, table, radius=1):
@@ -45,9 +45,9 @@ def find_zero_neighbor(center, table, radius=1):
 
 
 # Базовые приёмы для начальной рекомендации гиперпараметров
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendLoss(Recommender):
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         # TODO: проверить и добавить рекомендации для разных типов задач
         if len(task.nn_task.objects) == 2:
@@ -56,9 +56,9 @@ class RecommendLoss(Recommender):
             prec['loss'] = 'categorical_crossentropy'
 
 
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendOptimizer(Recommender):
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         # TODO: проверить и добавить рекомендации для разных типов задач
         if 'accuracy' in task.nn_task.goals:
@@ -70,9 +70,9 @@ class RecommendOptimizer(Recommender):
             prec['nesterov'] = True
 
 
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendArch(Recommender):
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         prec['activation'] = 'relu'    # функция активации в базовой части. TODO: возможны ли другие рекомендации?
         prec['pipeline'] = 'ResNet18'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
@@ -86,9 +86,9 @@ class RecommendArch(Recommender):
         prec['last_layers'] = last_layers
 
 
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendAugmentation(Recommender):
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         aug = prec['augmen_params'] = {}
         if task.nn_task.input_type == 'image':
@@ -100,12 +100,12 @@ class RecommendAugmentation(Recommender):
                         })
 
 
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendFromHistory(Recommender):
     """ Предлагает параметры, которые были использованы в предыдущих
         аналогичных запусках (может рекомендовать любые параметры)
     """
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         # TODO: implement
 
@@ -125,12 +125,12 @@ def estimate_batch_size(model: keras.Model, precision: int = 4) -> int:
     return int(2 ** math.floor(math.log(max_size, 2)))
 
 
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendBatchSize(Recommender):
-    def can_recommend(self, task: SetectHParamsTask):
+    def can_recommend(self, task: SelectHParamsTask):
         return getattr(task.nn_task, 'model', None) is not None
 
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         prec['batch_size'] = estimate_batch_size(task.nn_task.model)  # recommends max possible batch size
 
@@ -154,12 +154,12 @@ def get_history(task: NNTask, exact_category_match=False):
     return candidates
 
 
-@rule(SetectHParamsTask)
+@rule(SelectHParamsTask)
 class RecommendFromHistory(Recommender):
     """ Предлагает параметры, которые были использованы в предыдущих
         аналогичных запусках (может рекомендовать любые параметры)
     """
-    def apply(self, task: SetectHParamsTask, state: SolverState):
+    def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         candidates = get_history(task.nn_task)
         if len(candidates) > 0:
