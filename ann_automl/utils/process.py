@@ -185,7 +185,7 @@ class NoHandlerError(Exception):
     pass
 
 
-def request(name, *args, raise_exn=True, **kwargs):
+def request(name, *args, raise_exn=True, default=None, **kwargs):
     """ Send a request from the task to some other thread.
 
     Parameters
@@ -196,6 +196,9 @@ def request(name, *args, raise_exn=True, **kwargs):
         Positional arguments of handler function associated with the request
     raise_exn: bool
         If True, raise an exception if the request failed with an exception.
+        If default is not None, this parameter is ignored.
+    default: Any
+        Default value to return if the request is not handled.
     **kwargs:
         Keyword arguments of handler function associated with the request
 
@@ -206,16 +209,16 @@ def request(name, *args, raise_exn=True, **kwargs):
     """
     pst = pstate()
     if pst is None:
-        if raise_exn:
+        if raise_exn and default is None:
             raise NoHandlerError(f"No process descriptor for current task")
         else:
-            return None
+            return default
     handler = pstate().handlers.get(name, None)
     if handler is None:
-        if raise_exn:
+        if raise_exn and default is None:
             raise NoHandlerError(f"Handler for request {name} not registered")
         else:
-            return None
+            return default
     return handler(*args, **kwargs)
 
 

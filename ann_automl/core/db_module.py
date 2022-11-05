@@ -225,8 +225,16 @@ class DBModule:
             None
         """
         print('Start filling DB with Kaggle CatsVsDogs')
+        if not os.path.isfile(anno_file_name):
+            print('Error: no file', anno_file_name, 'found')
+            print('Stop filling dataset')
+            return
         with open(anno_file_name) as json_file:
             data = json.load(json_file)
+        if not os.path.isfile(file_prefix + data['images'][0]['file_name']):
+            print('Error in json file, missing images stored on disc (i.e.', file_prefix + data['images'][0]['file_name'], ')')
+            print('Stop filling dataset')
+            return
         dataset_info = data['info']
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
                                dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
@@ -274,6 +282,11 @@ class DBModule:
         -------
             None
         """
+        print('Start filling DB with COCO-format dataset from file',anno_file_name)
+        if not os.path.isfile(anno_file_name):
+            print('Error: no file',anno_file_name,'found')
+            print('Stop filling dataset')
+            return
         coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
         # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
@@ -502,6 +515,8 @@ class DBModule:
             - kwargs['crop_box'] -> if True, cropping and saving will be performed
             - kwargs['split_points'] -> stores quantiles for train_test_validation split (default 0.6,0.8)
             - kwargs['normalize_cats'] -> set for test purposes only,
+            - kwargs['balance_by_min_category'] -> boolean, set to True to balance by minimum amount in some category
+            - kwargs['balance_by_categories'] -> dictionary with number of elements of each category to query (i.e. {'cat':100,'dog':200})
               changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
         """
         df = pd.read_sql(query.statement, query.session.bind)
@@ -518,6 +533,18 @@ class DBModule:
                                   data=df[['file_name', 'category_id', 'segmentation']].values)
             df_new.dropna(subset=['segmentation'], inplace=True)
             headers_string = 'images,target,segmentation'
+        if kwargs.get('balance_by_min_category', False):
+            g = df_new.groupby('target', group_keys=False)
+            df_new = g.apply(lambda x: x.sample(g.size().min()).reset_index(drop=True))  # code to balance-out too large categories with random selection
+        if kwargs.get('balance_by_categories', False):
+            cat_names = [el for el in kwargs['balance_by_categories']]
+            cat_ids = self.get_cat_IDs_by_names(cat_names)
+            cat_ids_dict = {}
+            for i in range(len(cat_ids)):
+                if cat_ids[i] != -1:
+                    cat_ids_dict[cat_ids[i]] = kwargs['balance_by_categories'][cat_names[i]]
+            g = df_new.groupby('target', group_keys=False)
+            df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))  # code to balance by given nums
         if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
@@ -676,6 +703,10 @@ class DBModule:
         -------
         None
         """
+        if not os.path.isfile(file_prefix + images[0]['file_name']):
+            print('Error in json file, missing images stored on disc (i.e.', file_prefix + images[0]['file_name'], ')')
+            print('Stop filling dataset')
+            return
         print('Adding images')
         buf_images = {}
         for im_data in images:
@@ -952,5 +983,5 @@ class DBModule:
         for cat_id in categories_in_ds:
             cat_name = cats_df.loc[cats_df['ID'] == cat_id].values[0][2]
             cat_count = cat_counts_dict[cat_id]
-            result['categories'][cat_id] = [cat_name, cat_count]
+            result['categories'][str(cat_id)] = [cat_name, cat_count]
         return result

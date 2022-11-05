@@ -1,7 +1,10 @@
 import itertools
+import math
 import sys
 import time
+from collections import defaultdict
 
+import ipywidgets
 import pandas as pd
 import keras
 import numpy as np
@@ -10,20 +13,24 @@ import os
 from . import db_module
 from datetime import datetime
 from pytz import timezone
+from .solver import Rule, rule, State, Task, printlog
+from ..utils.process import request, NoHandlerError
 
-from .nn_solver import NNTask
-from .solver import Rule, rule, Task, printlog, _log_dir, SolverState
-from ..utils.process import request, NoHandlerError, pcall
+myDB = db_module.DBModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточнить путь к файлу базы данных
 
-myDB = db_module.dbModule(dbstring='sqlite:///tests.sqlite')  # TODO: уточнить путь к файлу базы данных
+#базовый набор гиперпараметров
+Default_params = {'pipeline' : 'ResNet50', 
+              'modelLastLayers' : [{'Type': 'Dense', 'units': 64, 'activation': 'relu'},{'Type': 'Dense', 'units': 16, 'activation': 'relu'}],
+              'augmenParams' : {'horizontal_flip': True, 'vertical_flip': None, 'width_shift_range': 0.4, 'height_shift_range': 0.4},
+              'epochs' : 150, 'stoppingCriterion': 'stop_val_metr' , 'optimizer':'Adam', 'batchSize': 16, 'lr': 0.001  }
 
 
 _data_dir = 'data'
 
 
-def set_data_dir(data_dir):
+def set_data_dir(data_dir):   #TODO Положить в соответствии с этой схемой данные
     """
-    Set the data directory. Data directory contains the following subdirectories:
+    Set the data directory. Data directory contains the following subdirectories:  
     - architecures: contains the neural network architectures
     - datasets: contains the datasets
     - trainedNN: contains the trained neural networks
@@ -33,19 +40,20 @@ def set_data_dir(data_dir):
     _data_dir = data_dir
 
 
+
 class TimeHistory(keras.callbacks.Callback):
-    def on_train_begin(self, logs={}):  # TODO: для чего нужен параметр logs?
+    def on_train_begin(self, logs={}):
         self.times = []
 
-    def on_epoch_begin(self, epoch, logs={}):  # TODO: для чего нужен параметр logs?
+    def on_epoch_begin(self, epoch, logs={}):
         self.epoch_time_start = time.time()
         if epoch == 0:
             self.start_of_train = self.epoch_time_start
 
-    def on_epoch_end(self, epoch, logs={}):  # TODO: для чего нужен параметр logs?
+    def on_epoch_end(self, epoch, logs={}):
         self.times.append(time.time() - self.epoch_time_start)
 
-    def on_train_end(self, logs={}):  # TODO: для чего нужен параметр logs?
+    def on_train_end(self, logs={}):
         self.total_time = (time.time() - self.start_of_train)
 
 
@@ -100,7 +108,7 @@ def neighborhood(cp, rr):
 
     return neighbor, cur
 
-
+'''
 def find_zero_neighbor(center, table, radius=1):
     """
     Finds next point in the neighborhood of the current point where there is zero in table
@@ -128,630 +136,527 @@ def find_zero_neighbor(center, table, radius=1):
 
 # Допустимая погрешность по достигнутой точности при выборе общей стратегии обучения
 # eps = 0.1
+'''
 
 
-@rule(NNTask)
+@rule
+class InitialCheck(Rule):
+    """ Приём для проверки доступа к БД """
+
+    def can_apply(self, state: State):
+        return state.task.taskCt == "train" and state.curState == 'Initial'
+
+    def apply(self, state: State):
+        
+        available_categories = list(myDB.get_all_categories()['name'])
+        for cat in state.task.objects:
+            ch = cat in available_categories
+            if not ch:
+                '''
+                TODO:
+                Проверка: выбрано не менее 2 категорий
+                Если недоступна БД:
+                TODO request(...  см. смотри 2 слайд презентации. ~ обработка ошибки
+                "изменить' = перейти на главный экран
+                "закончить" = закончить работу программы  = curstate 'Done' 
+                
+                '''
+                #tmp - without request
+                state.message = 'The "{a1}" category is not in the list of available categories. There are some problems accessing the database. We can get such categories:\n\n{ll}\n\nDo you want to change the category of images or log out of the system? "Change parameters" - 1; "Finish" - 0.'.format(a1 = cat, ll = available_categories)
+                
+                state.actions = {'0': 'Done', '1': 'Initial'} # Нужно вернуться к главному экрану
+            
+                printlog('\n' + state.message)
+                answer = input()
+                state.curState = state.actions[str(answer)]
+
+                with open(state.logName, 'a') as log_file:
+                    print(state.message + ' .Answer: ' + answer, file=log_file)
+                return
+                #tmp - without request
+                    
+        if ch:
+            state.curState = 'FirstCheck'
+
+
+@rule
 class CheckSuitableModelExistence(Rule):
     """ Приём для поиска готовой подходящей модели в базе данных """
 
-    def can_apply(self, task: NNTask, solver_state: SolverState) -> bool:
-        return task.task_ct == "train" and task.cur_state == 'FirstCheck'
+    def can_apply(self, state: State):
+        return state.task.taskCt == "train" and state.curState == 'FirstCheck'
 
-    def apply(self, task: NNTask, solver_state: SolverState):
-
-        with open(task.log_name, 'a') as log_file:
-            print('CheckSuitableModelExistence', file=log_file)
+    def apply(self, state: State):
 
         ch_res = myDB.get_models_by_filter({
-            'min_metrics': task.goals,
-            'task_type': task.task_type,
-            'categories': list(task.objects)})
-        # print(ch_res)
+            'min_metrics': state.task.goal,
+            'task_type': state.task.taskType,
+            'categories': list(state.task.objects)})
 
         s = []
         if ch_res.empty:
-            printlog('Не найдено подходящих моделей')
-            #######################################################################
-            ############ ПРИМЕР ВЗАИМОДЕЙСТВИЯ С ПОЛЬЗОВАТЕЛЕМ ####################
-            #######################################################################
-
-            # Запрос у пользователя: как будем выбирать гиперпараметры?
-            # Формат запроса:
-            #     request('choose_hyperparameters', current_hyperparameters, history_available, params_to_choose)
-            #     current_hyperparameters - текущие гиперпараметры
-            #     history_available - доступна ли история обучения
-            #     params_to_choose - список параметров, которые нужно задать
-            # 1. Задать вручную:
-            #    ожидается на выходе: ('manual', словарь с гиперпараметрами)
-            # 2. Подобрать автоматически исходя из истории
-            #    ожидается на выходе: ('from_history', None)
-            # 3. Поиск по сетке
-            #    ожидается на выходе: ('grid_search', словарь с параметрами поиска по сетке)
-            try:
-                params_to_choose = ['learning_rate', 'batch_size', 'epochs', 'optimizer', 'loss']
-                decision, params = request('choose_hyperparameters', {}, True, params_to_choose)  # TODO: заполнить current_hyperparameters и history_available
-                if decision == 'manual':
-                    printlog('Выбрано задание гиперпараметров вручную')
-                    printlog("Заданы следующие гиперпараметры:")
-                    for key, value in params.items():
-                        printlog(f"{key}: {value}")
-                    task.cur_state = 'Done'  # TODO: Replace done with actual state
-                elif decision == 'from_history':
-                    printlog('Подбор гиперпараметров по истории (пока не реализовано)')
-                    task.cur_state = 'Done'  # TODO: Replace done with actual state
-                elif decision == 'grid_search':
-                    printlog('Поиск по сетке')
-                    task.cur_state = 'DB'  # TODO: Replace done with actual state
-                else:
-                    printlog('Неверный ввод', file=sys.stderr)
-                    task.cur_state = 'Done'
-            except NoHandlerError:  # Если запущено не в режиме взаимодействия с пользователем
-                task.cur_state = 'DB'
-            #######################################################################
+            state.curState = 'HyperParams'
         else:
             n = len(ch_res.index)
             for i in range(n):
-                s.append({'model_address': ch_res.iloc[i]['model_address'],
-                          list(task.goal.keys())[0]: ch_res.iloc[i]['metric_value']})
+                s.append({'model_address': ch_res.iloc[i]['model_address'], 'metric': 
+                          list(state.task.goal.keys())[0], 'value': ch_res.iloc[i]['metric_value']})
+                
+            ''' TODO request см. презентацию, слайд №3.
+                decision = request(...
+                #new = "Обучить новую модель"
+                #finish = "Закончить работу"
+                if decision == 'new':
+                    state.curState = 'HyperParams'
+                elif decision == 'finish':
+                    state.curState = 'Done'                                  
+                    # see below tmp block ~ см if state.curState == 'Done':
+                else:
+                    printlog('Неверный ввод', file = sys.stderr)
+                    state.curState = 'Done'
+                    
+            '''
+            #tmp - without request
+            state.message = 'There is a suitable model in our base of trained models. Would you like to train an another model? "No" - 0; "Yes" - 1. '
+            state.actions = {'0': 'Done', '1': 'HyperParams'}
+            
+            printlog('\n' + state.message)
+            answer = '1' #input()
+            state.curState = state.actions[str(answer)]
 
-            task.cur_state = 'UserDec'
-            task.message = 'There is a suitable model in our base of trained models. Would you like to train an another model? "No" - 0; "Yes" - 1. '
-            task.actions = {'0': 'Done', '1': 'DB'}
-        task.suitModels = s
+            with open(state.logName, 'a') as log_file:
+                print(state.message + ' .Answer: ' + answer, file=log_file)
 
+            if state.curState == 'Done':
+                with open(state.resName, 'a') as res_file:
+                    print('Our system has trained models that match the required target.\n', file=res_file)
+                    for i in range(n):
+                        print('Model adress: ' + s[i]['model_address'] + '.\nGoal function: ' + s[i]['metric'] + '.\nTest value of goal function: ' + str(s[i]['value']) + 
+                              '.\n', file=res_file)
+            #tmp - without request
 
+   
+            
 @rule
-class UserDec(Rule):
-    """ Приём решения пользователя о необходимости обучения новой модели """
-    def can_apply(self, task: NNTask, solver_state: SolverState) -> bool:
-        return task.task_ct == "train" and task.cur_state == 'UserDec'
+class SettingInitialHyperParameters(Rule):
+    """ Приём, в котором сначала должен быть выбран подход к обучению, а затем полностью определен набор гиперпараметров для первого обучения + создание директории и 'истории' эксперимента"""
+    
+    def can_apply(self, state: State):
+        return state.task.taskCt == "train" and state.curState == 'HyperParams'
 
-    def apply(self, task: NNTask, solver_state: SolverState):
-        printlog('\n' + task.message)
-        answer = input()
-        task.cur_state = task.actions[str(answer)]
-
-        with open(task.log_name, 'a') as log_file:
-            print('UserDec Rule', file=log_file)
-            print(task.message + ' ' + answer, file=log_file)
-
-        if task.cur_state == 'Done':
-
-            # считаем, что сюда пришли только сразу после firstCheck => сохрани модели и всё
-            # или после создания сетки, но до первого обучения [ошибки не предусмотрены] => сохрани историю,
-            # или после хотя бы 1 обучения, т.е. существует bestModel, если модель подходит до
-            if hasattr(task, 'bestModel'):
-                loc = task.history.loc[task.history['Index'] == task.best_num]
-                prefix = f"{_data_dir}/trainedNN/{loc['exp_name'].iloc[0]}/{loc['curTrainingSubfolder'].iloc[0]}/{loc['curTrainingSubfolder'].iloc[0]}"
-                myDB.add_model_record(task_type=task.task_type, categories=list(task.objects),
-                                      model_address=prefix + '__Model.h5',
-                                      metrics={list(task.goal.keys())[0]: loc['Metric_achieved_result'].iloc[0]},
-                                      history_address=prefix + 'History.h5')
-
-        task.message = None
-        task.actions = None
-
-
-####################################################
-
-@rule
-class CreateDatabase(Rule):
-    """ Приём для создания обучающей выборки """
-    def can_apply(self, task: NNTask, solver_state: SolverState) -> bool:
-        return task.task_ct == "train" and task.cur_state == 'DB'
-
-    def apply(self, task: NNTask, solver_state: SolverState):
-        with open(task.log_name, 'a') as log_file:
-            print('CreateDatabase', file=log_file)
-
-        # crops
-        # In next version there will be two databases methods\tricks - the first one to check are required categories exist
-        # the second one - to create database
-
-        tmpData = myDB.load_specific_categories_annotations(list(task.objects), normalizeCats=True,
-                                                            splitPoints=[0.7, 0.85],
-                                                            curExperimentFolder='./', crop_bbox=True,
-                                                            cropped_dir='./crops/')
-
-        task.data = {'train': tmpData[1]['train'],
-                           'validate': tmpData[1]['validate'],
-                           'test': tmpData[1]['test'],
-                           'dim': (224, 224, 3),
-                           'augmenConstr': {'vertical_flip': None}}
-        task.cur_state = 'Training'
-
-
-"""Hyper Tuning Grid Block"""
-
-
-@rule
-class SetGrid(Rule):
-    """создать общую сетку параметров и инфраструктуру всего эксперимента"""
-
-    def can_apply(self, task: NNTask, solver_state: SolverState) -> bool:
-        return task.task_ct == "train" and task.cur_state == 'Training'
-
-    def apply(self, task: NNTask, solver_state: SolverState):
-
-        with open(task.log_name, 'a') as log_file:
-            print('SetGrid', file=log_file)
-
-        '''tmp'''
-        task.fixedHyperParams = {'pipeline': 'ResNet18',
-                                       'modelLastLayers': [{'Type': 'Dense', 'units': 64},
-                                                           {'Type': 'Activation', 'activation': 'relu'},
-                                                           {'Type': 'Dense', 'units': 1},
-                                                           {'Type': 'Activation', 'activation': 'sigmoid'}],
-                                       'augmenParams': {'horizontal_flip': True,
-                                                        'preprocessing_function': 'keras.applications.resnet.preprocess_input',
-                                                        'vertical_flip': None,
-                                                        'width_shift_range': 0.4,
-                                                        'height_shift_range': 0.4},
-                                       'loss': 'binary_crossentropy',
-                                       'metrics': 'accuracy',
-                                       'epochs': 150,
-                                       'stoppingCriterion': 'stop_val_metr'}
-
-        ''''''
-
-        task.hyperParams = {'optimizer': ['Adam', 'RMSprop', 'SGD'],  # варианты оптимизаторов
-                                  'batchSize': [8, 16, 32, 64],  # варианты размера батча
-                                  'lr_A_R': [0.00025, 0.0005, 0.001, 0.002, 0.004],  # варианты скорости обучения для Adam и RMSprop
-                                  'lr_SGD': [0.0025, 0.005, 0.01, 0.02, 0.04]}   # варианты скорости обучения для SGD
-
-        # создать сетку
-        n_opt = len(task.hyperParams['optimizer'])
-        n_batch = len(task.hyperParams['batchSize'])
-        n_lr = len(task.hyperParams['lr_A_R'])
-        assert n_lr == len(task.hyperParams['lr_SGD'])
-        task.hp_grid = np.zeros((n_opt, n_lr, n_batch))  # (3, 5, 4)
-
-        task.counter = 1
-
-        # np.random.seed(1)
-        # стартовая точка случайно
-        opt_ini = np.random.randint(0, high=n_opt)
-        lr_ini = np.random.randint(0, high=n_lr)
-        bs_ini = np.random.randint(0, high=n_batch)
-
-        # opt_ini = 0
-        # lr_ini = 0
-        # bs_ini = 3
-
-        # print( opt_ini, lr_ini, bs_ini)
-        task.cur_hp = {'optimizer': task.hyperParams['optimizer'][opt_ini],
-                             'batchSize': task.hyperParams['batchSize'][bs_ini]}
-        if task.cur_hp['optimizer'] == 'SGD':
-            task.cur_hp['lr'] = task.hyperParams['lr_SGD'][lr_ini]
+    def apply(self, state: State):
+        '''
+        
+        TODO request(... как на слайд № 4 в презентации. Возвращает один из 5 вариантов: 'grid_search', 'strategy', 'manual', 'home', 'finish'
+        'home' = сбросить всё и вернуться на начальный экран. Разумно делать предупреждение о сбросе
+        'finish' = перейти в 'Done'
+        
+        Или 3 отдельные переменные: одна для подхода (один из трех вариантов), другие - флажки (вариант реализации)
+        '''
+        
+        # Выбор подхода к обучению и заполнение набора гиперпараметров
+        state.task.learningApproach = 'manual'
+        if state.task.learningApproach == 'home':
+            state.curState = 'Initial'
+            return
+        elif state.task.learningApproach == 'finish':
+            state.curState = 'Done'
+            return
+        elif state.task.learningApproach == 'grid_search':
+            state.task.HyperParams, home = grid()
+        elif state.task.learningApproach == 'strategy':
+            pass
+            #functions for strategy
+        elif state.task.learningApproach == 'manual':
+            state.task.HyperParams, home = manual()
         else:
-            task.cur_hp['lr'] = task.hyperParams['lr_A_R'][lr_ini]
+            printlog('Некорректно.')  #TODO  ~ обработка и в других местах аналогично
+            return
+        
+        if home:
+            state.curState = 'Initial'
+            return
+        
+        if len(state.task.objects) > 2:
+            state.task.HyperParams['loss'] = "categorical_crossentropy"
+        else:
+            state.task.HyperParams['loss'] = "binary_crossentropy"
+            
+        state.task.HyperParams['metrics'] = 'accuracy'
 
-        task.cur_C_hp = task.cur_hp.copy()
 
-        task.cur_central_point = [opt_ini, lr_ini, bs_ini]
-        task.cur_training_point = [opt_ini, lr_ini, bs_ini]
-
-        # Experiment's directory
+        #Создание директории эксперимента 
+        tt=time.localtime(time.time())
         MSK = timezone('Europe/Moscow')
         msk_time = datetime.now(MSK)
         tt = msk_time.strftime('%Y_%m_%d_%H_%M_%S')
-        # print(tt)
-
-        obj_codes = myDB.get_cat_IDs_by_names(list(task.objects))
+        
+        obj_codes = myDB.get_cat_IDs_by_names(list(state.task.objects))
         obj_codes.sort()
-        obj_str = '_'.join(map(str, obj_codes))
-        # print( obj_str )
+        obj_str = '_'.join(map(str, obj_codes))    
+        
+        state.task.expName = state.task.taskType+'_' + obj_str + '_DT_' + tt
+        state.task.expPath = "./trainedNN" + '/' + state.task.expName             #TODO Нужна фиксированная директория
+        if not os.path.exists(state.task.expPath):
+            os.makedirs(state.task.expPath)
 
-        task.exp_name = task.task_type + '_' + obj_str + '_DT_' + tt
-        task.exp_path = f"{_data_dir}/trainedNN/{task.exp_name}"
-        if not os.path.exists(task.exp_path):
-            os.makedirs(task.exp_path)
+        #Создание истории эксперимента - нулевая строка = условие задачи
+        HST = {'taskType': state.task.taskType, 'objects': [state.task.objects], 'expName': state.task.expName, 'LearningApproach': None }
+        
+        for kk in state.task.HyperParams.keys():
+            HST[kk] = None
+           
+        HST['data'] = None
+        HST['Metric_achieved_result'] = state.task.goal[ str(list(state.task.goal.keys())[0])] # цель эксперимента
+        HST['curTrainingSubfolder'] = None
+        HST['timeStat'] = None
+        HST['totalTime'] = None
+        HST['Additional_params'] = None
+        
+ 
+        state.task.history = pd.DataFrame(HST)
+        state.task.history.to_csv( state.task.expPath + '/' + state.task.expName + '__History.csv', index_label = 'Index')
+            
+        state.task.counter = 1
+        
+        state.curState = 'Model_Training'
+        
+def grid(state: State):
+    '''
+    TODO   request(...   см слайд №5 должны вернуться 
+    1) словарь FixedParams с гиперпараметрами без диапазона
+    2) словарь гиперепараметров с диапазоном (хотя бы 2) state.task.GridParams (т.е. используются в сетке) {'название гиперпараметра': [диапазон],...}
+    3) словарь dep = {hyperparameter1 : hyperparameter2} Поскольку некоторые гиперпараметры м.б. взаимосвязаны (это должно учитываться на экране выбора гиперпараметров), то подобные зависимости д.б. здесь указаны 
+    4) home - флажок, вернуться на главный экран (T) или нет (схема работы аналогично manual)
+    
+    Также при должны быть проверки на соответствие гиперпараметров их возможным диапазонам (см. manual()) и взаимосвязи
+    
+    '''
+    #tmp - without request
+    home = False
+    dep = {'optimizer': 'lr'}
+    FixedParams = {'pipeline' : 'ResNet50', 
+              'modelLastLayers' : [{'Type': 'Dense', 'units': 64, 'activation': 'relu'},{'Type': 'Dense', 'units': 16, 'activation': 'relu'}],
+              'augmenParams' : {'horizontal_flip': True, 'vertical_flip': None, 'width_shift_range': 0.4, 'height_shift_range': 0.4},
+              'epochs' : 150, 'stoppingCriterion': 'stop_val_metr' }
+    
+    state.task.GridParams = {'optimizer':['Adam', 'RMSprop', 'SGD'], 'batchSize':[8,16,32,64], 
+                             'lr' : [[0.00025,0.0005,0.001,0.002,0.004], [0.00025,0.0005,0.001,0.002,0.004], [0.0025,0.005,0.01,0.02,0.04]]}
+    
+    #tmp - without request
+    if home:
+        return _, home
+    if not bool(state.task.GridParams): # если нет гиперпараметров с диапазоном, т.е. все гиперпараметры определены
+        return FixedParams, False
+        
+    params = FixedParams
+    
+    #create hyperparameter grid
+    
+    return params, home
+    
+    
+    
+def manual(): 
+    
+    ''' 
+    TODO request(...)  Слайд №7 презентации.
+    На экране д.б. представлен набор гиперпараметров с соответствующими допустимыми значениями и ответ на вопрос "Хотим ли мы перейти на главный экран или нет" ~ переменная home
+    Минимальный набор гиперпараметров
+    paramsSet = { 'pipeline' : ['ResNet18', 'ResNet34', 'ResNet50'],
+                 'modelLastLayers':
+                 Для modelLastLayers должна быть возможность указать порядок подсоединения к pipeline
+                 Есть четыре типа слоев Dense, MaxPooling2D, Conv2D, AveragePooling2D
+                 У Dense параметры следующие:  'units': натуральное число, 'activation': 'relu', 'elu', 'selu', 'leaky_relu', 'gelu';
+                 У Conv2D параметры следующие: 'filters': натуральное число, 'kernel_size' - натуральное число (будем считать, что 1-11), 'strides': -  None                  или натуральное число (будем считать, что 1-4), 'activation': 'relu', 'elu', 'selu', 'leaky_relu', 'gelu';
+                 У MaxPooling2D и AveragePooling2D параметры следующие: pool_size - натуральное число (будем считать, что 1-7), strides - None или                            натуральное число (будем считать, что 1-4)  
 
-        # Experiment History
-        task.history = pd.DataFrame(
-            {'task_type': task.task_type,
-             'objects': [task.objects],
-             'exp_name': task.exp_name,
+                 'augmenParams': {'horizontal_flip': True, False, 'vertical_flip': True, False, None,
+                 rotation_range 0 - 1.0, 'zoom_range': 0 - 1
+                 width_shift_range': 0.0 - 1.0,
+                 height_shift_range':  0.0 - 1.0
+                 brightness_range 0.0 - 1.0
 
-             'pipeline': task.fixedHyperParams['pipeline'],
-             'modelLastLayers': [task.fixedHyperParams['modelLastLayers']],
-             'augmenParams': [task.fixedHyperParams['augmenParams']],
-             'loss': task.fixedHyperParams['loss'],
-             'metrics': task.fixedHyperParams['metrics'],
-             'epochs': task.fixedHyperParams['epochs'],
-             'stoppingCriterion': task.fixedHyperParams['stoppingCriterion'],
-             'data': [task.data],
+                 'epochs' - натуральное число (сколько учится сеть, наверное, имеет смысл поставить лимит, чтобы система не рухнула)
+                 'stoppingCriterion': ['stop_val_metr', 'epochs']
+                 'optimizer': ['Adam', 'RMSprop', 'SGD']
+                 'batchSize': натуральное число (при 128 сервер иногда падал. М.б. разумно поставить лимит)
+                  learning rate: При выборе оптимизатора, д.б. доступен именно его диапазон (!) 
+                  Для Adam & RMSProp: [0.00025 - 0.004],  # разумный диапазон
+                  Для SGD: [0.0025, - 0.04]}   # разумный диапазон
 
-             'optimizer': [task.hyperParams['optimizer']],
-             'batchSize': [task.hyperParams['batchSize']],
-             'lr': [[[0.00025, 0.0005, 0.001, 0.002, 0.004], [0.00025, 0.0005, 0.001, 0.002, 0.004],
-                     [0.0025, 0.005, 0.01, 0.02, 0.04]]],
 
-             'Metric_achieved_result': task.goal[str(list(task.goal.keys())[0])],
-             'curTrainingSubfolder': '',
-             'timeStat': [[]],
-             'totalTime': 0,
-             'Additional_params': [{}]})
+      Мне должен прийти словарь (полностью заполненный !!!), как в данном примере (в нем указаны значения по умолчанию) + естественно проверка, что пришло всё корректно:
 
-        task.history.to_csv(task.exp_path + '/' + task.exp_name + '__History.csv', index_label='Index')
-        # index=False)
+      '''
+    params = {'pipeline' : 'ResNet50', 'modelLastLayers' : [[{'Type': 'Dense', 'units': 64, 'activation': 'relu'},{'Type': 'Dense', 'units': 16, 'activation': 'relu'}]], 'augmenParams' : [{'horizontal_flip': True, 'vertical_flip': None, 'width_shift_range': 0.4, 'height_shift_range': 0.4}],
+              'epochs' : 150, 'stoppingCriterion': 'stop_val_metr' , 'optimizer':'Adam', 'batchSize': 16, 'lr': 0.001  }
+    home = False
+    
+    return params, home
 
-        task.cur_state = 'Training_Gen'
 
 
 @rule
-class DataGenerator(Rule):
-    """
-    Прием для создания генераторов изображений по заданным в curStrategy параметрам аугментации
-    В этот прием попадем как при первичном обучении, так и при смене параметров аугментации после обучения модели
-    TODO: что такое curStrategy?
-    """
+class Training(Rule):
+    """ Приём проверки возможности работы с базой данных """
+    def can_apply(self, state: State):
+        return state.task.taskCt == "train" and state.curState == 'Model_Training'
 
-    def can_apply(self, task: NNTask, solver_state: SolverState):
-        return task.task_ct == "train" and task.cur_state == 'Training_Gen'
+    def apply(self, state: State):
+        
+        
+        CreateDatabase(state)
+        DataGenerator(state)
+        ModelAssembling(state)
+        FitModel(state)
 
-    def apply(self, task: NNTask, solver_state: SolverState):
-        with open(task.log_name, 'a') as log_file:
-            print('DataGenerator', file=log_file)
+####################################################
 
-        df_train = pd.read_csv(task.data['train'])
-        df_validate = pd.read_csv(task.data['validate'])
-        df_test = pd.read_csv(task.data['test'])
 
-        dataGen = keras.preprocessing.image.ImageDataGenerator(task.fixedHyperParams['augmenParams'])
-        # ,directory='./datasets/Kaggle_CatsVSDogs'  list(df_validate.columns)[0]
 
-        train_generator = dataGen.flow_from_dataframe(df_train, x_col=list(df_train.columns)[0],
-                                                      y_col=list(df_train.columns)[1],
-                                                      target_size=task.data['dim'][0:2],
-                                                      class_mode='raw',
-                                                      batch_size=task.cur_hp['batchSize'])
-        validate_generator = dataGen.flow_from_dataframe(df_validate, x_col=list(df_validate.columns)[0],
-                                                         y_col=list(df_validate.columns)[1],
-                                                         target_size=task.data['dim'][0:2],
-                                                         class_mode='raw',
-                                                         batch_size=task.cur_hp['batchSize'])
-        test_generator = dataGen.flow_from_dataframe(df_test, x_col=list(df_test.columns)[0],
-                                                     y_col=list(df_test.columns)[1],
-                                                     target_size=task.data['dim'][0:2],
+def CreateDatabase(state: State): 
+    ''' Из Базы данных заргружаются списки изображений для обучающего, проверочного и тестового множеств'''
+    with open(state.logName, 'a') as log_file:
+        print('CreateDatabase', file = log_file)
+
+    printlog(f'load annotations for {list(state.task.objects)}')
+    tmpData = myDB.load_specific_categories_annotations(list(state.task.objects), normalizeCats=True,
+                                                        splitPoints=[0.7, 0.85],
+                                                        curExperimentFolder='./', crop_bbox=False,
+                                                        cropped_dir='./crops/')
+
+    state.task.data = {'train': tmpData[1]['train'],
+                       'validate': tmpData[1]['validate'],
+                       'test': tmpData[1]['test'],
+                       'dim': (224, 224, 3),
+                       'augmenConstr': {'vertical_flip': None}}
+    
+
+def DataGenerator(state: State):
+    ''' Создаются генераторы изображений + настройка аугментации данных'''
+    
+    printlog('DataGenerator')
+    
+    with open(state.logName, 'a') as log_file:
+        print('DataGenerator', file = log_file)
+
+    df_train = pd.read_csv(state.task.data['train'])
+    df_validate = pd.read_csv(state.task.data['validate'])
+    df_test = pd.read_csv(state.task.data['test'])
+    
+    HP = state.task.HyperParams['augmenParams'][0]
+    HP['preprocessing_function'] = 'keras.applications.resnet.preprocess_input'
+
+    dataGen = keras.preprocessing.image.ImageDataGenerator(HP)
+
+
+    train_generator = dataGen.flow_from_dataframe(df_train, x_col=list(df_train.columns)[0],
+                                                  y_col=list(df_train.columns)[1],
+                                                  target_size=state.task.data['dim'][0:2],
+                                                  class_mode='raw',
+                                                  batch_size=state.task.HyperParams['batchSize'])
+    validate_generator = dataGen.flow_from_dataframe(df_validate, x_col=list(df_validate.columns)[0],
+                                                     y_col=list(df_validate.columns)[1],
+                                                     target_size=state.task.data['dim'][0:2],
                                                      class_mode='raw',
-                                                     batch_size=task.cur_hp['batchSize'])
+                                                     batch_size=state.task.HyperParams['batchSize'])
+    test_generator = dataGen.flow_from_dataframe(df_test, x_col=list(df_test.columns)[0],
+                                                 y_col=list(df_test.columns)[1],
+                                                 target_size=state.task.data['dim'][0:2],
+                                                 class_mode='raw',
+                                                 batch_size=state.task.HyperParams['batchSize'])
 
-        task.generators = [train_generator, validate_generator, test_generator]
-
-        task.cur_state = 'Training_MA'
-
-
-@rule
-class ModelAssembling(Rule):
-    """
-    Прием для сборки модели по заданным в curStrategy параметрам
-    """
-
-    def can_apply(self, task: NNTask, solver_state: SolverState):
-        return task.task_ct == "train" and task.cur_state == 'Training_MA'
-
-    def apply(self, task: NNTask, solver_state: SolverState):
-        with open(task.log_name, 'a') as log_file:
-            print('ModelAssembling', file=log_file)
-
-        x = keras.layers.Input(shape=(task.data['dim']))
-        y = keras.models.load_model(f'{_data_dir}/architectures/' + task.fixedHyperParams['pipeline'] + '.h5')(x)
-        # y=keras.layers.Dense(units=64)(y)
-        # y=keras.layers.Activation(activation='relu')(y)
-        y = keras.layers.Dense(units=1)(y)
-        y = keras.layers.Activation(activation='sigmoid')(y)
-        task.model = keras.models.Model(inputs=x, outputs=y)
-
-        # Директория для обучаемого экземпляра
-        task.curTrainingSubfolder = task.exp_name + '_' + str(task.counter)
-        model_path = task.exp_path + '/' + task.curTrainingSubfolder
-        if not os.path.exists(model_path):
-            os.makedirs(model_path)
-
-        prefix = model_path + '/' + task.curTrainingSubfolder
-        task.model.save(prefix + '__Model.h5')
-        tf.keras.utils.plot_model(task.model, to_file=prefix + '__ModelPlot.png', rankdir='TB', show_shapes=True)
-
-        task.cur_state = 'Training_FIT'
+    state.task.generators = [train_generator, validate_generator, test_generator]
 
 
-@rule
-class FitModel(Rule):
-    """ Прием для обучения модели """
+def ModelAssembling(state: State):
+    ''' Собрается модель + создается её инфраструктура'''
+    
+    with open(state.logName, 'a') as log_file:
+        print('ModelAssembling', file=log_file)
 
-    def can_apply(self, task: NNTask, solver_state: SolverState):
-        return task.task_ct == "train" and task.cur_state == 'Training_FIT'
-
-    def apply(self, task: NNTask, solver_state: SolverState):
-        # установить все гиперпараметры
-        optimizer, lr = task.cur_hp['optimizer'], task.cur_hp['lr']
-        if task.cur_hp['optimizer'] == 'SGD':
-            task.model.compile(optimizer=eval(f'tf.keras.optimizers.{optimizer}(nesterov=True, learning_rate={lr})'),
-                                     loss=task.fixedHyperParams['loss'],
-                                     metrics=[task.fixedHyperParams['metrics']])
-        else:
-            task.model.compile(optimizer=eval(f'tf.keras.optimizers.{optimizer}(learning_rate={lr})'),
-                                     loss=task.fixedHyperParams['loss'],
-                                     metrics=[task.fixedHyperParams['metrics']])
-
-        # Обучение нейронной сети
-        # print(task.fixedHyperParams)
-
-        with open(task.log_name, 'a') as log_file:
-            print(task.curTrainingSubfolder, file=log_file)
-            print(task.cur_hp, file=log_file)
-
-        printlog('\n')
-        printlog(task.curTrainingSubfolder)
-        printlog('\n')
-        printlog(task.cur_hp)
-
-        model_path = f'{task.exp_path}/{task.curTrainingSubfolder}'
-        model_history = model_path + '/' + task.curTrainingSubfolder + '__History.csv'
-
-        C_Log = keras.callbacks.CSVLogger(model_history)  # устанавливаем файл для логов
-        C_Ch = keras.callbacks.ModelCheckpoint(
-            model_path + '/' + task.curTrainingSubfolder + '_weights' + '-{epoch:02d}.h5',  # устанавливаем имя файла для сохранения весов
-            monitor='val_' + task.fixedHyperParams['metrics'],
-            save_best_only=True, save_weights_only=False, mode='max', verbose=1)
-        C_ES = keras.callbacks.EarlyStopping(monitor='val_' + task.fixedHyperParams['metrics'], min_delta=0.001,
-                                             mode='max', patience=5)
-        C_T = TimeHistory()
-
-        task.model.fit(x=task.generators[0],
-                             steps_per_epoch=len(task.generators[0].filenames) // task.cur_hp['batchSize'],
-                             epochs=task.fixedHyperParams['epochs'],
-                             validation_data=task.generators[1],
-                             callbacks=[C_Log, C_Ch, C_ES, C_T],
-                             validation_steps=len(task.generators[1].filenames) // task.cur_hp['batchSize'])
-
-        scores = task.model.evaluate(task.generators[2], steps=None, verbose=1)  # оценка обученной модели
-        task.hp_grid[tuple(task.cur_training_point)] = scores[1]
-
-        with open(task.log_name, 'a') as log_file:
-            print(scores, file=log_file)
-
-        # сохранение результатов в историю эксперимента
-
-        new_row = ({'Index': task.counter,  # номер эксперимента
-                    'task_type': task.task_type,  # тип задачи
-                    'objects': [task.objects],  # список объектов, на распознавание которых обучается модель (TODO: проверить!)
-                    'exp_name': task.exp_name,  # название эксперимента
-
-                    'pipeline': task.fixedHyperParams['pipeline'],  # TODO: что это?
-                    'modelLastLayers': [task.fixedHyperParams['modelLastLayers']],  # TODO: что это?
-                    'augmenParams': [task.fixedHyperParams['augmenParams']],  # параметры аугментации
-                    'loss': task.fixedHyperParams['loss'],  # функция потерь
-                    'metrics': task.fixedHyperParams['metrics'],  # метрика, по которой оценивается качество модели
-                    'epochs': task.fixedHyperParams['epochs'],  # количество эпох обучения
-                    'stoppingCriterion': task.fixedHyperParams['stoppingCriterion'],  # критерий остановки обучения
-                    'data': [task.data],  # набор данных, на котором проводится обучение
-
-                    'optimizer': task.cur_hp['optimizer'],  # оптимизатор
-                    'batchSize': task.cur_hp['batchSize'],  # размер батча
-                    'lr': task.cur_hp['lr'],  # скорость обучения
-
-                    'Metric_achieved_result': scores[1],  # значение метрики на тестовой выборке
-                    'curTrainingSubfolder': task.curTrainingSubfolder,  # папка, в которой хранятся результаты текущего обучения
-                    'timeStat': [C_T.times],  # TODO: что сюда записывается, чем отличается от totalTime?
-                    'totalTime': C_T.total_time,  # общее время обучения
-                    'Additional_params': [{}]})  # дополнительные параметры
-
-        task.history = task.history.append(new_row, ignore_index=True)
-
-        task.history.to_csv(task.exp_path + '/' + task.exp_name + '__History.csv', index=False)
-
-        task.cur_state = 'GridStep'
-
-
-@rule
-class GridStep(Rule):
-    """ Прием для перехода к следующей точке сетки """
-
-    def can_apply(self, task, state):
-        return task.task_ct == "train" and task.cur_state == 'GridStep'
-
-    def apply(self, task, state):
-
-        printlog('GRID')
-        printlog('central hp', task.cur_C_hp)
-        # print(task.cur_central_point, task.cur_training_point)
-        # print(task.hp_grid)
-
-        with open(state.log_name, 'a') as log_file:
-            print('\n', file=log_file)
-            print(task.hp_grid, file=log_file)
-            print('\n', file=log_file)
-            print('GRID', file=log_file)
-            print('central hp', task.cur_C_hp, file=log_file)
-
-        if not hasattr(task, 'best_model') or task.hp_grid[tuple(task.cur_training_point)] > \
-                task.hp_grid[tuple(task.best_model)]:
-            task.best_model = task.cur_training_point.copy()
-            task.best_num = task.counter
-
-        # пройтись по окрестности центральной точки, на наличие необученного соседа
-        checkN, cur = neighborhood(task.cur_central_point, task.hp_grid)
-
-        if not checkN:
-
-            printlog('neighboor exists')
-
-            with open(state.log_name, 'a') as log_file:
-                print('neighboor exists', file=log_file)
-
-            # если есть нулевой сосед
-            task.cur_training_point = cur
-
-            vC = task.cur_central_point
-            vN = task.cur_training_point
-
-            # print(vC, vN)
-
-            if vC[0] != vN[0]:
-                # print('total')
-
-                # поменяла оптимизатор => меняем все три гиперпараметра по массивам
-                task.cur_hp['optimizer'] = task.hyperParams['optimizer'][vN[0]]
-                task.cur_hp['batchSize'] = task.hyperParams['batchSize'][vN[2]]
-
-                if task.cur_hp['optimizer'] == 'SGD':
-                    task.cur_hp['lr'] = task.hyperParams['lr_SGD'][vN[1]]
-                else:
-                    task.cur_hp['lr'] = task.hyperParams['lr_A_R'][vN[1]]
-
-            elif vC[1] != vN[1]:
-                # print('lr+bs')
-                # поменяла learning rate => должен пропорционально поменяться batch size
-                task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-
-                if task.cur_hp['optimizer'] == 'SGD':
-                    task.cur_hp['lr'] = task.hyperParams['lr_SGD'][vN[1]]
-                else:
-                    task.cur_hp['lr'] = task.hyperParams['lr_A_R'][vN[1]]
-
-                task.cur_hp['batchSize'] = int(task.cur_C_hp['batchSize'] * 2 ** (
-                            (vN[2] - vC[2]) + (vN[1] - vC[1])))  # изменение батча из-за learning rate см бумаги
-
+    printlog(f"Base architecture: {state.task.HyperParams['pipeline']}.h5")
+    x = keras.layers.Input(shape=(state.task.data['dim']))
+    y=keras.models.load_model('./architectures/'+state.task.HyperParams['pipeline']+'.h5')(x)
+    
+    for layer in state.task.HyperParams['modelLastLayers'][0]:
+        layerParams = list(layer.keys())
+        layerParams.remove('Type')
+        par_str = '('
+        for p in layerParams:
+            if p == 'activation':
+                par_str += p + ' = \'' + str(layer[p]) + '\','
             else:
-                # print('only bs')
-                task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-                task.cur_hp['lr'] = task.cur_C_hp['lr']
+                par_str += p + ' = ' + str(layer[p]) + ','
+        par_str = par_str[:-1] +')(y)'
+           
+        y = eval('keras.layers.' + layer['Type'] + par_str)
 
-                # если изменили только batch size, то просто умножили или поделили на два текущее значение
-                # (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
-                task.cur_hp['batchSize'] = int(task.cur_C_hp['batchSize'] * 2 ** (vN[2] - vC[2]))
+    if len(state.task.objects) > 2:
+        y=keras.layers.Dense(units = len(state.task.objects))(y)
+        y = keras.layers.Activation(activation = 'softmax')(y)
+    else:
+        y=keras.layers.Dense(units = 1)(y)
+        y = keras.layers.Activation(activation = 'sigmoid')(y)
+    state.task.model = keras.models.Model(inputs=x, outputs=y)
+    
+   
+    # Директория для обучаемого экземпляра
+    state.task.curTrainingSubfolder = state.task.expName + '_' + str(state.task.counter)
+    model_path = state.task.expPath + '/' + state.task.curTrainingSubfolder
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
 
-            if task.cur_hp['batchSize'] > 64:
-                task.cur_hp['batchSize'] = 64
+    prefix = model_path + '/' + state.task.curTrainingSubfolder
+    state.task.model.save(prefix + '__Model.h5')
+    tf.keras.utils.plot_model(state.task.model, to_file=prefix + '__ModelPlot.png', rankdir='TB', show_shapes=True)
+    print(prefix + '__ModelPlot.png')
 
-            # print(task.cur_hp)
-            # task.hp_grid[tuple(vN)]=0.5
 
+def FitModel(state: State):
+    """
+    TODO Для этой функции д.б. реализовано распараллеливание state.task.model необходимо обучить в соответствии с процедурой описанной ниже, взять среднее значение оценки обученной модели. И это есть scores. Результаты всех параллельных запусков записать в state.history['Additional_params']. Надо именно скопировать state.task.model, а не создавать новую, т.к. при создании сети параметры модели инициализируются случайно.
+    """
+    
+    printlog('FitModel')
+    
+    state.task.model.compile(optimizer = eval('keras.optimizers.' + state.task.HyperParams['optimizer'] +'(learning_rate = ' + str( state.task.HyperParams['lr'] ) +')' ), loss = state.task.HyperParams['loss'], metrics=[state.task.HyperParams['metrics']])
+        
+    # Обучение нейронной сети
+
+    with open(state.logName, 'a') as log_file:
+        print(state.task.curTrainingSubfolder, file = log_file)
+        print(state.task.HyperParams, file = log_file)
+ 
+
+    model_path = f'{state.task.expPath}/{state.task.curTrainingSubfolder}'
+    model_history = model_path + '/' + state.task.curTrainingSubfolder + '__History.csv'
+
+    C_Log = keras.callbacks.CSVLogger(model_history)  # устанавливаем файл для логов
+    C_Ch = keras.callbacks.ModelCheckpoint(
+        model_path + '/' + state.task.curTrainingSubfolder + '_weights' + '-{epoch:02d}.h5',  # устанавливаем имя файла для сохранения весов
+        monitor='val_' + state.task.HyperParams['metrics'],
+        save_best_only = True, save_weights_only = False, mode = 'max', verbose = 1)
+    C_ES = keras.callbacks.EarlyStopping(monitor = 'val_' + state.task.HyperParams['metrics'], min_delta = 0.001,
+                                         mode = 'max', patience = 5)
+    C_T = TimeHistory()
+    
+    '''
+    #TODO экран 10 слайд в презентации, там д.б. текущие гиперпараметры обучения + вывод обучения модели = визуализация
+
+    state.task.model.fit(x = state.task.generators[0],
+                         steps_per_epoch = len(state.task.generators[0].filenames) // state.task.HyperParams['batchSize'],
+                         epochs = state.task.HyperParams['epochs'] ,
+                         validation_data = state.task.generators[1],
+                         callbacks = [C_Log, C_Ch, C_ES, C_T],
+                         validation_steps = len(state.task.generators[1].filenames) // state.task.HyperParams['batchSize'])
+    '''
+
+    scores = [0.5, 0.87 ] # state.task.model.evaluate(state.task.generators[2], steps=None, verbose=1)  # оценка обученной модели
+    
+    #state.task.hp_grid[tuple(state.task.cur_training_point)] = scores[1]   state.task.HyperParams['epochs']    №TODO MEMEME
+
+    with open(state.logName, 'a') as log_file:
+        print(scores, file=log_file)
+        
+
+    #сохранение результатов в историю эксперимента
+    
+    HST = {'Index' : state.task.counter, 'taskType': state.task.taskType, 'objects': [state.task.objects], 'expName': state.task.expName,  'LearningApproach': state.task.learningApproach }
+    
+    
+    for kk in state.task.HyperParams.keys():
+        HST[kk] = state.task.HyperParams[kk]
+
+    HST['data'] = [state.task.data]
+    HST['Metric_achieved_result'] = 1 #scores[1]
+    HST['curTrainingSubfolder'] = state.task.curTrainingSubfolder
+    HST['timeStat'] = None #[C_T.times]
+    HST['totalTime'] = None#C_T.total_time
+    HST['Additional_params'] = [{}]
+
+    #print(HST)
+    
+    state.task.history = state.task.history.append((HST), ignore_index = True)
+
+    state.task.history.to_csv( state.task.expPath + '/' + state.task.expName + '__History.csv', index = False)
+    #print( state.task.expPath + '/' + state.task.expName + '__History.csv')
+
+    #  
+    if scores[1] > state.task.goal[str(list(state.task.goal.keys())[0])]:
+        pass
+        # request( См 8-ой слайд) Возвращает: 'Done' = закончить, 'ChangeHyperParams' = обучить
+    else:
+        state.curState = 'ChangeHyperParams'
+
+              
+@rule
+class ChangeHyperParams(Rule):
+    """Прием для изменения гиперпараметров обучения модели"""
+
+    def can_apply(self, state: State):
+        return state.task.taskCt == "train" and state.curState == 'ChangeHyperParams'
+
+    def apply(self, state: State):
+
+
+        with open(state.logName, 'a') as log_file:
+            print('ChangeHyperParams', file=log_file)
+            
+        '''
+        TODO request((  как на слайды № 9 в презентации.
+        При выборе "поиск по сетке" вывести экран №5
+        При выборе  "Вручную задать параметры обучения" - как на экране 7. Поля должны быть заполнены теми гиперпараметрами, что хранятся в HyperParams
+        и при изменении пользователем каких-то гиперпараметров соответствующие поля д.б. выделены
+        При выборе  "стратегия" - как на экране 6. Отметить текущую (если была) и уже отработанные стратегии.
+        
+
+        Возвращает один из 6 вариантов: 'grid_search', 'strategy', 'manual', 'home','finish', 'random'
+        home = сбросить всё и вернуться на начальный экран. Разумно делать предупреждение о сбросе
+        '''
+        
+        # Выбор подхода к обучению и заполнение набора гиперпараметров
+        appr = ['grid_search', 'strategy', 'manual']
+        home = False
+        state.task.learningApproach = 'manual'
+        if state.task.learningApproach == 'home':
+            state.curState = 'Initial'
+            return
+        elif state.task.learningApproach == 'finish':
+            state.curState = 'Done'
+            return
+        elif state.task.learningApproach == 'random':
+            idx = np.random.randint(0, high=3)
+            state.task.learningApproach = appr[idx]
+        
+        if state.task.learningApproach == 'grid_search':
+            pass
+            #functions for grid search
+        elif state.task.learningApproach == 'strategy':
+            pass
+            #functions for strategy
+        elif state.task.learningApproach == 'manual':
+            state.task.HyperParams, home = manual()
         else:
-            # все соседи уже обработаны
+            printlog('Некорректно.')  #TODO  ~ обработка
+            return
+        
+        if home:
+            state.curState = 'Initial'
+            return
+        
+        if len(state.task.objects) > 2:
+            state.task.HyperParams['loss'] = "categorical_crossentropy"
+        else:
+            state.task.HyperParams['loss'] = "binary_crossentropy"
+            
+        state.task.HyperParams['metrics'] = 'accuracy'
+          
+        state.task.counter += 1
+        
+        state.curState = 'Model_Training'    
+        
 
-            with open(state.log_name, 'a') as log_file:
-                print('checkN of our central point is equal -1 => Step', file=log_file)
-                print(task.hp_grid, file=log_file)
 
-            printlog('checkN of our central point is equal -1 => Step')
-            printlog(task.hp_grid)
-
-            if task.best_model == task.cur_central_point:
-
-                with open(state.log_name, 'a') as log_file:
-                    print('task.best_model == task.cur_central_point -- local maximum', file=log_file)
-
-                printlog('task.best_model == task.cur_central_point -- local maximum')
-                # осмотрела всю окрестность, но лучше результата нет => попали в локальный максимум => сохранить реузультаты и закончить работу
-                # ЛУЧШИЙ РЕЗУЛЬТАТ ЭКСПЕРИМЕНТА ЗАПИСАТЬ В БД
-                best = task.history['Index'] == task.best_num  # является ли текущий индекс лучшим
-                loc = task.history.loc[best]
-                prefix = f"{_data_dir}/trainedNN/{loc['exp_name'].iloc[0]}/{loc['curTrainingSubfolder'].iloc[0]}/{loc['curTrainingSubfolder'].iloc[0]}"
-                myDB.add_model_record(task_type=task.task_type,
-                                      categories=list(task.objects),  # категории объектов
-                                      model_address=prefix + '__Model.h5',  # путь к файлу, где лежит модель
-                                      metrics={list(task.goal.keys())[0]: loc['Metric_achieved_result'].iloc[0]},  # значения метрик
-                                      history_address=prefix + '__History.h5')  # путь к файлу, где лежит история обучения
-                task.cur_state = 'Done'
-                return
-
-            else:
-                # поменяла центральную точку => надо осмотреть её окрестность
-
-                with open(state.log_name, 'a') as log_file:
-                    print('have found a new central point => change it anf it\'s hyperParams ', file=log_file)
-
-                printlog('have found a new central point => change it anf it\'s hyperParams ')
-                task.cur_central_point = task.best_model.copy()
-                task.cur_C_hp['optimizer'] = task.hyperParams['optimizer'][task.cur_central_point[0]]
-                task.cur_C_hp['batchSize'] = task.hyperParams['batchSize'][task.cur_central_point[2]]
-
-                if task.cur_C_hp['optimizer'] == 'SGD':
-                    task.cur_C_hp['lr'] = task.hyperParams['lr_SGD'][task.cur_central_point[1]]
-                else:
-                    task.cur_C_hp['lr'] = task.hyperParams['lr_A_R'][task.cur_central_point[1]]
-
-                checkN, cur = neighborhood(task.cur_central_point, task.hp_grid)
-
-                if not checkN:
-
-                    with open(state.log_name, 'a') as log_file:
-                        print('neighboor of a new central point exists', file=log_file)
-
-                    printlog('neighboor of a new central point exists')
-
-                    # если есть нулевой сосед
-                    task.cur_training_point = cur
-
-                    vC = task.cur_central_point
-                    vN = task.cur_training_point
-
-                    # print(vC, vN)
-
-                    if vC[0] != vN[0]:
-                        # print('total')
-
-                        # поменяла оптимизатор => меняем все три гиперпараметра по массивам
-                        task.cur_hp['optimizer'] = task.hyperParams['optimizer'][vN[0]]
-                        task.cur_hp['batchSize'] = task.hyperParams['batchSize'][vN[2]]
-
-                        if task.cur_hp['optimizer'] == 'SGD':
-                            task.cur_hp['lr'] = task.hyperParams['lr_SGD'][vN[1]]
-                        else:
-                            task.cur_hp['lr'] = task.hyperParams['lr_A_R'][vN[1]]
-
-                    elif vC[1] != vN[1]:
-                        # print('lr+bs')
-                        # поменяла learning rate => должен пропорционально поменяться batch size
-                        task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-
-                        if task.cur_hp['optimizer'] == 'SGD':
-                            task.cur_hp['lr'] = task.hyperParams['lr_SGD'][vN[1]]
-                        else:
-                            task.cur_hp['lr'] = task.hyperParams['lr_A_R'][vN[1]]
-
-                        task.cur_hp['batchSize'] = int(task.cur_C_hp['batchSize'] * 2 ** ((vN[2] - vC[2]) + (vN[1] - vC[1])))  # изменение батча из-за learning rate см бумаги
-
-                    else:
-                        # print('only bs')
-                        task.cur_hp['optimizer'] = task.cur_C_hp['optimizer']
-                        task.cur_hp['lr'] = task.cur_C_hp['lr']
-
-                        # если изменили только batch size, то просто умножили или поделили на два текущее значение
-                        # (предполагаю, что в центральной точке нормально ? в смысле без неправильных сдвигов)
-                        task.cur_hp['batchSize'] = int(task.cur_C_hp['batchSize'] * 2 ** (vN[2] - vC[2]))
-
-                    if task.cur_hp['batchSize'] > 64:
-                        task.cur_hp['batchSize'] = 64
-
-                    # print(task.cur_hp)
-                    # tate.task.hp_grid[tuple(vN)]=0.5
-
-                else:
-
-                    with open(state.log_name, 'a') as log_file:
-                        print('set a new central point, but it\'s neighborhood has already filled => local maximum',
-                              file=log_file)
-
-                    printlog('set a new central point, but it\'s neighborhood has already filled => local maximum')
-                    # осмотрела всю окрестность, но лучше результата нет => попали в локальный максимум => сохранить реузультаты и закончить работу
-                    # ЛУЧШИЙ РЕЗУЛЬТАТ ЭКСПЕРИМЕНТА ЗАПИСАТЬ В БД
-                    best = task.history['Index'] == task.best_num  # является ли текущий индекс лучшим
-                    loc = task.history.loc[best]
-                    prefix = f"{_data_dir}/trainedNN/{loc['exp_name'].iloc[0]}/{loc['curTrainingSubfolder'].iloc[0]}/{loc['curTrainingSubfolder'].iloc[0]}"
-                    myDB.add_model_record(task_type=task.task_type,
-                                          categories=list(task.objects),
-                                          model_address=prefix + '__Model.h5',
-                                          metrics={list(task.goal.keys())[0]: loc['Metric_achieved_result'].iloc[0]},
-                                          history_address=prefix + 'History.h5')  # TODO: почему здесь "History.h5", а не "__History.h5"?
-
-                    task.cur_state = 'Done'
-                    return
-
-        task.counter += 1
-        task.cur_state = 'Training_Gen'
-        if task.counter > 600:
-            task.cur_state = 'Done'
+        

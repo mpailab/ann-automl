@@ -640,7 +640,7 @@ class SolverGUI:
             with self._log_widget:
                 print(*args, **kwargs)
 
-        self.handlers['print'] = printlog
+        #self.handlers['print'] = printlog
 
         self.window = ipywidgets.VBox([self.tab, self._log_widget, clear_button])
         for i in range(5):
