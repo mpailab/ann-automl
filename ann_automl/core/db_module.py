@@ -180,13 +180,13 @@ class DBModule:
     ##########        DB Module methods      ###################
     ############################################################
 
-    def __init__(self, dbstring='sqlite:///datasets.sqlite', dbecho=False):
+    def __init__(self, dbstring='sqlite:///datasets.sqlite', dbecho=False, dbconf_file='dbconfig.txt'):
         """
         Basic initialization method, creates session to the DB address
         given by dbstring (defult sqlite:///datasets.sqlite).
         """
-        if os.path.isfile('dbconfig.txt'):  # if config file exists we take all paths from there
-            with open('dbconfig.txt') as f:
+        if os.path.isfile(dbconf_file):  # if config file exists we take all paths from there
+            with open(dbconf_file) as f:
                 dbconfig = json.load(f)
                 if dbconfig.get('dbstring', False):
                     dbstring = dbconfig['dbstring']

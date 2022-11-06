@@ -7,8 +7,10 @@ from typing import Callable
 
 from ann_automl.core.db_module import DBModule
 from ann_automl.core.solver import Task
-from ann_automl.core.hparams import hyperparameters
+from .params import hyperparameters
 from ann_automl.gui.transition import Transition
+from ..core.nn_solver import NNTask
+from ..core.nnfuncs import nnDB as DB
 
 css = '''
 .bk.panel-widget-box {
@@ -19,34 +21,33 @@ css = '''
 }
 '''
 
-DB = DBModule("sqlite:///../tests.sqlite")
+# DB = DBModule("sqlite:///../tests.sqlite")
 
 pn.extension(raw_css=[css])
-pn.config.sizing_mode='stretch_width'
+pn.config.sizing_mode = 'stretch_width'
 
 gui_params = {
-    
     'task': {
         'default': None,
         'title': 'Задача'
     },
     'db': {
-        'default': { 
-            ds['dataset_info']['description'][0]: {
-                'url': ds['dataset_info']['url'][0],
-                'version': ds['dataset_info']['version'][0],
-                'year': ds['dataset_info']['year'][0],
-                'contributor': ds['dataset_info']['contributor'][0],
-                'date_created': ds['dataset_info']['date_created'][0],
-                'categories': { 
-                    x[0]: { 
+        'default': {
+            ds['description']: {
+                'url': ds['url'],
+                'version': ds['version'],
+                'year': ds['year'],
+                'contributor': ds['contributor'],
+                'date_created': ds['date_created'],
+                'categories': {
+                    cat: {
                         'select': False,
-                        'number': x[1]
-                    } 
-                    for x in ds['categories'].values()
+                        'number': num
+                    }
+                    for cat, num in ds['categories'].items()
                 }
-            } 
-            for df in [DB.get_all_datasets()] for ds_id in df['ID'] for ds in [DB.get_full_dataset_info(ds_id)]
+            }
+            for df_id, df in DB.get_all_datasets().items() for ds in [DB.get_full_dataset_info(df_id)]
         },
         'title': 'База данных'
     },
@@ -84,7 +85,7 @@ gui_params = {
             'widget': 'MultiChoice'
         }
     },
-    'task_goal': {
+    'task_target': {
         'type': 'str',
         'values': ['loss', 'metrics'],
         'default': 'loss',
@@ -94,7 +95,7 @@ gui_params = {
             'widget': 'Select'
         }
     },
-    'task_goal_value': {
+    'task_target_value': {
         'type': 'float',
         'range': [0, 1], 
         'default': 0.7, 
@@ -105,15 +106,24 @@ gui_params = {
             'group': 'Task',
             'widget': 'Slider'
         }
-    }
+    },
+    'task_maximize_target': {
+        'type': 'bool',
+        'default': True,
+        'title': 'Максимизировать целевой функционал после достижения значения task_target_value',
+        'gui': {
+            'group': 'Task',
+            'widget': 'Checkbox'
+        }
+    },
 }
 
-gui_params.update({ k:v for k,v in hyperparameters.items() if 'gui' in v })
+gui_params.update({k: v for k, v in hyperparameters.items() if 'gui' in v})
 
 
 class Window(param.Parameterized):
 
-    params = param.Dict({ p : gui_params[p]['default'] for p in gui_params })
+    params = param.Dict({p: gui_params[p]['default'] for p in gui_params})
     ready = param.Boolean(False)
     
     def __init__(self, **kwargs):
@@ -124,16 +134,16 @@ class Window(param.Parameterized):
 
     def param_widget(self, name: str, change_callback: Callable[[], None]):
 
-        def changeValue(attr, old, new):
+        def change_value(attr, old, new):
             self.params[name] = new
             change_callback()
 
-        def changeActiveValue(attr, old, new):
+        def change_active_value(attr, old, new):
             self.params[name] = name in new
             change_callback()
         
         desc = gui_params[name]
-        kwargs =  {
+        kwargs = {
             'name': name,
             'margin': (5, 10, 5, 10)
         }
@@ -141,22 +151,22 @@ class Window(param.Parameterized):
         if desc['gui']['widget'] == 'Select':
             widget = bokeh.models.Select(**kwargs, title=desc['title'], value=self.params[name], 
                 options=[x for x in desc['values']])
-            widget.on_change('value', changeValue)
+            widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'MultiChoice':
             widget = bokeh.models.MultiChoice(**kwargs, title=desc['title'], value=self.params[name], 
                 options=[x for x in desc['values']])
-            widget.on_change('value', changeValue)
+            widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'Slider':
             widget = bokeh.models.Slider(**kwargs, title=desc['title'], value=self.params[name], 
                 start=desc['range'][0], end=desc['range'][1], step=desc['step'])
-            widget.on_change('value', changeValue)
+            widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'Checkbox':
-            widget = bokeh.models.CheckboxGroup(**kwargs, labels=[desc['title']], 
-                active=[desc['title']] if self.params[name] else [])
-            widget.on_change('active', changeActiveValue)
+            widget = bokeh.models.CheckboxGroup(**kwargs, labels=[desc['title']],
+                active=[0] if self.params[name] else [])
+            widget.on_change('active', change_active_value)
 
         return widget
 
@@ -175,7 +185,6 @@ class Window(param.Parameterized):
                 all (self.params[par] in values for par, values in gui_params[widget.name]['cond']) )
 
 
-
 class Start(Window):
 
     next_window = param.Selector(default='Params', objects=['Params', 'TrainedModels', 'DatasetLoader'])
@@ -185,26 +194,27 @@ class Start(Window):
 
         self.is_need_dataset_apply_button_visible = True
 
-        def changeDatasetCallback(attr, old, new):
+        def change_dataset_callback(attr, old, new):
             ds = new[0]
+            info = self.params['db'][ds]
             self.params['dataset'] = ds
 
             self.dataset_description.text=f"<b>Описание:</b> {ds}"
-            self.dataset_url.text=f"<b>Источник:</b> <a href=\"{self.params['db'][ds]['url']}\">{self.params['db'][ds]['url']}</a>"
-            self.dataset_contributor.text=f"<b>Создатель:</b> {self.params['db'][ds]['contributor']}"
-            self.dataset_year.text=f"<b>Год создания:</b> {self.params['db'][ds]['year']}"
-            self.dataset_version.text=f"<b>Версия:</b> {self.params['db'][ds]['version']}"
-            self.dataset_categories_selector.options=list(self.params['db'][ds]['categories'].keys())
+            self.dataset_url.text=f"<b>Источник:</b> <a href=\"{info['url']}\">{info['url']}</a>"
+            self.dataset_contributor.text=f"<b>Создатель:</b> {info['contributor']}"
+            self.dataset_year.text=f"<b>Год создания:</b> {info['year']}"
+            self.dataset_version.text=f"<b>Версия:</b> {info['version']}"
+            self.dataset_categories_selector.options = list(info['categories'])
             self.is_need_dataset_apply_button_visible = False
-            self.dataset_categories_selector.value=[category for category in self.params['db'][ds]['categories'] if self.params['db'][ds]['categories'][category]['select']]
+            self.dataset_categories_selector.value = [category for category, v in info['categories'].items() if v['select']]
             self.is_need_dataset_apply_button_visible = True
 
         self.dataset_selector = bokeh.models.MultiSelect(
             value=["Dogs vs Cats"], 
             options=list(self.params['db'].keys()),  
-            height_policy="max", margin=(5,15,5,5)
+            height_policy="max", margin=(5, 15, 5, 5)
         )
-        self.dataset_selector.on_change('value', changeDatasetCallback)
+        self.dataset_selector.on_change('value', change_dataset_callback)
         
         def changeDatasetCategoriesCallback(attr, old, new):
             if self.is_need_dataset_apply_button_visible:
@@ -250,7 +260,7 @@ class Start(Window):
 
         self.db_interface = pn.Column(
             '# База данных изображений',
-            pn.Row(self.dataset_selector, self.dataset_info, margin=(-5,5,15,5)),
+            pn.Row(self.dataset_selector, self.dataset_info, margin=(-5, 5, 15, 5)),
             pn.Row(self.dataset_load_button, self.dataset_apply_button)
         )
         
@@ -268,8 +278,8 @@ class Start(Window):
             self.task_category_selector,
             self.task_type_selector,
             self.task_objects_selector,
-            self.task_goal_selector,
-            self.task_goal_value_selector,
+            self.task_target_selector,
+            self.task_target_value_selector,
             self.task_apply_button
         )
 
@@ -299,11 +309,15 @@ class Start(Window):
 
     def on_click_task_apply(self, event):
         # CORE:  
-        self.params['task'] = Task(
-            self.params['task_category'], 
-            self.params['task_type'],
-            self.params['task_objects'], 
-            goal={self.params['task_goal']: self.params['task_goal_value']})
+        self.params['task'] = NNTask(
+            task_ct=self.params['task_category'],
+            task_type=self.params['task_type'],
+            objects=self.params['task_objects'],
+            metric=self.params['task_target'],
+            target=self.params['task_target_value'],
+            goals={'maximize', self.params['task_maximize_target']}
+            # goal={self.params['task_goal']: self.params['task_goal_value']}
+            )
         self.task_apply_button.visible = False
 
     def on_click_next(self, event):
@@ -319,8 +333,7 @@ class Start(Window):
             pn.Spacer(height=10),
             self.checkbox,
             self.next_button,
-            margin=(0,0,0,10))
-
+            margin=(0, 0, 0, 10))
 
 
 class DatasetLoader(Window):
@@ -341,7 +354,6 @@ class DatasetLoader(Window):
             '# Меню загрузки датасета',
             pn.Spacer(height=10),
             self.back_button)
-
 
 
 class Params(Window):
@@ -389,7 +401,6 @@ class Params(Window):
             pn.Row(self.back_button, self.next_button))
 
 
-
 class TrainedModels(Window):
 
     next_window = param.Selector(default='Start', objects=['Start'])
@@ -414,7 +425,6 @@ class TrainedModels(Window):
             ),
             self.back_button
         )
-
 
 
 pipeline = Transition(

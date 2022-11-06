@@ -52,35 +52,35 @@ def set_db_file(db_file):
 # !!! гиперпараметры и их значения сгенерированы автоматически !!!
 # TODO: проверить их на корректность
 augmen_params_list = {
-    'rotation_range': {'type': 'float_range', 'range': [0, 180], 'default': None, 'name': 'угол поворота'},
-    'width_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'сдвиг по ширине'},
-    'height_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'сдвиг по высоте'},
-    'shear_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'угол наклона'},
-    'zoom_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'масштаб'},
-    'channel_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'name': 'сдвиг по цвету'},
+    'rotation_range': {'type': 'float_range', 'range': [0, 180], 'default': None, 'title': 'угол поворота'},
+    'width_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'title': 'сдвиг по ширине'},
+    'height_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'title': 'сдвиг по высоте'},
+    'shear_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'title': 'угол наклона'},
+    'zoom_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'title': 'масштаб'},
+    'channel_shift_range': {'type': 'float_range', 'range': [0, 1], 'default': None, 'title': 'сдвиг по цвету'},
     'fill_mode': {'type': 'str', 'values': ['constant', 'nearest', 'reflect', 'wrap'], 'default': 'constant',
-                  'name': 'режим заполнения'},
-    'cval': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'name': 'значение заполнения'},
-    'horizontal_flip': {'type': 'bool', 'default': False, 'name': 'горизонтальное отражение'},
-    'vertical_flip': {'type': 'bool', 'default': False, 'name': 'вертикальное отражение'},
-    'rescale': {'type': 'float', 'range': [0, 1], 'default': None, 'name': 'масштабирование'},
+                  'title': 'режим заполнения'},
+    'cval': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'title': 'значение заполнения'},
+    'horizontal_flip': {'type': 'bool', 'default': False, 'title': 'горизонтальное отражение'},
+    'vertical_flip': {'type': 'bool', 'default': False, 'title': 'вертикальное отражение'},
+    'rescale': {'type': 'float', 'range': [0, 1], 'default': None, 'title': 'масштабирование'},
     'preprocessing_function': {'type': 'str', 'values': ['auto', 'None', 'rescale', 'preprocess_input'],
-                               'default': 'auto', 'name': 'функция предобработки'},
+                               'default': 'auto', 'title': 'функция предобработки'},
     'data_format': {'type': 'str', 'values': ['channels_last', 'channels_first'], 'default': 'channels_last',
-                    'name': 'формат данных'},
+                    'title': 'формат данных'},
 }
 
 
 db_hparams = {
-    'crop_bbox': {'type': 'bool', 'default': True, 'name': 'обрезать изображения по границам объектов'},
+    'crop_bbox': {'type': 'bool', 'default': True, 'title': 'обрезать изображения по границам объектов'},
     'val_frac': {'type': 'float', 'range': [0.05, 0.5], 'default': 0.2,
                  'scale': 'lin', 'step': 0.05,
-                 'name': 'доля валидационной выборки'},
+                 'title': 'доля валидационной выборки'},
     'test_frac': {'type': 'float', 'range': [0.05, 0.5], 'default': 0.2,
                   'scale': 'lin', 'step': 0.05,
-                  'name': 'доля тестовой выборки'},
+                  'title': 'доля тестовой выборки'},
     'balance_by_min_category': {'type': 'bool', 'default': False,
-                                'name': 'cбалансировать выборки по минимальному классу'},
+                                'title': 'cбалансировать выборки по минимальному классу'},
 }
 
 
@@ -91,93 +91,184 @@ nn_hparams = {
         'default': 32,
         'step': 2,
         'scale': 'log',
-        'name': "размер батча",
+        'title': "размер батча",
         'description': "Размер батча, используемый при обучении нейронной сети"
     },
-    'epochs': {'type': 'int', 'range': [10, 1000], 'default': 150, 'step': 10, 'scale': 'lin', 'name': "количество эпох"},
+    'epochs': {
+        'type': 'int',
+        'range': [10, 1000],
+        'default': 150,
+        'step': 10,
+        'scale': 'lin',
+        'title': "количество эпох"
+    },
     'optimizer': {
         'type': 'str',
-        'values': {
-            'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
-            'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
-            'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
-            'Adagrad': {'params': ['epsilon']},
-            'Adadelta': {'params': ['rho', 'epsilon']},
-            'Adamax': {'params': ['beta_1', 'beta_2', 'epsilon']},
-            'Nadam': {'params': ['beta_1', 'beta_2', 'epsilon']},
+        'values': {  # TODO: проверить описание оптимизаторов
+            'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon'],
+                     'description': 'Оптимизатор использует оценки первого и второго момента градиента'},
+            'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum'],
+                    'description': 'Метод стохастического градиентного спуска'},
+            'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered'],
+                        'description': 'Адаптивный метод градиентного спуска, '
+                                       'основанный на оценках второго момента градиента'},
+            'Adagrad': {'params': ['epsilon'],
+                        'description': 'Адаптивный метод градиентного спуска, основанный на сумме квадратов градиента'},
+            'Adadelta': {'params': ['rho', 'epsilon'],
+                         'description': 'Адаптивный метод градиентного спуска, '
+                                        'основанный на сумме квадратов градиента и '
+                                        'градиента на предыдущем шаге'},
+            'Adamax': {'params': ['beta_1', 'beta_2', 'epsilon'],
+                       'description': 'Адаптивный метод градиентного спуска, '
+                                      'основанный на оценках первого и максимального второго моментов градиента'},
+            'Nadam': {'params': ['beta_1', 'beta_2', 'epsilon'],
+                      'description': 'Адаптивный метод градиентного спуска, '
+                                     'основанный на оценках первого и взвешенного второго моментов градиента'}
         },
         'default': 'Adam',
-        'name': "оптимизатор",
-        'description': "Оптимизатор, используемый при обучении нейронной сети:\n"
+        'title': "оптимизатор",
+        'description': "Оптимизатор, используемый при обучении нейронной сети"
     },
     'learning_rate': {'type': 'float', 'range': [1e-5, 1e-1], 'default': 1e-3, 'step': 2, 'scale': 'log',
-                      'name': "скорость обучения"},
+                      'title': "скорость обучения"},
     'decay': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
-              'name': 'декремент скорости обучения'},
+              'title': 'декремент скорости обучения'},
     'activation': {'type': 'str', 'values': ['softmax', 'elu', 'selu', 'softplus', 'softsign', 'relu', 'tanh',
                                              'sigmoid', 'hard_sigmoid', 'linear'],
-                   'default': 'relu', 'name': 'функция активации'},
-    'loss': {'type': 'str', 'values': ['mean_squared_error', 'mean_absolute_error', 'mean_absolute_percentage_error',
-                                       'mean_squared_logarithmic_error', 'squared_hinge', 'hinge', 'categorical_hinge',
-                                       'logcosh', 'categorical_crossentropy', 'sparse_categorical_crossentropy',
-                                       'binary_crossentropy', 'kullback_leibler_divergence', 'poisson',
-                                       'cosine_proximity'], 'default': 'mean_squared_error', 'name': 'функция потерь'},
-    'metrics': {'type': 'str', 'values': ['accuracy', 'binary_accuracy', 'categorical_accuracy',
-                                          'sparse_categorical_accuracy', 'top_k_categorical_accuracy',
-                                          'sparse_top_k_categorical_accuracy'],
-                'default': 'accuracy', 'name': 'метрика'},
-    'dropout': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'name': 'dropout'},
+                   'default': 'relu', 'title': 'функция активации'},
+    'loss': {
+        'type': 'str',
+        'values': {
+            # TODO: проверить и дополнить описания. Текущие описания переведены или сгенерированы автоматически
+            'mean_squared_error': {
+                'description': 'Среднеквадратичная ошибка. '
+                               'Используется при выполнении регрессии, полагая, что цель, '
+                               'обусловленная входными данными, нормально распределена, и требуется, '
+                               'чтобы большие ошибки наказывались значительно больше, чем маленькие'},
+            'mean_absolute_error': {
+                'description': 'Средняя абсолютная ошибка. '
+                               'Используется при выполнении регрессии, если не требуется, '
+                               'чтобы выбросы играли большую роль. Это также может быть полезно, когда '
+                               'распределение имеет несколько максимумов, '
+                               'и желательно иметь прогнозы в окрестности одного из них, а не в среднем.'},
+            'mean_absolute_percentage_error': {'description': ''},
+            'mean_squared_logarithmic_error': {
+                'description': 'Среднеквадратичная логарифмическая ошибка.'
+                               'Используется при выполнении регрессии, полагая, что цель, '
+                               'обусловленная входными данными, нормально распределена, и не требуется, '
+                               'чтобы большие ошибки наказывались значительно больше, чем маленькие, '
+                               'в тех случаях, когда диапазон целевого значения велик.'},
+
+            'squared_hinge': {
+                'description': 'Используется в бинарных задачах классификации, и когда не важно знать, '
+                               'насколько уверен классификатор в классификации. '
+                               'Используется в сочетании с функцией активации tanh() на последнем слое.'},
+            'hinge': {'description': ''},
+            'categorical_hinge': {'description': ''},
+
+            'binary_crossentropy': {
+                'description': 'Используется в задачах бинарной классификации, когда целевая переменная '
+                               'представляет собой бинарные метки, которые должны быть предсказаны. '
+                               'Используется в сочетании с функцией активации sigmoid() на последнем слое.'},
+            'categorical_crossentropy': {
+                'description': 'Используется в задачах классификации, '
+                               'когда целевая переменная представляет собой вероятности, '
+                               'которые должны быть предсказаны. '
+                               'Используется в сочетании с функцией активации softmax() на последнем слое.'},
+            'sparse_categorical_crossentropy': {
+                'description': 'Используется в задачах классификации, '
+                               'когда целевая переменная представляет собой индексы классов, '
+                               'которые должны быть предсказаны. '
+                               'Используется в сочетании с функцией активации softmax() на последнем слое.'},
+            'kullback_leibler_divergence': {
+                'description': 'Используется в задачах классификации, когда целевая переменная '
+                               'представляет собой вероятности, которые должны быть предсказаны. '
+                               'Используется в сочетании с функцией активации softmax() на последнем слое.'},
+            'poisson': {'description': 'Используется в задачах классификации, когда целевая переменная '
+                                       'представляет собой счетчики, которые должны быть предсказаны. '
+                                       'Используется в сочетании с функцией активации exp() на последнем слое.'},
+            'logcosh': {'description': ''},
+            'cosine_proximity': {'description': ''}
+        },
+        'default': 'mean_squared_error',
+        'title': 'функция потерь'
+    },
+    'metrics': {
+        'type': 'str',
+        'values': ['accuracy', 'binary_accuracy', 'categorical_accuracy',
+                   'sparse_categorical_accuracy', 'top_k_categorical_accuracy',
+                   'sparse_top_k_categorical_accuracy'],
+        'default': 'accuracy',
+        'title': 'метрика'
+    },
+    'dropout': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'title': 'dropout'},
     # доля нейронов, которые отключаются при обучении
     'kernel_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
                                                      'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
                                                      'glorot_normal', 'glorot_uniform', 'he_normal', 'lecun_normal',
                                                      'he_uniform'],
-                           'default': 'glorot_uniform', 'name': 'инициализатор весов'},
+                           'default': 'glorot_uniform', 'title': 'инициализатор весов'},
     'bias_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
                                                    'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
                                                    'glorot_normal', 'glorot_uniform', 'he_normal', 'lecun_normal',
-                                                   'he_uniform'], 'default': 'zeros', 'name': 'инициализатор смещений'},
+                                                   'he_uniform'], 'default': 'zeros', 'title': 'инициализатор смещений'},
     'kernel_regularizer': {'type': 'str', 'values': ['auto', 'l1', 'l2', 'l1_l2'],
-                           'default': 'auto', 'name': 'регуляризатор весов'},
+                           'default': 'auto',
+                           'title': 'регуляризатор весов',
+                           'description': ''},
     'bias_regularizer': {'type': 'str', 'values': ['auto', 'l1', 'l2', 'l1_l2'],
-                         'default': 'auto', 'name': 'регуляризатор смещений'},
+                         'default': 'auto',
+                         'title': 'регуляризатор смещений',
+                         'description': ''},
     'activity_regularizer': {'type': 'str', 'values': ['auto', 'l1', 'l2', 'l1_l2'],
-                             'default': 'auto', 'name': 'регуляризатор активации'},
+                             'default': 'auto',
+                             'title': 'регуляризатор активации',
+                             'description': ''},
     'kernel_constraint': {'type': 'str', 'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
-                          'default': 'auto', 'name': 'ограничение весов'},
+                          'default': 'auto',
+                          'title': 'ограничение весов',
+                          'description': ''},
     'bias_constraint': {'type': 'str', 'values': ['auto', 'max_norm', 'non_neg', 'unit_norm', 'min_max_norm'],
-                        'default': 'auto', 'name': 'ограничение смещений'},
+                        'default': 'auto',
+                        'title': 'ограничение смещений',
+                        'description': ''},
     'augmen_params': {'type': 'dict', 'default': {},
                       'params': augmen_params_list,
-                      'name': 'параметры аугментации'},
+                      'title': 'параметры аугментации',
+                      'description': 'Параметры аугментации изображений.'},
 
     # dataset params
     **db_hparams,
 
     # conditional parameters (for optimizers)
-    'nesterov': {'type': 'bool', 'default': False, 'name': 'Nesterov momentum', 'cond': True},  # для SGD
-    'centered': {'type': 'bool', 'default': False, 'name': 'centered', 'cond': True},  # для RMSprop
-    'amsgrad': {'type': 'bool', 'default': False, 'name': 'amsgrad для Adam', 'cond': True},  # для Adam
+    'nesterov': {'type': 'bool', 'default': False, 'title': 'Nesterov momentum', 'cond': True},  # для SGD
+    'centered': {'type': 'bool', 'default': False, 'title': 'centered', 'cond': True},  # для RMSprop
+    'amsgrad': {'type': 'bool', 'default': False, 'title': 'amsgrad для Adam', 'cond': True},  # для Adam
 
     'momentum': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
-                 'name': 'momentum', 'cond': True},  # момент для SGD
-    'rho': {'type': 'float', 'range': [0.5, 0.99], 'default': 0.9, 'name': 'rho', 'cond': True,
+                 'title': 'momentum', 'cond': True},  # момент для SGD
+    'rho': {'type': 'float', 'range': [0.5, 0.99], 'default': 0.9, 'title': 'rho', 'cond': True,
             'step': 2**0.25, 'scale': '1-log'},  # коэффициент затухания для RMSprop
     'epsilon': {'type': 'float', 'range': [1e-8, 1e-1], 'default': 1e-7, 'step': 10, 'scale': 'log',
-                'name': 'epsilon', 'cond': True},  # для RMSprop, Adagrad, Adadelta, Adamax, Nadam
-    'beta_1': {'type': 'float', 'range': [0.5, 0.999], 'default': 0.9, 'name': 'beta_1 для Adam', 'cond': True,
+                'title': 'epsilon', 'cond': True},  # для RMSprop, Adagrad, Adadelta, Adamax, Nadam
+    'beta_1': {'type': 'float', 'range': [0.5, 0.999], 'default': 0.9, 'title': 'beta_1 для Adam', 'cond': True,
                'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
-    'beta_2': {'type': 'float', 'range': [0.5, 0.9999], 'default': 0.999, 'name': 'beta_2 для Adam', 'cond': True,
+    'beta_2': {'type': 'float', 'range': [0.5, 0.9999], 'default': 0.999, 'title': 'beta_2 для Adam', 'cond': True,
                'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
 }
 
 
 tune_hparams = {
-    'method': {'type': 'str', 'values': {'grid': {'params': ['radius', 'metric', 'start']}}},
+    'method': {'type': 'str',
+               'values': {'grid': {'params': ['radius', 'grid_metric', 'start_point']}},
+               'default': 'grid',
+               'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
-    'radius': {'type': 'int', 'range': [1, 5], 'default': 1},
-    'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1'},
-    'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto'},
+    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'title': 'Радиус', 'cond': True},
+    'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1',
+                    'title': 'Метрика на сетке', 'cond': True},
+    'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
+                    'title': 'Начальная точка', 'cond': True},
 }
 
 

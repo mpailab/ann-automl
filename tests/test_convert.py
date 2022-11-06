@@ -1,4 +1,5 @@
-import utils
+from ann_automl import utils
+import ann_automl
 import numpy
 
 
@@ -10,7 +11,8 @@ def test_convertor():
            2: {'4': 5, (0, 1): b"2364"}}
 
     print(repr(utils.convert(obj)))
-
+    print(obj)
+    print(eval(repr(utils.convert(obj))))
     assert eval(repr(utils.convert(obj))) == obj
 
 

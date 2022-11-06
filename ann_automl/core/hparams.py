@@ -31,6 +31,10 @@ hyperparameters = {
 - Adam - адаптивный метод градиентного спуска, основанный на оценках первого и второго моментов градиента
 - SGD - стохастический градиентный спуск
 - RMSprop - адаптивный метод градиентного спуска, основанный на оценках второго момента градиента
+- Adagrad - адаптивный метод градиентного спуска, основанный на сумме квадратов градиента
+- Adadelta - адаптивный метод градиентного спуска, основанный на сумме квадратов градиента и градиента на предыдущем шаге
+- Adamax - адаптивный метод градиентного спуска, основанный на оценках первого и максимального второго моментов градиента
+- Nadam - адаптивный метод градиентного спуска, основанный на оценках первого и взвешенного второго моментов градиента
 """,
         'gui': {
             'widget': 'Select',
@@ -203,7 +207,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'type': 'bool',
         'default': False,
         'title': 'Nesterov momentum',
-        'cond': [('optimizer', set(['SGD']))],
+        'cond': [('optimizer', {'SGD'})],
         'gui': {
             'widget': 'Checkbox',
             'group': 'Optimizer'
@@ -213,7 +217,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'type': 'bool',
         'default': False,
         'title': 'Centered',
-        'cond': [('optimizer', set(['RMSprop']))],
+        'cond': [('optimizer', {'RMSprop'})],
         'gui': {
             'widget': 'Checkbox',
             'group': 'Optimizer'
@@ -223,7 +227,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'type': 'bool',
         'default': False,
         'title': 'Amsgrad',
-        'cond': [('optimizer', set(['Adam']))],
+        'cond': [('optimizer', {'Adam'})],
         'gui': {
             'widget': 'Checkbox',
             'group': 'Optimizer'
@@ -236,7 +240,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'step': 0.01, 
         'scale': 'lin',
         'title': 'momentum', 
-        'cond': [('optimizer', set(['SGD']))],
+        'cond': [('optimizer', {'SGD'})],
         'gui': {
             'widget': 'Slider',
             'group': 'Optimizer'
@@ -249,7 +253,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'step': 2**0.25, 
         'scale': 'loglog', 
         'title': 'rho', 
-        'cond': [('optimizer', set(['RMSprop']))],
+        'cond': [('optimizer', {'RMSprop'})],
         'gui': {
             'widget': 'Slider',
             'group': 'Optimizer'
@@ -262,7 +266,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'step': 10, 
         'scale': 'log',
         'title': 'epsilon', 
-        'cond': [('optimizer', set(['RMSprop', 'Adagrad', 'Adadelta', 'Adamax', 'Nadam']))],
+        'cond': [('optimizer', {'RMSprop', 'Adagrad', 'Adadelta', 'Adamax', 'Nadam'})],
         'gui': {
             'widget': 'Slider',
             'group': 'Optimizer'
@@ -275,7 +279,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'step': 2**0.25, 
         'scale': 'loglog', 
         'title': 'beta_1', 
-        'cond': [('optimizer', set(['Adam', 'Nadam', 'Adamax']))],
+        'cond': [('optimizer', {'Adam', 'Nadam', 'Adamax'})],
         'gui': {
             'widget': 'Slider',
             'group': 'Optimizer'
@@ -288,7 +292,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
         'step': 2**0.25, 
         'scale': 'loglog', 
         'title': 'beta_2', 
-        'cond': [('optimizer', set(['Adam', 'Nadam', 'Adamax']))],
+        'cond': [('optimizer', {'Adam', 'Nadam', 'Adamax'})],
         'gui': {
             'widget': 'Slider',
             'group': 'Optimizer'
