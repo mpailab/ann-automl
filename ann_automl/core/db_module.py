@@ -185,6 +185,17 @@ class DBModule:
         Basic initialization method, creates session to the DB address
         given by dbstring (defult sqlite:///datasets.sqlite).
         """
+        if os.path.isfile('dbconfig.txt'):  # if config file exists we take all paths from there
+            with open('dbconfig.txt') as f:
+                dbconfig = json.load(f)
+                if dbconfig.get('dbstring', False):
+                    dbstring = dbconfig['dbstring']
+                if dbconfig.get('KaggleCatsVsDogs', False):
+                    self.KaggleCatsVsDogsConfig_ = dbconfig['KaggleCatsVsDogs']
+                if dbconfig.get('COCO2017', False):
+                    self.COCO2017Config_ = dbconfig['COCO2017']
+                if dbconfig.get('ImageNet', False):
+                    self.ImageNetConfig_ = dbconfig['ImageNet']
         self.engine = create_engine(dbstring, echo=dbecho)
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
@@ -226,9 +237,17 @@ class DBModule:
         -------
             None
         """
+        if hasattr(self, 'KaggleCatsVsDogsConfig_'):  # to init from config file
+            anno_file_name = self.KaggleCatsVsDogsConfig_['anno_filename']
+            file_prefix = self.KaggleCatsVsDogsConfig_['file_prefix']
+
         print('Start filling DB with Kaggle CatsVsDogs')
         if not os.path.isfile(anno_file_name):
             print('Error: no file', anno_file_name, 'found')
+            print('Stop filling dataset')
+            return
+        if not os.path.isdir(file_prefix):
+            print('Error: no directory', file_prefix, 'found')
             print('Stop filling dataset')
             return
         with open(anno_file_name) as json_file:
@@ -264,7 +283,7 @@ class DBModule:
                            prefix='Adding annotations:', suffix='Complete', length=50)
         an_counter = 0
         for an_data in data['annotations']:
-            # TODO: +1 because of error in json - should be fixed later
+            # +1 because of json file structure for this DB only
             real_id = im_objects[an_data['image_id']].ID
             annotation = self.Annotation(image_id=real_id,
                                          category_id=an_data['category_id'] + 1,
@@ -298,9 +317,17 @@ class DBModule:
         -------
             None
         """
-        print('Start filling DB with COCO-format dataset from file',anno_file_name)
+        if hasattr(self, 'COCO2017Config_'):  # to init from config file
+            anno_file_name = self.COCO2017Config_['anno_filename']
+            file_prefix = self.COCO2017Config_['file_prefix']
+
+        print('Start filling DB with COCO-format dataset from file', anno_file_name)
         if not os.path.isfile(anno_file_name):
-            print('Error: no file',anno_file_name, 'found')
+            print('Error: no file', anno_file_name, 'found')
+            print('Stop filling dataset')
+            return
+        if not os.path.isdir(file_prefix):
+            print('Error: no directory', file_prefix, 'found')
             print('Stop filling dataset')
             return
         coco = COCO(anno_file_name)
@@ -349,6 +376,19 @@ class DBModule:
         -------
             None
         """
+        if hasattr(self, 'ImageNetConfig_'):  # to init from config file
+            annotations_dir = self.ImageNetConfig_['annotations_dir']
+            file_prefix = self.ImageNetConfig_['file_prefix']
+            assoc_file = self.ImageNetConfig_['categories_assoc_file']
+
+        if not os.path.isdir(annotations_dir):
+            print('Error: no directory', annotations_dir, 'found')
+            print('Stop filling ImageNet dataset')
+            return
+        if not os.path.isdir(file_prefix):
+            print('Error: no directory', file_prefix, 'found')
+            print('Stop filling ImageNet dataset')
+            return
         # If we make it for the first time, we add dataset information to DB
         if first_time:
             if ds_info is None:
@@ -399,8 +439,10 @@ class DBModule:
         print('Len img_files:', len(img_files))
         images = []
         annotations = []
-        licence_id = 1  # TODO - fix that, add BSD license
+        licence_id = 1  # default value
         im_id = 0
+        print_progress_bar(0, len(img_files), prefix='Processing ImageNet XML files:',
+                           suffix='Complete', length=50)
         for img_file in img_files:
             im = Image.open(img_file)
             width, height = im.size
@@ -415,7 +457,6 @@ class DBModule:
             annofilename = os.path.join(annotations_dir, anno_subdir, img_name_no_ext + '.xml')
             if os.path.isfile(annofilename):
                 # corresponding annotation file is found
-                # print('Found anno-filename:',annofilename)
                 tree = ET.parse(annofilename)
                 root = tree.getroot()
                 obj_tag = root.find('object')
@@ -425,8 +466,6 @@ class DBModule:
                         if child.tag == 'bndbox':
                             for bchild in child:
                                 bbox.append(bchild.text)
-                            # print('Found bbox!', bbox)
-                            # input()
                             area = np.abs((float(bbox[2]) - float(bbox[0])) * (float(bbox[3]) - float(bbox[1])))
                             annotation_data = {'image_id': im_id, 'segmentation': '', 'bbox': json.dumps(bbox),
                                                'iscrowd': 0, 'area': area,
@@ -438,12 +477,13 @@ class DBModule:
                                    'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
                 annotations.append(annotation_data)
             im_id += 1
-            if im_id % 100000 == 0:
-                print(im_id)
+            print_progress_bar(im_id, len(img_files), prefix='Processing ImageNet XML files:',
+                               suffix='Complete', length=50)
         self.add_images_and_annotations(images, annotations, ds_id)
         return images, annotations
 
     def get_all_datasets(self, full_info=False):
+        # SQL file is stored inside project working directory
         if not os.path.exists(self.dbstring_.split('/')[-1]):
             self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
@@ -477,9 +517,10 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation
                                 ).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:  # TODO: This is an awful patch for keras
-            df_new = pd.DataFrame(columns=['images', 'target'],
-                                  data=df[['file_name', 'category_id']].values)
+        # a fancy patch for keras to start numbers from 0
+        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:
+            df_new = pd.DataFrame(columns=['images', 'target'], data=df[[
+                                  'file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
             return df_new
@@ -574,8 +615,10 @@ class DBModule:
                 if cat_ids[i] != -1:
                     cat_ids_dict[cat_ids[i]] = kwargs['balance_by_categories'][cat_names[i]]
             g = df_new.groupby('target', group_keys=False)
-            df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))  # code to balance by given nums
-        if kwargs.get('normalize_cats', False):  # TODO: This is an awful patch for keras
+            # balance by given nums:
+            df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))
+        # A fancy patch for keras to start numbers from 0
+        if kwargs.get('normalize_cats', False):
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
         split_points = kwargs.get('split_points', [0.6, 0.8])
@@ -606,7 +649,8 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         if with_segmentation:
-            query = query.filter(func.length(self.Annotation.segmentation) > 2)  # TODO: somehow length 0 and 1 do not work?
+            # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
+            query = query.filter(func.length(self.Annotation.segmentation) > 2)
         return self._process_query(query, with_segmentation, kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
@@ -631,8 +675,50 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
         if with_segmentation:
-            query = query.filter(func.length(self.Annotation.segmentation) > 2)  # TODO: somehow length 0 and 1 do not work?
+            # lengths 0 and 1 do not work since there are records with empty brackets
+            query = query.filter(func.length(self.Annotation.segmentation) > 2)
         return self._process_query(query, with_segmentation, kwargs)
+
+    def load_specific_categories_from_specific_datasets_annotations(self, dataset_categories_dict, **kwargs):
+        """Method to load annotations from specific datasets filtered by specific categories (different from load_categories_datasets_annotations).
+        INPUT:
+            dataset_categories_dict - dictionary of categories correspondence, structure: {datasetID1 : [cat1,cat2], datasetID2: [cat1,cat2,cat3], ...}
+            kwargs['with_segmentation'] -> if True, only annotations with segmentation will be returned
+        OUTPUT:
+            pandas dataframe with full annotations for given cat_ids
+            dictionary with train, test, val files
+            average width, height of images
+        """
+        result = None
+        old_norm_cat_value = None
+        sum_width = 0
+        sum_height = 0
+        if kwargs.get('normalize_cats', False):
+            old_norm_cat_value = kwargs['normalize_cats']
+            del kwargs['normalize_cats']
+        kwargs['normalize_cats'] = False
+        for key in dataset_categories_dict:
+            cat_names = dataset_categories_dict[key]
+            datasets_ids = [key]
+            result_vec = self.load_categories_datasets_annotations(
+                cat_names, datasets_ids, **kwargs)
+            if result is None:
+                result = result_vec[0]
+            else:
+                result = pd.concat([result, result_vec[0]])
+            sum_width += len(result.index) * result_vec[2]
+            sum_height += len(result.index) * result_vec[3]
+        if old_norm_cat_value is not None:
+            kwargs['normalize_cats'] = old_norm_cat_value
+        if kwargs.get('normalize_cats', False):
+            min_cat = result['target'].min()
+            result['target'] = result['target'] - min_cat
+        split_points = [0.6, 0.8]
+        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
+            split_points = kwargs['splitPoints']
+        filename_dict = self._split_and_save(result, kwargs.get(
+            'curExperimentFolder', './'), split_points, ','.join(list(result.columns)))
+        return result, filename_dict, sum_width / len(result.index), sum_height / len(result.index)
 
     def load_specific_images_annotations(self, image_names, **kwargs):
         """Method to load annotations from specific images, given their names.
@@ -772,7 +858,7 @@ class DBModule:
             counter += 1
             anno_id = None
             if respect_ids is True:
-                anno_id = an_data['id']  # TODO:fixe that
+                anno_id = an_data['id']
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
@@ -929,14 +1015,14 @@ class DBModule:
             print(filter_dict['categories'])
         if 'categories' in filter_dict:
             model_query = model_query.filter(self.Category.name.in_(filter_dict['categories']))
-            # TODO: exact category matches
+            # TODO: maybe exact category matches need to be done later
         if 'min_metrics' in filter_dict:
             if not isinstance(filter_dict['min_metrics'], dict):
                 raise ValueError('min_metrics should be a dict')
             for key, value in filter_dict['min_metrics'].items():
                 model_query = model_query.filter(and_(self.TrainResult.metric_value >= value,
                                                       self.TrainResult.metric_name == key))
-        # Next thing you see is awful, but I don't know how to make it better - yet
+        # I didn't yet find a way to make this better in performance
         model_query = model_query.group_by(self.Model.model_address)
         if 'categories' in filter_dict and len(filter_dict['categories']) != 0:
             cands = model_query.all()
