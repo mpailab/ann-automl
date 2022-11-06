@@ -201,7 +201,7 @@ nn_hparams = {
         'default': 'accuracy',
         'title': 'метрика'
     },
-    'dropout': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'title': 'dropout'},
+    'dropout': {'type': 'float', 'range': [0, 1], 'step': 0.01, 'default': 0.0, 'title': 'dropout'},
     # доля нейронов, которые отключаются при обучении
     'kernel_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
                                                      'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
@@ -462,7 +462,7 @@ class CheckStopCallback(keras.callbacks.Callback):
 
 class NotifyCallback(keras.callbacks.Callback):
     def on_batch_end(self, batch, logs=None):
-        pcall('train_callback', 'batch', batch='batch', logs=logs, model=self.model)
+        pcall('train_callback', 'batch', batch=batch, logs=logs, model=self.model)
 
     def on_epoch_end(self, epoch, logs=None):
         pcall('train_callback', 'epoch', epoch=epoch, logs=logs, model=self.model)

@@ -44,7 +44,8 @@ param_groups = {
                  'train.kernel_constraint', 'train.bias_constraint'],
     'Optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
-                  'train.beta_1', 'train.beta_2']
+                  'train.beta_1', 'train.beta_2'],
+    'Tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point']
 }
 
 
@@ -72,6 +73,8 @@ def create_params_dict(params):
             pvalue['param_from'] = pfrom
             pvalue['param_key'] = pname
             result[param] = pvalue
+            if 'cond' in pvalue:
+                pvalue['cond'] = [(f"{pfrom}.{p}", v) for p, v in pvalue['cond']]
     return result
 
 

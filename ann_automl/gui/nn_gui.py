@@ -1,3 +1,5 @@
+import sys
+
 import panel as pn
 import param
 import pandas as pd
@@ -7,10 +9,11 @@ from typing import Callable
 
 from ann_automl.core.db_module import DBModule
 from ann_automl.core.solver import Task
+from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 from ..core.nn_solver import NNTask
-from ..core.nnfuncs import nnDB as DB
+from ..core.nnfuncs import nnDB as DB, StopFlag, train
 
 css = '''
 .bk.panel-widget-box {
@@ -26,6 +29,16 @@ css = '''
 pn.extension(raw_css=[css])
 pn.config.sizing_mode = 'stretch_width'
 
+# GUI titles of datasets attributes
+datasets_attr_title = {
+    'description': 'Описание',
+    'url': 'Источник',
+    'contributor': 'Создатель',
+    'year': 'Год создания',
+    'version': 'Версия',
+    'categories': 'Категории изображений'
+}
+
 gui_params = {
     'task': {
         'default': None,
@@ -33,21 +46,8 @@ gui_params = {
     },
     'db': {
         'default': {
-            ds['description']: {
-                'url': ds['url'],
-                'version': ds['version'],
-                'year': ds['year'],
-                'contributor': ds['contributor'],
-                'date_created': ds['date_created'],
-                'categories': {
-                    cat: {
-                        'select': False,
-                        'number': num
-                    }
-                    for cat, num in ds['categories'].items()
-                }
-            }
-            for df_id, df in DB.get_all_datasets().items() for ds in [DB.get_full_dataset_info(df_id)]
+            ds['description'] : ds
+            for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
         },
         'title': 'База данных'
     },
@@ -133,7 +133,7 @@ class Window(param.Parameterized):
         self.ready=True
 
     def param_widget(self, name: str, change_callback: Callable[[], None]):
-
+        print(name, file=sys.stderr)
         def change_value(attr, old, new):
             self.params[name] = new
             change_callback()
@@ -168,6 +168,9 @@ class Window(param.Parameterized):
                 active=[0] if self.params[name] else [])
             widget.on_change('active', change_active_value)
 
+        else:
+            raise ValueError(f'Unsupported widget type {desc["gui"]["widget"]}')
+
         return widget
 
     def group_params_widgets(self, group: str, change_callback: Callable[[], None]):
@@ -194,53 +197,92 @@ class Start(Window):
 
         self.is_need_dataset_apply_button_visible = True
 
-        def change_dataset_callback(attr, old, new):
+        def changeDatasetCallback(attr, old, new):
             ds = new[0]
-            info = self.params['db'][ds]
             self.params['dataset'] = ds
 
-            self.dataset_description.text=f"<b>Описание:</b> {ds}"
-            self.dataset_url.text=f"<b>Источник:</b> <a href=\"{info['url']}\">{info['url']}</a>"
-            self.dataset_contributor.text=f"<b>Создатель:</b> {info['contributor']}"
-            self.dataset_year.text=f"<b>Год создания:</b> {info['year']}"
-            self.dataset_version.text=f"<b>Версия:</b> {info['version']}"
-            self.dataset_categories_selector.options = list(info['categories'])
-            self.is_need_dataset_apply_button_visible = False
-            self.dataset_categories_selector.value = [category for category, v in info['categories'].items() if v['select']]
-            self.is_need_dataset_apply_button_visible = True
+            self.dataset_description.text=f"<b>Название:</b> {ds}"
+            self.dataset_url.text=f"<b>Источник:</b> <a href=\"{self.params['db'][ds]['url']}\">{self.params['db'][ds]['url']}</a>"
+            self.dataset_contributor.text=f"<b>Создатель:</b> {self.params['db'][ds]['contributor']}"
+            self.dataset_year.text=f"<b>Год создания:</b> {self.params['db'][ds]['year']}"
+            self.dataset_version.text=f"<b>Версия:</b> {self.params['db'][ds]['version']}"
+
+            supercategories = list(self.params['db'][ds]['categories'].keys())
+            categories = list(self.params['db'][ds]['categories'][supercategories[0]].keys())
+            category_number = int(self.params['db'][ds]['categories'][supercategories[0]][categories[0]])
+            category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+
+            self.dataset_supercategories_selector.options = supercategories
+            self.dataset_supercategories_selector.value = supercategories[0]
+            self.dataset_categories_selector.options = categories
+            self.dataset_categories_selector.value = categories[0]
+            self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
+
+            # self.is_need_dataset_apply_button_visible = False
+            # self.dataset_categories_selector.value=[category for category in self.params['db'][ds]['categories'] if self.params['db'][ds]['categories'][category]['select']]
+            # self.is_need_dataset_apply_button_visible = True
 
         self.dataset_selector = bokeh.models.MultiSelect(
             value=["Dogs vs Cats"], 
             options=list(self.params['db'].keys()),  
-            height_policy="max", margin=(5, 15, 5, 5)
+            max_width=450, width_policy='min', height_policy="max", margin=(5,15,5,5)
         )
-        self.dataset_selector.on_change('value', change_dataset_callback)
-        
+        self.dataset_selector.on_change('value', changeDatasetCallback)
+
+        def changeDatasetSupercategoriesCallback(attr, old, new):
+            ds = self.params['dataset']
+            categories = list(self.params['db'][ds]['categories'][new].keys())
+            category_number = int(self.params['db'][ds]['categories'][new][categories[0]])
+            category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+            self.dataset_categories_selector.options = categories
+            self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
+            # if self.is_need_dataset_apply_button_visible:
+            #     self.dataset_apply_button.visible = True
+
         def changeDatasetCategoriesCallback(attr, old, new):
-            if self.is_need_dataset_apply_button_visible:
-                self.dataset_apply_button.visible = True
+            ds = self.params['dataset']
+            category_number = int(self.params['db'][ds]['categories'][self.dataset_supercategories_selector.value][new])
+            category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+            self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
+            # if self.is_need_dataset_apply_button_visible:
+            #     self.dataset_apply_button.visible = True
+
+        ds = self.params['dataset']
 
         self.dataset_description = bokeh.models.Div(
-            text=f"<b>Описание:</b> {self.params['dataset']}"
+            text=f"<b>Описание:</b> {ds}"
         )
         self.dataset_url = bokeh.models.Div(
-            text=f"<b>Источник:</b> <a href=\"{self.params['db'][self.params['dataset']]['url']}\">{self.params['db'][self.params['dataset']]['url']}</a>"
+            text=f"<b>Источник:</b> <a href=\"{self.params['db'][ds]['url']}\">{self.params['db'][ds]['url']}</a>"
         )
         self.dataset_contributor = bokeh.models.Div(
-            text=f"<b>Создатель:</b> {self.params['db'][self.params['dataset']]['contributor']}"
+            text=f"<b>Создатель:</b> {self.params['db'][ds]['contributor']}"
         )
         self.dataset_year = bokeh.models.Div(
-            text=f"<b>Год создания:</b> {self.params['db'][self.params['dataset']]['year']}"
+            text=f"<b>Год создания:</b> {self.params['db'][ds]['year']}"
         )
         self.dataset_version = bokeh.models.Div(
-            text=f"<b>Версия:</b> {self.params['db'][self.params['dataset']]['version']}"
-            )
+            text=f"<b>Версия:</b> {self.params['db'][ds]['version']}"
+        )
 
-        self.dataset_categories_selector = bokeh.models.MultiChoice(
-            value=[],
-            options=list(self.params['db'][self.params['dataset']]['categories'].keys())
+        supercategories = list(self.params['db'][ds]['categories'].keys())
+        self.dataset_supercategories_selector = bokeh.models.Select(
+            options=supercategories, value=supercategories[0], width=450, width_policy='fixed'
+        )
+        self.dataset_supercategories_selector.on_change('value', changeDatasetSupercategoriesCallback)
+
+        categories = list(self.params['db'][ds]['categories'][supercategories[0]].keys())
+        self.dataset_categories_selector = bokeh.models.Select(
+            options=categories, value=categories[0], width=450, width_policy='fixed'
         )
         self.dataset_categories_selector.on_change('value', changeDatasetCategoriesCallback)
+
+        category_number = int(self.params['db'][ds]['categories'][supercategories[0]][categories[0]])
+        category_number_suf = "штук" if category_number % 10 == 0 or 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+        self.dataset_categorie_number = bokeh.models.Div(
+            text=f"{str(category_number)} {category_number_suf}",
+            align='center'
+        )
 
         self.dataset_info = pn.Column(
             self.dataset_description,
@@ -248,19 +290,23 @@ class Start(Window):
             self.dataset_contributor,
             self.dataset_year,
             self.dataset_version,
-            bokeh.models.Div(text="<b>Категории изображений:</b>"),
-            self.dataset_categories_selector
+            pn.Row(
+                bokeh.models.Div(text="<b>Категории изображений:</b>", min_width=160),
+                self.dataset_supercategories_selector,
+                self.dataset_categories_selector,
+                self.dataset_categorie_number
+            )
         )
 
         self.dataset_load_button=pn.widgets.Button(name='Добавить датасет', align='start', width=120, button_type='primary')
         self.dataset_load_button.on_click(self.on_click_dataset_load)
 
-        self.dataset_apply_button=pn.widgets.Button(name='Применить', align='end', width=100, button_type='primary', visible=False)
+        self.dataset_apply_button=pn.widgets.Button(name='Применить', align='end', width=100, button_type='primary')
         self.dataset_apply_button.on_click(self.on_click_dataset_apply)
 
         self.db_interface = pn.Column(
             '# База данных изображений',
-            pn.Row(self.dataset_selector, self.dataset_info, margin=(-5, 5, 15, 5)),
+            pn.Row(self.dataset_selector, self.dataset_info, margin=(-5,5,15,5)),
             pn.Row(self.dataset_load_button, self.dataset_apply_button)
         )
         
@@ -293,19 +339,23 @@ class Start(Window):
         self.close()
 
     def on_click_dataset_apply(self, event):
-        ds = self.params['dataset']
-        categories = set(self.dataset_categories_selector.value)
-        for category in self.params['db'][ds]['categories']:
-            self.params['db'][ds]['categories'][category]['select'] = category in categories
+        # ds = self.params['dataset']
+        # categories = set(self.dataset_categories_selector.value)
+        # for category in self.params['db'][ds]['categories']:
+        #     self.params['db'][ds]['categories'][category]['select'] = category in categories
 
-        task_objects = set({})
-        for ds in self.params['db']:
-            for category in self.params['db'][ds]['categories']:
-                if self.params['db'][ds]['categories'][category]['select']:
-                    task_objects.add(category)
-        self.task_objects_selector.options=list(task_objects)
+        # task_objects = set({})
+        # for ds in self.params['db']:
+        #     for category in self.params['db'][ds]['categories']:
+        #         if self.params['db'][ds]['categories'][category]['select']:
+        #             task_objects.add(category)
+        self.task_objects_selector.options=[c for ds in self.dataset_selector.value
+                                            for sc in self.params['db'][ds]['categories']
+                                            for c in self.params['db'][ds]['categories'][sc]]
 
-        self.dataset_apply_button.visible = False
+        with open('click_logs.txt', 'a') as f:
+            f.write(f"{self.task_objects_selector.options}")
+
 
     def on_click_task_apply(self, event):
         # CORE:  
@@ -315,7 +365,7 @@ class Start(Window):
             objects=self.params['task_objects'],
             metric=self.params['task_target'],
             target=self.params['task_target_value'],
-            goals={'maximize', self.params['task_maximize_target']}
+            goals={'maximize': self.params['task_maximize_target']}
             # goal={self.params['task_goal']: self.params['task_goal_value']}
             )
         self.task_apply_button.visible = False
@@ -343,8 +393,76 @@ class DatasetLoader(Window):
     def __init__(self, **params):
         super().__init__(**params)
 
+        self.dataset_description_setter = bokeh.models.TextInput(
+            title="Название:",
+            placeholder="Введите название датасета",
+            margin=(0, 10, 15, 10)
+        )
+
+        self.dataset_url_setter = bokeh.models.TextInput(
+            title="Источник:",
+            placeholder="Введите url датасета",
+            margin=(0, 10, 15, 10)
+        )
+
+        self.dataset_contributor_setter = bokeh.models.TextInput(
+            title="Создатель:",
+            placeholder="Введите разработчиков датасета",
+            margin=(0, 10, 15, 10)
+        )
+
+        self.dataset_year_setter = bokeh.models.DatePicker(
+            title='Дата создания:',
+            margin=(0, 10, 15, 10)
+        )
+
+        self.dataset_version_setter = bokeh.models.TextInput(
+            title="Версия:",
+            placeholder="Введите версию датасета",
+            margin=(0, 10, 15, 10)
+        )
+
+        self.anno_file_setter = pn.Column(
+            bokeh.models.Div(
+                text="Файл с аннотациями:",
+                margin=(0, 10, 0, 10)
+            ),
+            bokeh.models.FileInput(
+                accept = '.json',
+                margin=(0, 10, 15, 10)
+            )
+        )
+
+        self.dataset_dir_setter = bokeh.models.TextInput(
+            title="Каталог с изображениями:",
+            placeholder="Путь до каталога с изображениями",
+            margin=(0, 10, 15, 10)
+        )
+
+        self.apply_button=pn.widgets.Button(name='Применить', align='end', width=100, button_type='primary')
+        self.apply_button.on_click(self.on_click_apply)
+
         self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary')
         self.back_button.on_click(self.on_click_back)
+
+    def on_click_apply(self, event):
+        # DB.fill_coco(
+        #     self.anno_file_setter.filename,
+        #     self.dataset_dir_setter.value,
+        #     ds_info={
+        #         "description": self.dataset_description_setter.value,
+        #         "url": self.dataset_url_setter.value,
+        #         "version": self.dataset_version_setter.value,
+        #         "year": self.dataset_year_setter.value,
+        #         "contributor": self.dataset_contributor_setter.value,
+        #         "date_created": self.dataset_year_setter.value
+        #     }
+        # )
+        self.params['db'] = {
+            ds['description'] : ds
+            for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
+        }
+        self.close()
 
     def on_click_back(self, event):
         self.close()
@@ -352,13 +470,21 @@ class DatasetLoader(Window):
     def panel(self):
         return pn.Column(
             '# Меню загрузки датасета',
+            self.dataset_description_setter,
+            self.dataset_url_setter,
+            self.dataset_contributor_setter,
+            self.dataset_year_setter,
+            self.dataset_version_setter,
+            self.anno_file_setter,
+            self.dataset_dir_setter,
             pn.Spacer(height=10),
-            self.back_button)
+            pn.Row(self.back_button, self.apply_button))
+
 
 
 class Params(Window):
 
-    next_window = param.Selector(default='Start', objects=['Start'])
+    next_window = param.Selector(default='Start', objects=['Start', 'Training'])
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -379,16 +505,25 @@ class Params(Window):
             if self.tabs.active == 1:
                 for widget in self.tabs.tabs[self.tabs.active].child.children:
                     widget.visible = self.is_param_widget_visible(widget)
-        
+
         self.tabs.on_change('active', panelActive)
         
         self.next_button=pn.widgets.Button(name='Далее', align='end', width=100, button_type='primary')
-        self.next_button.on_click(self.on_click_back)
+        self.next_button.on_click(self.on_click_next)
 
         self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary')
         self.back_button.on_click(self.on_click_back)
 
         self.qq = pn.widgets.StaticText(name='Static Text', value=self.params['task_category'])
+
+    def on_click_next(self, event):
+        # вызвать train
+        self.params['stop_flag'] = stop_flag = StopFlag()
+        hparams = {gui_params[k]['param_key']: v for k, v in self.params.items()
+                   if gui_params.get(k, {}).get('param_from', '') == 'train'}
+        self.params['process_id'] = p = process(train)(stop_flag=stop_flag, hparams=hparams, start=False)
+        self.next_window = 'Training'
+        self.close()
 
     def on_click_back(self, event):
         self.close()
@@ -399,6 +534,38 @@ class Params(Window):
             self.tabs,
             pn.Spacer(height=10),
             pn.Row(self.back_button, self.next_button))
+
+
+
+class Training(Window):
+
+    next_window = param.Selector(default='Start', objects=['Start'])
+
+    def __init__(self, **params):
+        super().__init__(**params)
+
+        self.stop_button=pn.widgets.Button(name='Стоп', align='end', width=100, button_type='primary')
+        self.stop_button.on_click(self.on_click_stop)
+
+        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary', disabled=True)
+        self.back_button.on_click(self.on_click_back)
+
+    def on_click_stop(self, event):
+        self.params['stop_flag']()
+        self.back_button.disabled = False
+        pass
+
+    def on_click_back(self,event):
+        self.close()
+
+    def panel(self):
+        return pn.Column(
+            '# Меню обучения модели',
+            pn.WidgetBox('### Output', min_width=500, height=500),
+            pn.Row(self.back_button, self.stop_button)
+        )
+
+
 
 
 class TrainedModels(Window):
@@ -432,12 +599,14 @@ pipeline = Transition(
         ('Start', Start),
         ('DatasetLoader', DatasetLoader),
         ('Params', Params),
+        ('Training', Training),
         ('TrainedModels', TrainedModels)
     ],
     graph={
         'Start': ('DatasetLoader', 'Params', 'TrainedModels'),
         'DatasetLoader': 'Start',
-        'Params': 'Start',
+        'Params': ('Start', 'Training'),
+        'Training': 'Start',
         'TrainedModels': 'Start'
     },
     root='Start',

@@ -301,6 +301,8 @@ class DBModule:
     def fill_coco(self, anno_file_name, file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
         """Method to fill COCOdataset into db. It is supposed to be called once.
 
+        To create custom COCO annotations use some aux tools like https://github.com/jsbroks/coco-annotator
+
         Parameters
         ----------
             anno_file_name : str
@@ -498,6 +500,20 @@ class DBModule:
                 df_dict[el['ID']] = self.get_full_dataset_info(el['ID'])
         return df_dict
 
+    def get_all_datasets_info(self, full_info=False):
+        if not os.path.exists(self.dbstring_.split('/')[-1]):
+            self.create_sqlite_file()
+        query = self.sess.query(self.Dataset)
+        df = pd.read_sql(query.statement, query.session.bind)
+        df_rec = df.to_dict('records')
+        df_dict = {}
+        for el in df_rec:
+            df_dict[el['ID']] = el
+            if full_info:
+                df_dict[el['ID']]['categories'] = self.get_dataset_categories_info(el['ID'])
+            del df_dict[el['ID']]['ID']
+        return df_dict
+
     def load_specific_datasets_annotations(self, datasets_ids, **kwargs):
         """Method to load annotations from specific datasets, given their IDs.
 
@@ -533,6 +549,29 @@ class DBModule:
         query = self.sess.query(self.Category)
         df = pd.read_sql(query.statement, query.session.bind)
         return df
+
+    def get_dataset_categories_info(self, ds_id):
+        """
+        Parameters
+        ----------
+        ds_id : int
+            identifier of a dataset inside database (IDs can be aquired by, i.e., get_all_datasets method)
+
+        Returns
+        -------
+        dict : { supercategory : { category : number of images in dataset } }
+        """
+        reply = self.sess.query(self.Category.supercategory, self.Category.name,
+            func.count(self.Annotation.category_id)
+            ).join(self.Image, self.Category
+                ).filter(self.Image.dataset_id == ds_id
+                    ).group_by(self.Annotation.category_id).all()
+        res = {}
+        for supercategory, category, number in reply:
+            if supercategory not in res:
+                res[supercategory] = {}
+            res[supercategory][category] = number
+        return res
 
     def _prepare_cropped_images(self, df, kwargs):
         """
