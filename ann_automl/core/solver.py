@@ -63,7 +63,7 @@ class Task:
     """
 
     def __init__(self, goals):
-        self.goals = set(goals)    # множество целей
+        self.goals = dict(goals or ())    # множество целей
         self.solved = False        # Флаг, что задача решена
         self._state = self         # Состояние решения задачи
         self._answer = None        # Ответ задачи
@@ -159,9 +159,13 @@ class Task:
     def rules(self):
         """ Правила, отнесённые к задачам данного типа, включая все правила для базовых классов задач """
         r = {}
+        prev = None
         for cls in self.__class__.mro():
-            for stage, rules in getattr(cls, '_rules', {}).items():
-                r.setdefault(stage, []).append(rules)
+            rules = getattr(cls, '_rules', {})
+            if rules is not prev:
+                for stage, rules in getattr(cls, '_rules', {}).items():
+                    r.setdefault(stage, []).extend(rules)
+                prev = rules
         return r
 
 
@@ -176,14 +180,17 @@ def rule(*task_classes, stage=None):
     def apply(rule_cls):
         instance = rule_cls()
         for task_cls in task_classes:
-            if not hasattr(task_cls, '_rules'):
+            if not hasattr(task_cls, '_rules') or task_cls._rules is getattr(task_cls.__base__, '_rules', None):
                 task_cls._rules = {}
-            stages = [stage] if not isinstance(stage, (list, tuple, set)) else list(stage)
+            stages = ([] if stage is None else [stage]) if not isinstance(stage, (list, tuple, set)) else list(stage)
             for s in getattr(instance, 'stages', ()):
                 if s not in stages:
                     stages.append(s)
+            if not stages:
+                stages = [None]
             for s in stages:
-                task_cls._rules.setdefault(s, []).append(instance)
+                task_cls._rules.setdefault(s, [])
+                task_cls._rules[s].append(instance)
         return instance
 
     return apply
@@ -308,20 +315,34 @@ class VoteRule(Rule, ABC):
         return self.key not in task.votes and self.can_vote(task)
 
 
+def to_immutable(val):
+    if isinstance(val, (str, bytes)):
+        return val
+    if isinstance(val, dict):
+        return tuple((k, to_immutable(v)) for k, v in val.items())
+    if hasattr(val, '__iter__'):
+        return tuple(map(to_immutable, val))
+    return val
+
+
 @rule(RecommendTask)
 class SelectRecommendation(Rule):
     stages = ['Finalize']
 
     def can_apply(self, task: RecommendTask, state: SolverState) -> bool:
-        return len(task.recommendations) > 0 and task.answer is None
+        return len(task.recommendations) > 0 and task.answer is None and not task.solved
 
     def apply(self, task: RecommendTask, state: SolverState):
-        keys = {k for rn, rec in task.recommendations for k, v in rec}
+        keys = {k for rn, rec in task.recommendations.items() for k, v in rec.items()}
         res = {}
+        to_source = {}
         for k in keys:
             votes = defaultdict(lambda: 0.0)
-            for rn, rec in task.recommendations:
+            for rn, rec in task.recommendations.items():
                 if k in rec:
-                    votes[rec[k]] += task.votes.get(rn, 1)
-            res[k] = max(votes.items(), key=lambda x: x[1])[0]
+                    immut = to_immutable(rec[k])
+                    votes[immut] += task.votes.get(rn, 1)
+                    to_source[immut] = rec[k]
+            res[k] = to_source[max(votes.items(), key=lambda x: x[1])[0]]
         task.set_selected_options(res)
+        task.solved = True

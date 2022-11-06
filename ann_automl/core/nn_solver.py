@@ -13,7 +13,7 @@ from ..utils.process import pcall
 class NNTask(Task):
     """ Класс, задающий задачу на обучение нейронной сети """
 
-    def __init__(self, task_ct, task_type=None, objects=None, goals=None):
+    def __init__(self, task_ct, objects=None, metric='accuracy', target=0.9, task_type='classification', goals=None):
         """
         Инициализация задачи.
 
@@ -39,6 +39,8 @@ class NNTask(Task):
         self.object_category = 'object'  # категория объектов задачи (object, symbol)
         self.log_name = ''
         self.cur_state = 'FirstCheck'
+        self.metric = metric
+        self.target = target
 
     @property
     def task_ct(self):

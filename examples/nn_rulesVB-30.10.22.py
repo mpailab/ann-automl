@@ -421,9 +421,9 @@ def CreateDatabase(state: State):
         print('CreateDatabase', file = log_file)
 
     printlog(f'load annotations for {list(state.task.objects)}')
-    tmpData = myDB.load_specific_categories_annotations(list(state.task.objects), normalizeCats=True,
+    tmpData = myDB.load_specific_categories_annotations(list(state.task.objects), normalize_cats=True,
                                                         splitPoints=[0.7, 0.85],
-                                                        curExperimentFolder='./', crop_bbox=False,
+                                                        cur_experiment_dir='./', crop_bbox=False,
                                                         cropped_dir='./crops/')
 
     state.task.data = {'train': tmpData[1]['train'],

@@ -232,7 +232,7 @@ class CreateDatabase(Rule):
         #In next version there will be two databases methods\tricks - the first one to check are required categories exist
         #the second one - to create database
         
-        tmpData = myDB.load_specific_categories_annotations(['cat','dog'], normalizeCats = True, splitPoints = [0.7, 0.85], curExperimentFolder = './', crop_bbox = True, cropped_dir = './crops/')
+        tmpData = myDB.load_specific_categories_annotations(['cat','dog'], normalize_cats = True, splitPoints = [0.7, 0.85], cur_experiment_dir = './', crop_bbox = True, cropped_dir = './crops/')
         
         state.task.data={'train' : tmpData[1]['train'], 'validate' : tmpData[1]['validate'], 'test' : tmpData[1]['test'], 'dim' : (224,224,3), 'augmenConstr' : {'vertical_flip' : None}}
         state.curState='Training'        

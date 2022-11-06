@@ -100,16 +100,6 @@ class RecommendAugmentation(Recommender):
                         })
 
 
-@rule(SelectHParamsTask)
-class RecommendFromHistory(Recommender):
-    """ Предлагает параметры, которые были использованы в предыдущих
-        аналогичных запусках (может рекомендовать любые параметры)
-    """
-    def apply(self, task: SelectHParamsTask, state: SolverState):
-        prec = task.recommendations[self.key] = {}
-        # TODO: implement
-
-
 # Могут добавляться или подгружаться извне и другие приёмы для рекомендации гиперпараметров.
 # Например, на основе анализа данных, пробных запусков и т.д.
 
@@ -138,7 +128,7 @@ class RecommendBatchSize(Recommender):
 def get_history(task: NNTask, exact_category_match=False):
     """ Получает рекомендации из истории запусков """
     ch_res = nnDB.get_models_by_filter({
-        'min_metrics': task.goals,
+        'min_metrics': {task.metric: task.target},
         'task_type': task.task_type,
         'categories': list(task.objects)},
         exact_category_match=exact_category_match)

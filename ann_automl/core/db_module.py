@@ -17,36 +17,12 @@ import glob
 import xml.etree.ElementTree as ET
 import time
 
+from ann_automl.utils.text_utils import print_progress_bar
+
 Base = declarative_base()
 
 
 class DBModule:
-
-    ############################################################
-    ##########              Helpers          ###################
-    ############################################################
-    def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
-        """
-        Helper to display progress bar, source from https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
-        Call in a loop to create terminal progress bar
-        @params:
-            iteration   - Required  : current iteration (Int)
-            total       - Required  : total iterations (Int)
-            prefix      - Optional  : prefix string (Str)
-            suffix      - Optional  : suffix string (Str)
-            decimals    - Optional  : positive number of decimals in percent complete (Int)
-            length      - Optional  : character length of bar (Int)
-            fill        - Optional  : bar fill character (Str)
-            printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
-        """
-        percent = ("{0:." + str(decimals) + "f}").format(100 *
-                                                         (iteration / float(total)))
-        filledLength = int(length * iteration // total)
-        bar = fill * filledLength + '-' * (length - filledLength)
-        print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=printEnd)
-        # Print New Line on Complete
-        if iteration == total:
-            print()
 
     ############################################################
     ##########        DB ORM description     ###################
@@ -269,23 +245,23 @@ class DBModule:
         self.sess.commit()  # adding dataset
         ###################################
         im_objects = {}
-        self.printProgressBar(
-            0, len(data['images']), prefix='Adding images:', suffix='Complete', length=50)
+        print_progress_bar(0, len(data['images']), 
+                           prefix='Adding images:', suffix='Complete', length=50)
         im_counter = 0
         for im_data in data['images']:
             image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
                                im_data['license'])
-            self.printProgressBar(im_counter, len(
-                data['images']), prefix='Adding images:', suffix='Complete', length=50)
+            print_progress_bar(im_counter, len(data['images']), 
+                               prefix='Adding images:', suffix='Complete', length=50)
             im_counter += 1
             im_objects[im_data['id']] = image
             self.sess.add(image)
         self.sess.commit()  # adding images
         ###################################
 
-        self.printProgressBar(0, len(
-            data['annotations']), prefix='Adding annotations:', suffix='Complete', length=50)
+        print_progress_bar(0, len(data['annotations']), 
+                           prefix='Adding annotations:', suffix='Complete', length=50)
         an_counter = 0
         for an_data in data['annotations']:
             # TODO: +1 because of error in json - should be fixed later
@@ -296,8 +272,8 @@ class DBModule:
                                          segmentation=';'.join(an_data['segmentation']),
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'])
-            self.printProgressBar(an_counter, len(data['annotations']),
-                                  prefix='Adding annotations:', suffix='Complete', length=50)
+            print_progress_bar(an_counter, len(data['annotations']),
+                               prefix='Adding annotations:', suffix='Complete', length=50)
             an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
@@ -489,7 +465,7 @@ class DBModule:
         ----------
         datasets_ids : list
             list of datasets IDs to get annotations from
-        kwargs["normalizeCats"] : bool
+        kwargs["normalize_cats"] : bool
             used for test purposes only, changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
 
         Returns
@@ -501,7 +477,7 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation
                                 ).join(self.Annotation).filter(self.Image.dataset_id.in_(datasets_ids))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
+        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'],
                                   data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
@@ -565,7 +541,7 @@ class DBModule:
         Helper to process SQL query for Annotations
             - query -> sqlalchemy query object
             - with_segmentation -> if True, only annotations with segmentation will be returned
-            - kwargs['crop_box'] -> if True, cropping and saving will be performed
+            - kwargs['crop_bbox'] -> if True, cropping and saving will be performed
             - kwargs['split_points'] -> stores quantiles for train_test_validation split (default 0.6,0.8)
             - kwargs['normalize_cats'] -> set for test purposes only,
             - kwargs['balance_by_min_category'] -> boolean, set to True to balance by minimum amount in some category
@@ -599,13 +575,13 @@ class DBModule:
                     cat_ids_dict[cat_ids[i]] = kwargs['balance_by_categories'][cat_names[i]]
             g = df_new.groupby('target', group_keys=False)
             df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))  # code to balance by given nums
-        if kwargs.get('normalizeCats', False):  # TODO: This is an awful patch for keras
+        if kwargs.get('normalize_cats', False):  # TODO: This is an awful patch for keras
             min_cat = df_new['target'].min()
             df_new['target'] = df_new['target'] - min_cat
-        split_points = [0.6, 0.8]
-        if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
-            split_points = kwargs['splitPoints']
-        filename_dict = self._split_and_save(df_new, kwargs.get('curExperimentFolder', './'),
+        split_points = kwargs.get('split_points', [0.6, 0.8])
+        if not isinstance(kwargs['split_points'], (list, tuple)) or len(kwargs['split_points']) != 2:
+            raise ValueError('split_points must be a list of two elements')
+        filename_dict = self._split_and_save(df_new, kwargs.get('cur_experiment_dir', '.') + '/',
                                              split_points, headers_string)
         return df_new, filename_dict, av_width, av_height
 
@@ -665,7 +641,7 @@ class DBModule:
         ----------
             image_names : list
                 list of image names to get annotations for
-            kwargs['normalizeCats'] : bool
+            kwargs['normalize_cats'] : bool
               set for test purposes only, changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
 
         Returns
@@ -677,7 +653,7 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation
                                 ).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalizeCats' in kwargs and kwargs['normalizeCats'] is True:  # TODO: This is an awful patch for keras
+        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'],
                                   data=df[['file_name', 'category_id']].values)
             min_cat = df_new['target'].min()
@@ -765,8 +741,7 @@ class DBModule:
             return
         print('Adding images')
         buf_images = {}
-        self.printProgressBar(
-            0, len(images), prefix='Adding images:', suffix='Complete', length=50)
+        print_progress_bar(0, len(images), prefix='Adding images:', suffix='Complete', length=50)
         im_counter = 0
         for im_data in images:
             im_id = None
@@ -782,15 +757,15 @@ class DBModule:
                                license_id=im_data['license'],
                                ID=im_id)
             buf_images[im_data['id']] = image
-            self.printProgressBar(im_counter, len(images),
-                                  prefix='Adding images:', suffix='Complete', length=50)
+            print_progress_bar(im_counter, len(images),
+                               prefix='Adding images:', suffix='Complete', length=50)
             im_counter += 1
             self.sess.add(image)
         self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0
-        self.printProgressBar(0, len(annotations),
-                              prefix='Adding annotations:', suffix='Complete', length=50)
+        print_progress_bar(0, len(annotations),
+                           prefix='Adding annotations:', suffix='Complete', length=50)
         an_counter = 0
         for an_data in annotations:
             # print(counter)
@@ -808,8 +783,8 @@ class DBModule:
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'],
                                          ID=anno_id)
-            self.printProgressBar(an_counter, len(annotations),
-                                  prefix='Adding annotations:', suffix='Complete', length=50)
+            print_progress_bar(an_counter, len(annotations),
+                               prefix='Adding annotations:', suffix='Complete', length=50)
             an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
@@ -957,8 +932,7 @@ class DBModule:
             # TODO: exact category matches
         if 'min_metrics' in filter_dict:
             if not isinstance(filter_dict['min_metrics'], dict):
-                print('ERROR: Bad input for min_metrics - should be dict')
-                return
+                raise ValueError('min_metrics should be a dict')
             for key, value in filter_dict['min_metrics'].items():
                 model_query = model_query.filter(and_(self.TrainResult.metric_value >= value,
                                                       self.TrainResult.metric_name == key))

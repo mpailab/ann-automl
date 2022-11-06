@@ -249,9 +249,9 @@ class CreateDatabase(Rule):
         # In next version there will be two databases methods\tricks - the first one to check are required categories exist
         # the second one - to create database
         printlog(f'load annotations for {list(state.task.objects)}')
-        tmpData = myDB.load_specific_categories_annotations(list(state.task.objects), normalizeCats=True,
+        tmpData = myDB.load_specific_categories_annotations(list(state.task.objects), normalize_cats=True,
                                                             splitPoints=[0.7, 0.85],
-                                                            curExperimentFolder='./', crop_bbox=True,
+                                                            cur_experiment_dir='./', crop_bbox=True,
                                                             cropped_dir='./crops/')
 
         state.task.data = {'train': tmpData[1]['train'],
