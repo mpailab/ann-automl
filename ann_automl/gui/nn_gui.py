@@ -6,7 +6,7 @@ import param
 import pandas as pd
 import datetime as dt
 import bokeh
-from typing import Callable
+from typing import Any, Callable
 
 from ann_automl.core.db_module import DBModule
 from ann_automl.core.solver import Task
@@ -26,20 +26,8 @@ css = '''
 }
 '''
 
-# DB = DBModule("sqlite:///../tests.sqlite")
-
 pn.extension(raw_css=[css])
 pn.config.sizing_mode = 'stretch_width'
-
-# GUI titles of datasets attributes
-datasets_attr_title = {
-    'description': 'Описание',
-    'url': 'Источник',
-    'contributor': 'Создатель',
-    'year': 'Год создания',
-    'version': 'Версия',
-    'categories': 'Категории изображений'
-}
 
 # GUI titles of datasets attributes
 datasets_attr_title = {
@@ -64,11 +52,14 @@ gui_params = {
         'title': 'База данных'
     },
     'dataset': {
-        'default': "Dogs vs Cats",
-        'title': 'Датасет'
+        'default': None,
+        'title': 'Текущий датасет'
+    },
+    'selected_datasets': {
+        'default': [],
+        'title': 'Выделенный список датасетов'
     },
     'task_category': {
-        'type': 'str',
         'values': ['train', 'test', 'database', 'history'],
         'default': 'train',
         'title': 'Категория задачи',
@@ -78,7 +69,6 @@ gui_params = {
         }
     },
     'task_type': {
-        'type': 'str',
         'values': ['classification', 'segmentation', 'detection'],
         'default': 'classification',
         'title': 'Тип задачи',
@@ -88,7 +78,6 @@ gui_params = {
         }
     },
     'task_objects': {
-        'type': 'list',
         'values': [],
         'default': [],
         'title': 'Категории изображений',
@@ -98,7 +87,6 @@ gui_params = {
         }
     },
     'task_target': {
-        'type': 'str',
         'values': ['loss', 'metrics'],
         'default': 'loss',
         'title': 'Целевой функционал',
@@ -108,23 +96,29 @@ gui_params = {
         }
     },
     'task_target_value': {
-        'type': 'float',
         'range': [0, 1], 
         'default': 0.7, 
         'step': 0.05, 
         'scale': 'lin',
-        'title': 'Значение целевого функционала',
+        'title': 'Желаемое значение целевого функционала',
         'gui': {
             'group': 'Task',
             'widget': 'Slider'
         }
     },
     'task_maximize_target': {
-        'type': 'bool',
         'default': True,
-        'title': 'Максимизировать целевой функционал после достижения значения task_target_value',
+        'title': 'Максимизировать целевой функционал после достижения желаемого значения',
         'gui': {
             'group': 'Task',
+            'widget': 'Checkbox'
+        }
+    },
+    'tune': {
+        'default': False,
+        'title': 'Оптимизировать гиперпараметры обучения нейронной сети',
+        'gui': {
+            'group': 'General',
             'widget': 'Checkbox'
         }
     },
@@ -145,14 +139,14 @@ class Window(param.Parameterized):
     def close(self):
         self.ready=True
 
-    def param_widget(self, name: str, change_callback: Callable[[], None]):
+    def param_widget(self, name: str, change_callback: Callable[[Any, Any, Any], None]):
         def change_value(attr, old, new):
             self.params[name] = new
-            change_callback()
+            change_callback(attr, old, new)
 
         def change_active_value(attr, old, new):
             self.params[name] = name in new
-            change_callback()
+            change_callback(attr, old, new)
         
         desc = gui_params[name]
         kwargs = {
@@ -200,42 +194,21 @@ class Window(param.Parameterized):
                 all (self.params[par] in values for par, values in gui_params[widget.name]['cond']))
 
 
-class Start(Window):
 
-    next_window = param.Selector(default='Params', objects=['Params', 'TrainedModels', 'DatasetLoader'])
+class Database(Window):
+
+    next_window = param.Selector(default='Task', objects=['DatasetLoader', 'Task'])
     
     def __init__(self, **params):
         super().__init__(**params)
 
-        self.is_need_dataset_apply_button_visible = True
-
         def changeDatasetCallback(attr, old, new):
-            ds = new[0]
-            self.params['dataset'] = ds
-
-            self.dataset_description.text=f"<b>Название:</b> {ds}"
-            self.dataset_url.text=f"<b>Источник:</b> <a href=\"{self.params['db'][ds]['url']}\">{self.params['db'][ds]['url']}</a>"
-            self.dataset_contributor.text=f"<b>Создатель:</b> {self.params['db'][ds]['contributor']}"
-            self.dataset_year.text=f"<b>Год создания:</b> {self.params['db'][ds]['year']}"
-            self.dataset_version.text=f"<b>Версия:</b> {self.params['db'][ds]['version']}"
-
-            supercategories = list(self.params['db'][ds]['categories'].keys())
-            categories = list(self.params['db'][ds]['categories'][supercategories[0]].keys())
-            category_number = int(self.params['db'][ds]['categories'][supercategories[0]][categories[0]])
-            category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
-
-            self.dataset_supercategories_selector.options = supercategories
-            self.dataset_supercategories_selector.value = supercategories[0]
-            self.dataset_categories_selector.options = categories
-            self.dataset_categories_selector.value = categories[0]
-            self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
-
-            # self.is_need_dataset_apply_button_visible = False
-            # self.dataset_categories_selector.value=[category for category in self.params['db'][ds]['categories'] if self.params['db'][ds]['categories'][category]['select']]
-            # self.is_need_dataset_apply_button_visible = True
+            new_ds = new[0]
+            self.init_dataset_info_interface(new_ds)
+            self.dataset_info.visible = True
+            self.dataset_apply_button.disabled = False
 
         self.dataset_selector = bokeh.models.MultiSelect(
-            value=["Dogs vs Cats"], 
             options=list(self.params['db'].keys()),  
             max_width=450, width_policy='min', height_policy="max", margin=(5,15,5,5)
         )
@@ -243,170 +216,151 @@ class Start(Window):
 
         def changeDatasetSupercategoriesCallback(attr, old, new):
             ds = self.params['dataset']
-            categories = list(self.params['db'][ds]['categories'][new].keys())
-            category_number = int(self.params['db'][ds]['categories'][new][categories[0]])
-            category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+            supercategory = new
+            categories = self.get_dataset_categories(ds, supercategory)
             self.dataset_categories_selector.options = categories
-            self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
-            # if self.is_need_dataset_apply_button_visible:
-            #     self.dataset_apply_button.visible = True
+            self.dataset_categories_selector.value = categories[0]
+            self.dataset_categories_info.text = \
+                self.get_dataset_category_info(ds, supercategory, categories[0])
 
         def changeDatasetCategoriesCallback(attr, old, new):
             ds = self.params['dataset']
-            category_number = int(self.params['db'][ds]['categories'][self.dataset_supercategories_selector.value][new])
-            category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
-            self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
-            # if self.is_need_dataset_apply_button_visible:
-            #     self.dataset_apply_button.visible = True
+            supercategory = self.dataset_supercategories_selector.value
+            category = new
+            self.dataset_categories_info.text = \
+                self.get_dataset_category_info(ds, supercategory, category)
 
-        ds = self.params['dataset']
+        self.dataset_description = bokeh.models.Div()
+        self.dataset_url = bokeh.models.Div()
+        self.dataset_contributor = bokeh.models.Div()
+        self.dataset_data = bokeh.models.Div()
+        self.dataset_version = bokeh.models.Div()
+        self.dataset_supercategories_selector = \
+            bokeh.models.Select(width=250, width_policy='fixed')
+        self.dataset_supercategories_selector.on_change('value', 
+            changeDatasetSupercategoriesCallback)
+        self.dataset_categories_selector = \
+            bokeh.models.Select(width=250, width_policy='fixed')
+        self.dataset_categories_selector.on_change('value', 
+            changeDatasetCategoriesCallback)
+        self.dataset_categories_info = bokeh.models.Div(align='center')
 
-        self.dataset_description = bokeh.models.Div(
-            text=f"<b>Описание:</b> {ds}"
-        )
-        self.dataset_url = bokeh.models.Div(
-            text=f"<b>Источник:</b> <a href=\"{self.params['db'][ds]['url']}\">{self.params['db'][ds]['url']}</a>"
-        )
-        self.dataset_contributor = bokeh.models.Div(
-            text=f"<b>Создатель:</b> {self.params['db'][ds]['contributor']}"
-        )
-        self.dataset_year = bokeh.models.Div(
-            text=f"<b>Год создания:</b> {self.params['db'][ds]['year']}"
-        )
-        self.dataset_version = bokeh.models.Div(
-            text=f"<b>Версия:</b> {self.params['db'][ds]['version']}"
-        )
-
-        supercategories = list(self.params['db'][ds]['categories'].keys())
-        self.dataset_supercategories_selector = bokeh.models.Select(
-            options=supercategories, value=supercategories[0], width=450, width_policy='fixed'
-        )
-        self.dataset_supercategories_selector.on_change('value', changeDatasetSupercategoriesCallback)
-
-        categories = list(self.params['db'][ds]['categories'][supercategories[0]].keys())
-        self.dataset_categories_selector = bokeh.models.Select(
-            options=categories, value=categories[0], width=450, width_policy='fixed'
-        )
-        self.dataset_categories_selector.on_change('value', changeDatasetCategoriesCallback)
-
-        category_number = int(self.params['db'][ds]['categories'][supercategories[0]][categories[0]])
-        category_number_suf = "штук" if category_number % 10 == 0 or 5 <= category_number % 10 <= 9 or 10 <= category_number <= 14 \
-                         else "штуки" if 2 <= category_number % 10 <= 4 \
-                         else "штука"
-        self.dataset_categorie_number = bokeh.models.Div(
-            text=f"{str(category_number)} {category_number_suf}",
-            align='center'
-        )
+        ds = None
+        if len(self.dataset_selector.options) > 0:
+            ds = self.dataset_selector.options[0]
+            self.init_dataset_info_interface(ds)
 
         self.dataset_info = pn.Column(
             self.dataset_description,
             self.dataset_url,
             self.dataset_contributor,
-            self.dataset_year,  
+            self.dataset_data,  
             self.dataset_version,
             pn.Row(
                 bokeh.models.Div(text="<b>Категории изображений:</b>", min_width=160),
                 self.dataset_supercategories_selector,
                 self.dataset_categories_selector,
-                self.dataset_categorie_number
-            )
+                self.dataset_categories_info
+            ),
+            visible=ds is not None
         )
 
-        self.dataset_load_button=pn.widgets.Button(name='Добавить датасет', align='start', width=120, button_type='primary')
+        self.selected_datasets = bokeh.models.Div(
+            text = f"<b>Используемые датасеты:</b> {', '.join(self.params['selected_datasets'])}",
+            visible=ds is not None, margin=(5,5,10,10)
+        )
+
+        self.dataset_load_button=pn.widgets.Button(
+            name='Добавить датасет', button_type='primary', 
+            align='start', width=120)
         self.dataset_load_button.on_click(self.on_click_dataset_load)
 
-        self.dataset_apply_button=pn.widgets.Button(name='Применить', align='end', width=100, button_type='primary')
+        self.dataset_apply_button=pn.widgets.Button(
+            name='Использовать выбранные датасеты', button_type='primary', 
+            align='end', width=220, disabled=True)
         self.dataset_apply_button.on_click(self.on_click_dataset_apply)
 
-        self.db_interface = pn.Column(
-            '# База данных изображений',
-            pn.Row(self.dataset_selector, self.dataset_info, margin=(-5,5,15,5)),
-            pn.Row(self.dataset_load_button, self.dataset_apply_button)
-        )
-        
-        def changeTaskParamCallback():
-            self.task_apply_button.visible = True
-
-        for widget in self.group_params_widgets('Task', changeTaskParamCallback):
-            setattr(self, f"{widget.name}_selector", widget)
-
-        self.task_apply_button=pn.widgets.Button(name='Применить', align='start', width=100, button_type='primary')
-        self.task_apply_button.on_click(self.on_click_task_apply)
-
-        self.task_interface = pn.Column(
-            '# Задача анализа изображений',
-            self.task_category_selector,
-            self.task_type_selector,
-            self.task_objects_selector,
-            self.task_target_selector,
-            self.task_target_value_selector,
-            self.task_apply_button
-        )
-
-        self.checkbox = pn.widgets.Checkbox(name='Подобрать готовые модели')
-
-        self.next_button=pn.widgets.Button(name='Далее', align='end', width=100, button_type='primary')
+        self.next_button=pn.widgets.Button(
+            name='Далее', button_type='primary', 
+            align='end', width=100, disabled=len(self.params['selected_datasets']) == 0)
         self.next_button.on_click(self.on_click_next)
+
+
+    def get_dataset_supercategories(self, ds):
+        return list(self.params['db'][ds]['categories'].keys())
+
+
+    def get_dataset_categories(self, ds, supercategory):
+        return list(self.params['db'][ds]['categories'][supercategory].keys())
+
+
+    def get_dataset_category_info(self, ds, supercategory, category):
+        num = int(self.params['db'][ds]['categories'][supercategory][category])
+        suf = "штук" if 5 <= num % 10 and num % 10 <= 10 or 11 <= num and num <= 14 else \
+              "штуки" if 2 <= num % 10 and num % 10 <= 4 else \
+              "штука"
+        return f"{str(num)} {suf}"
+
+
+    def init_dataset_info_interface(self, ds):
+        description = ds
+        url = self.params['db'][ds]['url']
+        contributor = self.params['db'][ds]['contributor']
+        data = self.params['db'][ds]['date_created']
+        version = self.params['db'][ds]['version']
+        supercategories = self.get_dataset_supercategories(ds)
+        categories = self.get_dataset_categories(ds, supercategories[0])
+
+        self.params['dataset'] = ds
+        self.dataset_description.text=f"<b>Название:</b> {description}"
+        self.dataset_url.text=f"<b>Источник:</b> <a href=\"{url}\">{url}</a>"
+        self.dataset_contributor.text=f"<b>Создатель:</b> {contributor}"
+        self.dataset_data.text=f"<b>Дата создания:</b> {data}"
+        self.dataset_version.text=f"<b>Версия:</b> {version}"
+        self.dataset_supercategories_selector.options = supercategories
+        self.dataset_supercategories_selector.value = supercategories[0]
+        self.dataset_categories_selector.options = categories
+        self.dataset_categories_selector.value = categories[0]
+        self.dataset_categories_info.text = \
+            self.get_dataset_category_info(ds, supercategories[0], categories[0])
+
 
     def on_click_dataset_load(self, event):
         self.next_window = 'DatasetLoader'
         self.close()
 
+
     def on_click_dataset_apply(self, event):
-        # ds = self.params['dataset']
-        # categories = set(self.dataset_categories_selector.value)
-        # for category in self.params['db'][ds]['categories']:
-        #     self.params['db'][ds]['categories'][category]['select'] = category in categories
+        self.params['selected_datasets'] = self.dataset_selector.value
+        self.selected_datasets.text = \
+            f"<b>Используемые датасеты:</b> {', '.join(self.params['selected_datasets'])}"
 
-        # task_objects = set({})
-        # for ds in self.params['db']:
-        #     for category in self.params['db'][ds]['categories']:
-        #         if self.params['db'][ds]['categories'][category]['select']:
-        #             task_objects.add(category)
-        self.task_objects_selector.options=[c for ds in self.dataset_selector.value
-                                            for sc in self.params['db'][ds]['categories']
-                                            for c in self.params['db'][ds]['categories'][sc]]
+        gui_params['task_objects']['values'] = list({ 
+            category for ds in self.dataset_selector.value
+                     for supercategory in self.params['db'][ds]['categories']
+                     for category in self.params['db'][ds]['categories'][supercategory]
+        })
 
-        with open('click_logs.txt', 'a') as f:
-            f.write(f"{self.task_objects_selector.options}")
-
-    def on_click_task_apply(self, event):
-        # CORE:
-        self.params['task'] = NNTask(
-            task_ct=self.params['task_category'],
-            task_type=self.params['task_type'],
-            objects=self.params['task_objects'],
-            metric=self.params['task_target'],
-            target=self.params['task_target_value'],
-            goals={'maximize': self.params['task_maximize_target']}
-            # goal={self.params['task_goal']: self.params['task_goal_value']}
-            )
-        hparams = recommend_hparams(self.params['task'], trace_solution=True)
-        self.params['recommended_hparams'] = hparams
-        for k, v in hparams.items():
-            key = 'train.' + k
-            self.params[key] = v
-        self.task_apply_button.disabled = False
+        self.dataset_apply_button.disabled = True
+        self.next_button.disabled = False
 
     def on_click_next(self, event):
-        if self.checkbox.value:
-            self.next_window = 'TrainedModels'
+        self.next_window = 'Task'
         self.close()
 
     def panel(self):
         return pn.Column(
-            self.db_interface,
-            pn.Spacer(height=10),
-            self.task_interface,
-            pn.Spacer(height=10),
-            self.checkbox,
-            self.next_button,
-            margin=(0, 0, 0, 10))
+            '# База данных изображений',
+            bokeh.models.Div(text="<b>Доступные датасеты:</b>", margin=(-10,0,0,10)),
+            pn.Row(self.dataset_selector, self.dataset_info, margin=(0,5,5,5)),
+            self.selected_datasets,
+            pn.Row(self.dataset_load_button, self.dataset_apply_button, self.next_button)
+        )
 
 
 class DatasetLoader(Window):
 
-    next_window = param.Selector(default='Start', objects=['Start'])
+    next_window = param.Selector(default='Database', objects=['Database'])
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -457,10 +411,14 @@ class DatasetLoader(Window):
             margin=(0, 10, 15, 10)
         )
 
-        self.apply_button=pn.widgets.Button(name='Применить', align='end', width=100, button_type='primary')
+        self.apply_button=pn.widgets.Button(
+            name='Загрузить', button_type='primary', 
+            align='end', width=100)
         self.apply_button.on_click(self.on_click_apply)
 
-        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary')
+        self.back_button=pn.widgets.Button(
+            name='Назад', button_type='primary', 
+            align='start', width=100)
         self.back_button.on_click(self.on_click_back)
 
     def on_click_apply(self, event):
@@ -499,14 +457,101 @@ class DatasetLoader(Window):
             pn.Row(self.back_button, self.apply_button))
 
 
+class Task(Window):
+
+    next_window = param.Selector(default='Params', 
+                                 objects=['Database', 'Params', 'TrainedModels'])
+    
+    def __init__(self, **params):
+        super().__init__(**params)
+        
+        def changeTaskParamCallback(attr, old, new):
+            self.apply_button.disabled = False
+
+        for widget in self.group_params_widgets('Task', changeTaskParamCallback):
+            setattr(self, f"{widget.name}_selector", widget)
+
+        self.task_interface = pn.Column(
+            '# Задача анализа изображений',
+            self.task_category_selector,
+            self.task_type_selector,
+            self.task_objects_selector,
+            self.task_target_selector,
+            self.task_target_value_selector,
+            self.task_maximize_target_selector
+        )
+
+        self.checkbox = pn.widgets.Checkbox(name='Подобрать готовые модели')
+
+        self.apply_button=pn.widgets.Button(
+            name='Создать задачу', button_type='primary', 
+            align='start', width=100, disabled=self.params['task'] is not None)
+        self.apply_button.on_click(self.on_click_apply)
+
+        self.next_button=pn.widgets.Button(
+            name='Далее', button_type='primary', 
+            align='end', width=100, disabled=self.params['task'] is None)
+        self.next_button.on_click(self.on_click_next)
+
+        self.back_button=pn.widgets.Button(
+            name='Назад', button_type='primary', 
+            align='start', width=100)
+        self.back_button.on_click(self.on_click_back)
+
+    def on_click_apply(self, event):
+        # CORE:
+        self.params['task'] = NNTask(
+            task_ct=self.params['task_category'],
+            task_type=self.params['task_type'],
+            objects=self.params['task_objects'],
+            metric=self.params['task_target'],
+            target=self.params['task_target_value'],
+            goals={'maximize': self.params['task_maximize_target']}
+        )
+        hparams = recommend_hparams(self.params['task'], trace_solution=True)
+        self.params['recommended_hparams'] = hparams
+        for k, v in hparams.items():
+            key = 'train.' + k
+            self.params[key] = v
+
+        self.apply_button.disabled = True
+        self.next_button.disabled = False
+
+    def on_click_next(self, event):
+        if self.checkbox.value:
+            self.next_window = 'TrainedModels'
+        self.close()
+
+    def on_click_back(self, event):
+        self.next_window = 'Database'
+        self.close()
+
+    def panel(self):
+        return pn.Column(
+            '# Задача анализа изображений',
+            self.task_category_selector,
+            self.task_type_selector,
+            self.task_objects_selector,
+            self.task_target_selector,
+            self.task_target_value_selector,
+            self.task_maximize_target_selector,
+            self.apply_button,
+            pn.Spacer(height=10),
+            self.checkbox,
+            pn.Row(self.back_button, self.next_button)
+        )
+
+
 class Params(Window):
 
-    next_window = param.Selector(default='Start', objects=['Start', 'Training'])
+    next_window = param.Selector(default='Task', objects=['Task', 'Training'])
 
     def __init__(self, **params):
         super().__init__(**params)
 
         self.params_widgets = [
+            ("Общие параметры", self.group_params_widgets('General', lambda: None)),
+            ("Параметры автонастройки", self.group_params_widgets('Tune', lambda: None)),
             ("Параметры обучения", self.group_params_widgets('Learning', lambda: None)),
             ("Параметры оптимизатора", self.group_params_widgets('Optimizer', lambda: None))
         ]
@@ -519,7 +564,7 @@ class Params(Window):
             tabs=[bokeh.models.Panel(title=title, child=to_column(widgets)) for title, widgets in self.params_widgets])
 
         def panelActive(attr, old, new):
-            if self.tabs.active == 1:
+            if self.tabs.active == 3:
                 for widget in self.tabs.tabs[self.tabs.active].child.children:
                     widget.visible = self.is_param_widget_visible(widget)
 
@@ -551,7 +596,7 @@ class Params(Window):
 
 class Training(Window):
 
-    next_window = param.Selector(default='Start', objects=['Start'])
+    next_window = param.Selector(default='Task', objects=['Task'])
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -644,7 +689,7 @@ class Training(Window):
 
 class TrainedModels(Window):
 
-    next_window = param.Selector(default='Start', objects=['Start'])
+    next_window = param.Selector(default='Task', objects=['Task'])
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -670,20 +715,22 @@ class TrainedModels(Window):
 
 pipeline = Transition(
     stages=[
-        ('Start', Start),
+        ('Database', Database),
         ('DatasetLoader', DatasetLoader),
+        ('Task', Task),
         ('Params', Params),
         ('Training', Training),
         ('TrainedModels', TrainedModels)
     ],
     graph={
-        'Start': ('DatasetLoader', 'Params', 'TrainedModels'),
-        'DatasetLoader': 'Start',
-        'Params': ('Start', 'Training'),
-        'Training': 'Start',
-        'TrainedModels': 'Start'
+        'Database': ('DatasetLoader', 'Task'),
+        'DatasetLoader': 'Database',
+        'Task': ('Database', 'Params', 'TrainedModels'),
+        'Params': ('Task', 'Training'),
+        'Training': 'Task',
+        'TrainedModels': 'Task'
     },
-    root='Start',
+    root='Database',
     ready_parameter='ready', 
     next_parameter='next_window',
     auto_advance=True
