@@ -1,4 +1,5 @@
 import sys
+import time
 
 import panel as pn
 import param
@@ -12,8 +13,9 @@ from ann_automl.core.solver import Task
 from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
-from ..core.nn_solver import NNTask
+from ..core.nn_solver import NNTask, recommend_hparams
 from ..core.nnfuncs import nnDB as DB, StopFlag, train
+from ..core import nn_rules_simplified
 
 css = '''
 .bk.panel-widget-box {
@@ -128,12 +130,12 @@ class Window(param.Parameterized):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        print(f"{self.__class__.__name__}.__init__ called")
 
     def close(self):
         self.ready=True
 
     def param_widget(self, name: str, change_callback: Callable[[], None]):
-        print(name, file=sys.stderr)
         def change_value(attr, old, new):
             self.params[name] = new
             change_callback()
@@ -183,9 +185,9 @@ class Window(param.Parameterized):
         # return widgets
 
     def is_param_widget_visible(self, widget):
-        return ( widget.name not in gui_params or 
+        return (widget.name not in gui_params or
                 'cond' not in gui_params[widget.name] or 
-                all (self.params[par] in values for par, values in gui_params[widget.name]['cond']) )
+                all (self.params[par] in values for par, values in gui_params[widget.name]['cond']))
 
 
 class Start(Window):
@@ -278,7 +280,9 @@ class Start(Window):
         self.dataset_categories_selector.on_change('value', changeDatasetCategoriesCallback)
 
         category_number = int(self.params['db'][ds]['categories'][supercategories[0]][categories[0]])
-        category_number_suf = "штук" if category_number % 10 == 0 or 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+        category_number_suf = "штук" if category_number % 10 == 0 or 5 <= category_number % 10 <= 9 or 10 <= category_number <= 14 \
+                         else "штуки" if 2 <= category_number % 10 <= 4 \
+                         else "штука"
         self.dataset_categorie_number = bokeh.models.Div(
             text=f"{str(category_number)} {category_number_suf}",
             align='center'
@@ -356,9 +360,8 @@ class Start(Window):
         with open('click_logs.txt', 'a') as f:
             f.write(f"{self.task_objects_selector.options}")
 
-
     def on_click_task_apply(self, event):
-        # CORE:  
+        # CORE:
         self.params['task'] = NNTask(
             task_ct=self.params['task_category'],
             task_type=self.params['task_type'],
@@ -368,7 +371,12 @@ class Start(Window):
             goals={'maximize': self.params['task_maximize_target']}
             # goal={self.params['task_goal']: self.params['task_goal_value']}
             )
-        self.task_apply_button.visible = False
+        hparams = recommend_hparams(self.params['task'], trace_solution=True)
+        self.params['recommended_hparams'] = hparams
+        for k, v in hparams.items():
+            key = 'train.' + k
+            self.params[key] = v
+        self.task_apply_button.disabled = False
 
     def on_click_next(self, event):
         if self.checkbox.value:
@@ -481,7 +489,6 @@ class DatasetLoader(Window):
             pn.Row(self.back_button, self.apply_button))
 
 
-
 class Params(Window):
 
     next_window = param.Selector(default='Start', objects=['Start', 'Training'])
@@ -499,7 +506,7 @@ class Params(Window):
                 sizing_mode="stretch_width", height=500, height_policy="fixed", css_classes=['scrollable'])
 
         self.tabs = bokeh.models.Tabs(
-            tabs=[ bokeh.models.Panel(title=title, child=to_column(widgets)) for title, widgets in self.params_widgets ])
+            tabs=[bokeh.models.Panel(title=title, child=to_column(widgets)) for title, widgets in self.params_widgets])
 
         def panelActive(attr, old, new):
             if self.tabs.active == 1:
@@ -518,10 +525,6 @@ class Params(Window):
 
     def on_click_next(self, event):
         # вызвать train
-        self.params['stop_flag'] = stop_flag = StopFlag()
-        hparams = {gui_params[k]['param_key']: v for k, v in self.params.items()
-                   if gui_params.get(k, {}).get('param_from', '') == 'train'}
-        self.params['process_id'] = p = process(train)(stop_flag=stop_flag, hparams=hparams, start=False)
         self.next_window = 'Training'
         self.close()
 
@@ -534,7 +537,6 @@ class Params(Window):
             self.tabs,
             pn.Spacer(height=10),
             pn.Row(self.back_button, self.next_button))
-
 
 
 class Training(Window):
@@ -550,22 +552,83 @@ class Training(Window):
         self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary', disabled=True)
         self.back_button.on_click(self.on_click_back)
 
+        self.stop = StopFlag()
+        hparams = self.params.get('recommended_hparams', {})
+        hparams.update({gui_params[k]['param_key']: v for k, v in self.params.items()
+                        if gui_params.get(k, {}).get('param_from', '') == 'train'})
+        self.process = process(train)(nn_task=self.params['task'], stop_flag=self.stop, hparams=hparams, start=False)
+        self.process.set_handler('print', lambda *args, **kwargs: self.msg(*args, **kwargs))
+        self.process.set_handler('train_callback', lambda *args, **kwargs: self.on_train_callback(*args, **kwargs))
+        self.process.on_finish = lambda _: self.on_process_finish()
+        print('Запуск процесса обучения')
+        # create timer to call self.update function to update panel widgets
+
+        self.timer = None
+        self.epochs = []
+        self.losses = []
+        self.accuracies = []
+        self.process.start()
+
+    def update_plot(self, *args, **kwargs):
+        # TODO: сделать здесь по-нормальному обновление графиков (через поток данных)
+        if len(self.epochs) > self.last_epoch+1:
+            ll = len(self.epochs)-1
+            # update self.plot
+            self.plot.line(list(self.epochs[self.last_epoch:]), list(self.losses[self.last_epoch:]), legend_label='Loss', line_color='red')
+            self.plot.line(list(self.epochs[self.last_epoch:]), list(self.accuracies[self.last_epoch:]), legend_label='Accuracy', line_color='green')
+            self.last_epoch = ll
+
+    def msg(self, *args, file=None, end='\n', **kwargs):
+        text = self.output.value
+        if file is None:
+            text += ''.join(map(str, args)) + end
+            self.output.value = text
+        else:
+            print(*args, **kwargs, file=file, end=end)
+
+    def on_train_callback(self, tp, batch=None, epoch=None, logs=None, model=None):
+        if tp == 'epoch':
+            self.msg(f'Эпоха {epoch}: {logs}')
+            self.add_plot_point(epoch, logs['loss'], logs['acc'])
+            time.sleep(0.1)
+        elif tp == 'finish':
+            self.msg('Обучение завершено')
+
     def on_click_stop(self, event):
-        self.params['stop_flag']()
-        self.back_button.disabled = False
-        pass
+        self.stop()
+        self.stop_button.disabled = True
 
     def on_click_back(self,event):
         self.close()
 
     def panel(self):
+        #self.output = pn.WidgetBox('### Output', min_width=500, height=500)
+        self.output = pn.widgets.TextAreaInput(min_width=500, height=500, value='### Output', disabled=True)
+        # create plot widget for loss and accuracy
+        self.plot = bokeh.plotting.figure(title='Loss and Accuracy', x_axis_label='Epoch', y_axis_label='Loss/Accuracy',
+                                          plot_width=500, plot_height=500)
+        self.timer = bokeh.plotting.curdoc().add_periodic_callback(self.update_plot, 1000)
+        self.epochs = []
+        self.losses = []
+        self.accuracies = []
+        self.last_epoch = 0
         return pn.Column(
             '# Меню обучения модели',
-            pn.WidgetBox('### Output', min_width=500, height=500),
+            pn.Row(self.output, self.plot),
             pn.Row(self.back_button, self.stop_button)
         )
 
+    def add_plot_point(self, epoch, loss, accuracy):
+        self.epochs.append(epoch)
+        self.losses.append(loss)
+        self.accuracies.append(accuracy)
 
+    def on_process_finish(self):
+        self.back_button.disabled = False
+        self.stop_button.disabled = True
+        if self.timer is not None:
+            self.plot.document.remove_periodic_callback(self.timer)
+            self.timer = None
 
 
 class TrainedModels(Window):

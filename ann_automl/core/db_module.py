@@ -1157,3 +1157,7 @@ class DBModule:
             cat_count = cat_counts_dict[cat_id]
             result['categories'][cat_name] = cat_count
         return result
+
+    def close(self):
+        self.sess.close()
+        self.engine.dispose()

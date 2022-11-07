@@ -12,6 +12,15 @@ def update_params_deps(params):
         if 'title' not in v:
             v['title'] = k
             warnings.warn(f'No title for parameter {k}')
+        if 'default' not in v:
+            raise ValueError(f'No default for parameter {k}')
+        # check that for int and float types there is step and range fields
+        if v['type'] in ['int', 'float']:
+            if 'step' not in v:
+                raise ValueError(f'No step for parameter {k}')
+            if 'range' not in v:
+                raise ValueError(f'No range for parameter {k}')
+
         v['title'] = v['title'][0].upper() + v['title'][1:]
         if 'values' in v and isinstance(v['values'], dict):
             for k2, v2 in v['values'].items():

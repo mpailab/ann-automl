@@ -16,11 +16,13 @@ from pytz import timezone
 from . import db_module
 from .solver import printlog
 from ..utils.process import pcall
+from ..utils.thread_wrapper import ObjectWrapper
 
 _data_dir = 'data'
-_db_file = 'tests.sqlite'
+_db_file = 'tests.sqlite'  # TODO: уточнить путь к файлу базы данных
 
-nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')  # TODO: уточнить путь к файлу базы данных
+# nnDB = ObjectWrapper(db_module.DBModule, dbstring=f'sqlite:///{_db_file}')
+nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
 
 
 _emulation = False  # флаг отладочного режима, когда не выполняются долгие операции
@@ -29,6 +31,26 @@ _emulation = False  # флаг отладочного режима, когда �
 def set_emulation(emulation=True):
     global _emulation
     _emulation = emulation
+
+
+def set_multithreading_mode(mode=True):
+    """ Set the multithreading mode """
+    global nnDB
+    if mode and not isinstance(nnDB, ObjectWrapper):
+        nnDB.close()
+        nnDB = ObjectWrapper(db_module.DBModule, dbstring=f'sqlite:///{_db_file}')
+    elif not mode and isinstance(nnDB, ObjectWrapper):
+        nnDB.close()
+        nnDB.join_thread()
+        nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
+
+
+class multithreading_mode:
+    def __enter__(self):
+        set_multithreading_mode(True)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        set_multithreading_mode(False)
 
 
 def set_data_dir(data_dir):
@@ -264,7 +286,7 @@ tune_hparams = {
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
-    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'title': 'Радиус', 'cond': True},
+    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1,  'title': 'Радиус', 'cond': True},
     'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1',
                     'title': 'Метрика на сетке', 'cond': True},
     'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
