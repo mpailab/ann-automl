@@ -82,10 +82,11 @@ def is_traversable(root, graph, stages):
     traverse(int_graph, stages.index(root), visited)
     return all(visited)
 
+
 def get_depth(node, graph, depth=0, pass_nodes=None):
     depths = []
     if pass_nodes is None:
-        pass_nodes = set({node})
+        pass_nodes = {node}
     else:
         pass_nodes.add(node)
     for sub in graph.get(node, []):
@@ -100,7 +101,7 @@ def get_breadths(node, graph, depth=0, breadths=None, pass_nodes=None):
         breadths = defaultdict(list)
         breadths[depth].append(node)
     if pass_nodes is None:
-        pass_nodes = set({node})
+        pass_nodes = {node}
     else:
         pass_nodes.add(node)
     for sub in graph.get(node, []):
@@ -112,7 +113,6 @@ def get_breadths(node, graph, depth=0, breadths=None, pass_nodes=None):
         #     breadths[depth+1].append(sub)
         # get_breadths(sub, graph, depth+1, breadths)
     return breadths
-
 
 
 class Transition(Viewer):
@@ -138,7 +138,7 @@ class Transition(Viewer):
 
     * stage: The contents of the current pipeline stage.
 
-    By default any outputs of one stage annotated with the
+    By default, any outputs of one stage annotated with the
     param.output decorator are fed into the next stage. Additionally,
     if the inherit_params parameter is set any parameters which are
     declared on both the previous and next stage are also inherited.
@@ -640,7 +640,6 @@ class Transition(Viewer):
             self.stage[:] = [self._init_stage()]
         self._update_progress()
         self._update_button()
-
 
 
 __all__ = (

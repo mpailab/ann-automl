@@ -1,3 +1,6 @@
+import sys
+import time
+
 import panel as pn
 import param
 import pandas as pd
@@ -7,8 +10,12 @@ from typing import Callable
 
 from ann_automl.core.db_module import DBModule
 from ann_automl.core.solver import Task
-from ann_automl.core.hparams import hyperparameters
+from ..utils.process import process
+from .params import hyperparameters
 from ann_automl.gui.transition import Transition
+from ..core.nn_solver import NNTask, recommend_hparams
+from ..core.nnfuncs import nnDB as DB, StopFlag, train
+from ..core import nn_rules_simplified
 
 css = '''
 .bk.panel-widget-box {
@@ -19,10 +26,20 @@ css = '''
 }
 '''
 
-DB = DBModule("sqlite:///../tests.sqlite")
+# DB = DBModule("sqlite:///../tests.sqlite")
 
 pn.extension(raw_css=[css])
-pn.config.sizing_mode='stretch_width'
+pn.config.sizing_mode = 'stretch_width'
+
+# GUI titles of datasets attributes
+datasets_attr_title = {
+    'description': 'Описание',
+    'url': 'Источник',
+    'contributor': 'Создатель',
+    'year': 'Год создания',
+    'version': 'Версия',
+    'categories': 'Категории изображений'
+}
 
 # GUI titles of datasets attributes
 datasets_attr_title = {
@@ -35,7 +52,6 @@ datasets_attr_title = {
 }
 
 gui_params = {
-    
     'task': {
         'default': None,
         'title': 'Задача'
@@ -81,7 +97,7 @@ gui_params = {
             'widget': 'MultiChoice'
         }
     },
-    'task_goal': {
+    'task_target': {
         'type': 'str',
         'values': ['loss', 'metrics'],
         'default': 'loss',
@@ -91,7 +107,7 @@ gui_params = {
             'widget': 'Select'
         }
     },
-    'task_goal_value': {
+    'task_target_value': {
         'type': 'float',
         'range': [0, 1], 
         'default': 0.7, 
@@ -102,35 +118,44 @@ gui_params = {
             'group': 'Task',
             'widget': 'Slider'
         }
-    }
+    },
+    'task_maximize_target': {
+        'type': 'bool',
+        'default': True,
+        'title': 'Максимизировать целевой функционал после достижения значения task_target_value',
+        'gui': {
+            'group': 'Task',
+            'widget': 'Checkbox'
+        }
+    },
 }
 
-gui_params.update({ k:v for k,v in hyperparameters.items() if 'gui' in v })
+gui_params.update({k: v for k, v in hyperparameters.items() if 'gui' in v})
 
 
 class Window(param.Parameterized):
 
-    params = param.Dict({ p : gui_params[p]['default'] for p in gui_params })
+    params = param.Dict({p: gui_params[p]['default'] for p in gui_params})
     ready = param.Boolean(False)
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        print(f"{self.__class__.__name__}.__init__ called")
 
     def close(self):
         self.ready=True
 
     def param_widget(self, name: str, change_callback: Callable[[], None]):
-
-        def changeValue(attr, old, new):
+        def change_value(attr, old, new):
             self.params[name] = new
             change_callback()
 
-        def changeActiveValue(attr, old, new):
+        def change_active_value(attr, old, new):
             self.params[name] = name in new
             change_callback()
         
         desc = gui_params[name]
-        kwargs =  {
+        kwargs = {
             'name': name,
             'margin': (5, 10, 5, 10)
         }
@@ -138,22 +163,25 @@ class Window(param.Parameterized):
         if desc['gui']['widget'] == 'Select':
             widget = bokeh.models.Select(**kwargs, title=desc['title'], value=self.params[name], 
                 options=[x for x in desc['values']])
-            widget.on_change('value', changeValue)
+            widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'MultiChoice':
             widget = bokeh.models.MultiChoice(**kwargs, title=desc['title'], value=self.params[name], 
                 options=[x for x in desc['values']])
-            widget.on_change('value', changeValue)
+            widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'Slider':
             widget = bokeh.models.Slider(**kwargs, title=desc['title'], value=self.params[name], 
                 start=desc['range'][0], end=desc['range'][1], step=desc['step'])
-            widget.on_change('value', changeValue)
+            widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'Checkbox':
-            widget = bokeh.models.CheckboxGroup(**kwargs, labels=[desc['title']], 
-                active=[desc['title']] if self.params[name] else [])
-            widget.on_change('active', changeActiveValue)
+            widget = bokeh.models.CheckboxGroup(**kwargs, labels=[desc['title']],
+                active=[0] if self.params[name] else [])
+            widget.on_change('active', change_active_value)
+
+        else:
+            raise ValueError(f'Unsupported widget type {desc["gui"]["widget"]}')
 
         return widget
 
@@ -167,10 +195,9 @@ class Window(param.Parameterized):
         # return widgets
 
     def is_param_widget_visible(self, widget):
-        return ( widget.name not in gui_params or 
+        return (widget.name not in gui_params or
                 'cond' not in gui_params[widget.name] or 
-                all (self.params[par] in values for par, values in gui_params[widget.name]['cond']) )
-
+                all (self.params[par] in values for par, values in gui_params[widget.name]['cond']))
 
 
 class Start(Window):
@@ -202,7 +229,7 @@ class Start(Window):
             self.dataset_categories_selector.options = categories
             self.dataset_categories_selector.value = categories[0]
             self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
-            
+
             # self.is_need_dataset_apply_button_visible = False
             # self.dataset_categories_selector.value=[category for category in self.params['db'][ds]['categories'] if self.params['db'][ds]['categories'][category]['select']]
             # self.is_need_dataset_apply_button_visible = True
@@ -210,12 +237,12 @@ class Start(Window):
         self.dataset_selector = bokeh.models.MultiSelect(
             value=["Dogs vs Cats"], 
             options=list(self.params['db'].keys()),  
-            max_width=500, width_policy='min', height_policy="max", margin=(5,15,5,5)
+            max_width=450, width_policy='min', height_policy="max", margin=(5,15,5,5)
         )
         self.dataset_selector.on_change('value', changeDatasetCallback)
-        
-        def changeDatasetSupercategoriesCallback(attr, old, new):    
-            ds = self.params['dataset']        
+
+        def changeDatasetSupercategoriesCallback(attr, old, new):
+            ds = self.params['dataset']
             categories = list(self.params['db'][ds]['categories'][new].keys())
             category_number = int(self.params['db'][ds]['categories'][new][categories[0]])
             category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
@@ -223,9 +250,9 @@ class Start(Window):
             self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
             # if self.is_need_dataset_apply_button_visible:
             #     self.dataset_apply_button.visible = True
-        
+
         def changeDatasetCategoriesCallback(attr, old, new):
-            ds = self.params['dataset']        
+            ds = self.params['dataset']
             category_number = int(self.params['db'][ds]['categories'][self.dataset_supercategories_selector.value][new])
             category_number_suf = "штук" if 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
             self.dataset_categorie_number.text = f"{str(category_number)} {category_number_suf}"
@@ -252,18 +279,20 @@ class Start(Window):
 
         supercategories = list(self.params['db'][ds]['categories'].keys())
         self.dataset_supercategories_selector = bokeh.models.Select(
-            options=supercategories, value=supercategories[0], width=500, width_policy='fixed'
+            options=supercategories, value=supercategories[0], width=450, width_policy='fixed'
         )
         self.dataset_supercategories_selector.on_change('value', changeDatasetSupercategoriesCallback)
 
         categories = list(self.params['db'][ds]['categories'][supercategories[0]].keys())
         self.dataset_categories_selector = bokeh.models.Select(
-            options=categories, value=categories[0], width=500, width_policy='fixed'
+            options=categories, value=categories[0], width=450, width_policy='fixed'
         )
         self.dataset_categories_selector.on_change('value', changeDatasetCategoriesCallback)
 
         category_number = int(self.params['db'][ds]['categories'][supercategories[0]][categories[0]])
-        category_number_suf = "штук" if category_number % 10 == 0 or 5 <= category_number % 10 and category_number % 10 <= 9 or 10 <= category_number and category_number <= 14 else "штуки" if 2 <= category_number % 10 and category_number % 10 <= 4 else "штука"
+        category_number_suf = "штук" if category_number % 10 == 0 or 5 <= category_number % 10 <= 9 or 10 <= category_number <= 14 \
+                         else "штуки" if 2 <= category_number % 10 <= 4 \
+                         else "штука"
         self.dataset_categorie_number = bokeh.models.Div(
             text=f"{str(category_number)} {category_number_suf}",
             align='center'
@@ -276,7 +305,7 @@ class Start(Window):
             self.dataset_year,  
             self.dataset_version,
             pn.Row(
-                bokeh.models.Div(text="<b>Категории изображений:</b>", min_width=160), 
+                bokeh.models.Div(text="<b>Категории изображений:</b>", min_width=160),
                 self.dataset_supercategories_selector,
                 self.dataset_categories_selector,
                 self.dataset_categorie_number
@@ -309,8 +338,8 @@ class Start(Window):
             self.task_category_selector,
             self.task_type_selector,
             self.task_objects_selector,
-            self.task_goal_selector,
-            self.task_goal_value_selector,
+            self.task_target_selector,
+            self.task_target_value_selector,
             self.task_apply_button
         )
 
@@ -334,16 +363,30 @@ class Start(Window):
         #     for category in self.params['db'][ds]['categories']:
         #         if self.params['db'][ds]['categories'][category]['select']:
         #             task_objects.add(category)
-        self.task_objects_selector.options=[c for ds in self.dataset_selector.value for sc in self.params['db'][ds]['categories'] for c in self.params['db'][ds]['categories'][sc]]
+        self.task_objects_selector.options=[c for ds in self.dataset_selector.value
+                                            for sc in self.params['db'][ds]['categories']
+                                            for c in self.params['db'][ds]['categories'][sc]]
+
+        with open('click_logs.txt', 'a') as f:
+            f.write(f"{self.task_objects_selector.options}")
 
     def on_click_task_apply(self, event):
-        # CORE:  
-        self.params['task'] = Task(
-            self.params['task_category'], 
-            self.params['task_type'],
-            self.params['task_objects'], 
-            goal={self.params['task_goal']: self.params['task_goal_value']})
-        self.task_apply_button.visible = False
+        # CORE:
+        self.params['task'] = NNTask(
+            task_ct=self.params['task_category'],
+            task_type=self.params['task_type'],
+            objects=self.params['task_objects'],
+            metric=self.params['task_target'],
+            target=self.params['task_target_value'],
+            goals={'maximize': self.params['task_maximize_target']}
+            # goal={self.params['task_goal']: self.params['task_goal_value']}
+            )
+        hparams = recommend_hparams(self.params['task'], trace_solution=True)
+        self.params['recommended_hparams'] = hparams
+        for k, v in hparams.items():
+            key = 'train.' + k
+            self.params[key] = v
+        self.task_apply_button.disabled = False
 
     def on_click_next(self, event):
         if self.checkbox.value:
@@ -358,8 +401,7 @@ class Start(Window):
             pn.Spacer(height=10),
             self.checkbox,
             self.next_button,
-            margin=(0,0,0,10))
-
+            margin=(0, 0, 0, 10))
 
 
 class DatasetLoader(Window):
@@ -368,7 +410,7 @@ class DatasetLoader(Window):
 
     def __init__(self, **params):
         super().__init__(**params)
-        
+
         self.dataset_description_setter = bokeh.models.TextInput(
             title="Название:",
             placeholder="Введите название датасета",
@@ -423,12 +465,12 @@ class DatasetLoader(Window):
 
     def on_click_apply(self, event):
         # DB.fill_coco(
-        #     self.anno_file_setter.filename, 
+        #     self.anno_file_setter.filename,
         #     self.dataset_dir_setter.value,
         #     ds_info={
         #         "description": self.dataset_description_setter.value,
         #         "url": self.dataset_url_setter.value,
-        #         "version": self.dataset_version_setter.value, 
+        #         "version": self.dataset_version_setter.value,
         #         "year": self.dataset_year_setter.value,
         #         "contributor": self.dataset_contributor_setter.value,
         #         "date_created": self.dataset_year_setter.value
@@ -457,7 +499,6 @@ class DatasetLoader(Window):
             pn.Row(self.back_button, self.apply_button))
 
 
-
 class Params(Window):
 
     next_window = param.Selector(default='Start', objects=['Start', 'Training'])
@@ -475,13 +516,13 @@ class Params(Window):
                 sizing_mode="stretch_width", height=500, height_policy="fixed", css_classes=['scrollable'])
 
         self.tabs = bokeh.models.Tabs(
-            tabs=[ bokeh.models.Panel(title=title, child=to_column(widgets)) for title, widgets in self.params_widgets ])
+            tabs=[bokeh.models.Panel(title=title, child=to_column(widgets)) for title, widgets in self.params_widgets])
 
         def panelActive(attr, old, new):
             if self.tabs.active == 1:
                 for widget in self.tabs.tabs[self.tabs.active].child.children:
                     widget.visible = self.is_param_widget_visible(widget)
-        
+
         self.tabs.on_change('active', panelActive)
         
         self.next_button=pn.widgets.Button(name='Далее', align='end', width=100, button_type='primary')
@@ -493,6 +534,7 @@ class Params(Window):
         self.qq = pn.widgets.StaticText(name='Static Text', value=self.params['task_category'])
 
     def on_click_next(self, event):
+        # вызвать train
         self.next_window = 'Training'
         self.close()
 
@@ -507,7 +549,6 @@ class Params(Window):
             pn.Row(self.back_button, self.next_button))
 
 
-
 class Training(Window):
 
     next_window = param.Selector(default='Start', objects=['Start'])
@@ -518,22 +559,86 @@ class Training(Window):
         self.stop_button=pn.widgets.Button(name='Стоп', align='end', width=100, button_type='primary')
         self.stop_button.on_click(self.on_click_stop)
 
-        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary')
+        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary', disabled=True)
         self.back_button.on_click(self.on_click_back)
 
-    def on_click_stop(self,event):
-        pass
+        self.stop = StopFlag()
+        hparams = self.params.get('recommended_hparams', {})
+        hparams.update({gui_params[k]['param_key']: v for k, v in self.params.items()
+                        if gui_params.get(k, {}).get('param_from', '') == 'train'})
+        self.process = process(train)(nn_task=self.params['task'], stop_flag=self.stop, hparams=hparams, start=False)
+        self.process.set_handler('print', lambda *args, **kwargs: self.msg(*args, **kwargs))
+        self.process.set_handler('train_callback', lambda *args, **kwargs: self.on_train_callback(*args, **kwargs))
+        self.process.on_finish = lambda _: self.on_process_finish()
+        print('Запуск процесса обучения')
+        # create timer to call self.update function to update panel widgets
+
+        self.timer = None
+        self.epochs = []
+        self.losses = []
+        self.accuracies = []
+        self.process.start()
+
+    def update_plot(self, *args, **kwargs):
+        # TODO: сделать здесь по-нормальному обновление графиков (через поток данных)
+        if len(self.epochs) > self.last_epoch+1:
+            ll = len(self.epochs)-1
+            # update self.plot
+            self.plot.line(list(self.epochs[self.last_epoch:]), list(self.losses[self.last_epoch:]), legend_label='Loss', line_color='red')
+            self.plot.line(list(self.epochs[self.last_epoch:]), list(self.accuracies[self.last_epoch:]), legend_label='Accuracy', line_color='green')
+            self.last_epoch = ll
+
+    def msg(self, *args, file=None, end='\n', **kwargs):
+        text = self.output.value
+        if file is None:
+            text += ''.join(map(str, args)) + end
+            self.output.value = text
+        else:
+            print(*args, **kwargs, file=file, end=end)
+
+    def on_train_callback(self, tp, batch=None, epoch=None, logs=None, model=None):
+        if tp == 'epoch':
+            self.msg(f'Эпоха {epoch}: {logs}')
+            self.add_plot_point(epoch, logs['loss'], logs['acc'])
+            time.sleep(0.1)
+        elif tp == 'finish':
+            self.msg('Обучение завершено')
+
+    def on_click_stop(self, event):
+        self.stop()
+        self.stop_button.disabled = True
 
     def on_click_back(self,event):
         self.close()
 
     def panel(self):
+        #self.output = pn.WidgetBox('### Output', min_width=500, height=500)
+        self.output = pn.widgets.TextAreaInput(min_width=500, height=500, value='### Output', disabled=True)
+        # create plot widget for loss and accuracy
+        self.plot = bokeh.plotting.figure(title='Loss and Accuracy', x_axis_label='Epoch', y_axis_label='Loss/Accuracy',
+                                          plot_width=500, plot_height=500)
+        self.timer = bokeh.plotting.curdoc().add_periodic_callback(self.update_plot, 1000)
+        self.epochs = []
+        self.losses = []
+        self.accuracies = []
+        self.last_epoch = 0
         return pn.Column(
-            '# Меню обучения модели', 
-            pn.WidgetBox('### Output', min_width=500, height=500),
+            '# Меню обучения модели',
+            pn.Row(self.output, self.plot),
             pn.Row(self.back_button, self.stop_button)
         )
 
+    def add_plot_point(self, epoch, loss, accuracy):
+        self.epochs.append(epoch)
+        self.losses.append(loss)
+        self.accuracies.append(accuracy)
+
+    def on_process_finish(self):
+        self.back_button.disabled = False
+        self.stop_button.disabled = True
+        if self.timer is not None:
+            self.plot.document.remove_periodic_callback(self.timer)
+            self.timer = None
 
 
 
@@ -561,7 +666,6 @@ class TrainedModels(Window):
             ),
             self.back_button
         )
-
 
 
 pipeline = Transition(

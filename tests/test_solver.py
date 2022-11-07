@@ -1,13 +1,23 @@
-from ann_automl.core.nn_solver import solve, Task, set_log_dir, set_data_dir
+from ann_automl.core.nn_solver import recommend_hparams, NNTask, set_log_dir
+from ann_automl.core.nnfuncs import set_data_dir, train
+from ann_automl.core import nn_rules_simplified
 
 
-def test_solve():
+def run_train():
     set_data_dir('data')
     set_log_dir('log')
-    # Создаём и решаем задачу создания модели нейронной сети
-    task = Task("train", task_type="classification", obj_set={"cat", "dog"}, goal={'accuracy': 0.9})
-    w = solve(task, debug_mode=True)
+
+    task = NNTask('train', ['cat', 'dog', 'elephant'], target=0.95)
+    hparams = recommend_hparams(task, trace_solution=True)
+    print("Recommended hparams:")
+    for k, v in hparams.items():
+        print(f'{k}: {v}')
+
+    result = train(task, hparams=hparams)
+    print("Training result:")
+    print(f"  loss:     {result[0]:.4f}")
+    print(f"  accuracy: {result[1]:.4f}")
 
 
 if __name__ == '__main__':
-    test_solve()
+    run_train()

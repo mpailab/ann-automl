@@ -1,4 +1,4 @@
-from utils.nn_conf import add_layers_from_conf
+from ann_automl.utils.nn_conf import add_layers_from_conf
 import keras
 import keras.layers
 

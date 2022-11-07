@@ -48,3 +48,28 @@ def convert(x):
     return ReprWrapper(f"load64('''{x}''',{dump64(x)})")
 
 
+def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', print_end="\r"):
+    """
+    Helper to display progress bar, source from https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    """
+    percent = f"{100 * (iteration / float(total)):.{decimals}f}"
+    filled_length = int(length * iteration // total)
+    prev_percent = f"{100 * ((iteration-1) / float(total)):.{decimals}f}"
+    prev_filled_length = int(length * (iteration-1) // total)
+    if prev_filled_length == filled_length and prev_percent == percent and total > iteration > 1:
+        return
+    bar = fill * filled_length + '-' * (length - filled_length)
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=print_end)
+    # Print New Line on Complete
+    if iteration == total:
+        print()

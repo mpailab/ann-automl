@@ -130,9 +130,6 @@ class PDelayed(object):
             # self._value = self.result
         return self.value
 
-    def update(self):
-        return self._state
-
     @property
     def canceled(self):
         return self._canceled
@@ -153,24 +150,8 @@ class PDelayed(object):
         with self.lock:
             return self._state.state
 
-    @property
-    def status(self):
-        with self.lock:
-            return self._state.status
-
-    @property
-    def prorgess(self):
-        return self._state.progress
-
-    def print_status(self):
-        with self.lock:
-            st = self._state
-        print(f"Status   : {st.status}")
-        if str(st.status) != 'finished' and st.progress > 0:
-            print(f"Progress : {st.progress:.2%}")
-
     def __del__(self):
-        if self._th.isAlive():
+        if self._th.is_alive():
             self.cancel()
             if self._th is not threading.current_thread():
                 self._th.join()
@@ -181,31 +162,6 @@ class PDelayed(object):
 
     def __exit__(self, t, v, tb):
         self.lock.release()
-
-
-class SetState:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
-
-def progress(pr):
-    return SetState(progress=pr)
-
-
-# def pstate(st):
-#     return SetState(state=st, progress=0)
-
-
-def preturn(r):
-    return SetState(result=r)
-
-
-def pstatus(r):
-    return SetState(status=r)
-
-
-#def pcall(func, *args, **kwargs):
-#    return SetState(request=(func, args, kwargs))
 
 
 # thread-local variable
@@ -359,13 +315,6 @@ def process(f):
                     print("Error occured during thread execution:")
                     traceback.print_exc()
             d.finish()
-
-        def qq():
-            if output_context is not None:
-                with output_context:
-                    pp()
-            else:
-                pp()
 
         d.prepare(pp, args=(), kwargs={})
         if start:
