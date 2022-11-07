@@ -524,8 +524,10 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
                 callback.on_batch_end(batch, logs={'loss': loss, 'acc': acc})
         for callback in callbacks:
             callback.on_epoch_end(epoch, logs={'loss': loss, 'acc': acc})
+        if model.stop_training:
+            break
     for callback in callbacks:
-        callback.on_train_end(logs={'loss': loss, 'acc': acc})
+        callback.on_train_end(logs={'loss': best_loss, 'acc': best_acc})
     return [best_loss, best_acc]
 
 
