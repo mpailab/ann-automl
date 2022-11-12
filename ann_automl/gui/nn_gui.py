@@ -13,9 +13,13 @@ from ann_automl.core.solver import Task
 from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
+import ann_automl.gui.tensorboard as tb
 from ..core.nn_solver import NNTask, recommend_hparams
 from ..core.nnfuncs import nnDB as DB, StopFlag, train
 from ..core import nn_rules_simplified
+
+# Launch TensorBoard
+tb.start("--logdir ./logs --port 0")
 
 css = '''
 .bk.panel-widget-box {
@@ -354,7 +358,7 @@ class Database(Window):
             bokeh.models.Div(text="<b>Доступные датасеты:</b>", margin=(-10,0,0,10)),
             pn.Row(self.dataset_selector, self.dataset_info, margin=(0,5,5,5)),
             self.selected_datasets,
-            pn.Row(self.dataset_load_button, self.dataset_apply_button, self.next_button)
+            pn.Row(self.dataset_load_button, self.dataset_apply_button, self.next_button),
         )
 
 
@@ -670,6 +674,7 @@ class Training(Window):
         return pn.Column(
             '# Меню обучения модели',
             pn.Row(self.output, self.plot),
+            pn.Card(tb.interface(), title="TensorBoard", collapsed=True),
             pn.Row(self.back_button, self.stop_button)
         )
 
