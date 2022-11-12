@@ -557,7 +557,11 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
                                            save_best_only=True, save_weights_only=False, mode='auto')
     c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
     c_t = TimeHistory()
-    callbacks = [c_log, c_ch, c_es, c_t, NotifyCallback()]
+    c_tb = keras.callbacks.TensorBoard(
+        log_dir=os.path.join("logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), 
+        histogram_freq=1)
+    )
+    callbacks = [c_log, c_ch, c_es, c_t, c_tb, NotifyCallback()]
     if stop_flag is not None:
         callbacks.append(CheckStopCallback(stop_flag))
 
