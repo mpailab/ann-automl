@@ -474,6 +474,11 @@ class Task(Window):
 
         for widget in self.group_params_widgets('Task', changeTaskParamCallback):
             setattr(self, f"{widget.name}_selector", widget)
+        
+        def changeTaskObjects(attr, old, new):
+            changeTaskParamCallback(attr, old, new)
+            self.task_objects_checker.text = ""
+        self.task_objects_selector.on_change('value', changeTaskObjects)
 
         self.task_interface = pn.Column(
             '# Задача анализа изображений',
@@ -484,6 +489,8 @@ class Task(Window):
             self.task_target_value_selector,
             self.task_maximize_target_selector
         )
+        
+        self.task_objects_checker = bokeh.models.Div(align="center", margin=(5, 5, 5, 25))
 
         self.checkbox = pn.widgets.Checkbox(name='Подобрать готовые модели')
 
@@ -503,23 +510,29 @@ class Task(Window):
         self.back_button.on_click(self.on_click_back)
 
     def on_click_apply(self, event):
-        # CORE:
-        self.params['task'] = NNTask(
-            task_ct=self.params['task_category'],
-            task_type=self.params['task_type'],
-            objects=self.params['task_objects'],
-            metric=self.params['task_target'],
-            target=self.params['task_target_value'],
-            goals={'maximize': self.params['task_maximize_target']}
-        )
-        hparams = recommend_hparams(self.params['task'], trace_solution=True)
-        self.params['recommended_hparams'] = hparams
-        for k, v in hparams.items():
-            key = 'train.' + k
-            self.params[key] = v
 
-        self.apply_button.disabled = True
-        self.next_button.disabled = False
+        if len(self.task_objects_selector.value) < 2:
+            self.task_objects_checker.text = \
+                '<font color=red>Выберите не менее двух категорий изображений</font>'
+
+        else:
+            # CORE:
+            self.params['task'] = NNTask(
+                task_ct=self.params['task_category'],
+                task_type=self.params['task_type'],
+                objects=self.params['task_objects'],
+                metric=self.params['task_target'],
+                target=self.params['task_target_value'],
+                goals={'maximize': self.params['task_maximize_target']}
+            )
+            hparams = recommend_hparams(self.params['task'], trace_solution=True)
+            self.params['recommended_hparams'] = hparams
+            for k, v in hparams.items():
+                key = 'train.' + k
+                self.params[key] = v
+
+            self.apply_button.disabled = True
+            self.next_button.disabled = False
 
     def on_click_next(self, event):
         if self.checkbox.value:
@@ -539,7 +552,7 @@ class Task(Window):
             self.task_target_selector,
             self.task_target_value_selector,
             self.task_maximize_target_selector,
-            self.apply_button,
+            pn.Row(self.apply_button, self.task_objects_checker),
             pn.Spacer(height=10),
             self.checkbox,
             pn.Row(self.back_button, self.next_button)
