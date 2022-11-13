@@ -25,7 +25,7 @@ class dbModule:
     ############################################################
     ##########              Helpers          ###################
     ############################################################
-    def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
+    def printProgressBar(self, iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
         """
         Helper to display progress bar, source from https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
         Call in a loop to create terminal progress bar
@@ -252,6 +252,8 @@ class dbModule:
         OUTPUT:
             None
         """
+        #print('Continue with catsVsDogs?')
+        # input()
         if hasattr(self, 'KaggleCatsVsDogsConfig_'):  # to init from config file
             annoFileName = self.KaggleCatsVsDogsConfig_['anno_filename']
             file_prefix = self.KaggleCatsVsDogsConfig_['file_prefix']
@@ -267,9 +269,9 @@ class dbModule:
             return
         with open(annoFileName) as json_file:
             data = json.load(json_file)
-        if not os.path.isfile(file_prefix + data['images'][0]['file_name']):
+        if not os.path.isfile(file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
-                  file_prefix + im_data['file_name'], ')')
+                  file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name'], ')')
             print('Stop filling dataset')
             return
         dataset_info = data['info']
@@ -283,11 +285,12 @@ class dbModule:
             0, len(data['images']), prefix='Adding images:', suffix='Complete', length=50)
         im_counter = 0
         for im_data in data['images']:
-            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'],
+            image = self.Image(file_prefix + im_data['file_name'].split('.')[0] + 's/' + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
                                im_data['license'])
-            self.printProgressBar(im_counter, len(
-                data['images']), prefix='Adding images:', suffix='Complete', length=50)
+            if im_counter % 10 == 0 or im_counter == len(data['images']) - 2:
+                self.printProgressBar(im_counter, len(
+                    data['images']), prefix='Adding images:', suffix='Complete', length=50)
             im_counter += 1
             im_objects[im_data['id']] = image
             self.sess.add(image)
@@ -302,8 +305,9 @@ class dbModule:
             real_id = im_objects[an_data['image_id']].ID
             annotation = self.Annotation(real_id, an_data['category_id'] + 1, ';'.join(an_data['bbox']),
                                          ';'.join(an_data['segmentation']), an_data['iscrowd'], an_data['area'])
-            self.printProgressBar(an_counter, len(
-                data['annotations']), prefix='Adding annotations:', suffix='Complete', length=50)
+            if an_counter % 10 == 0 or an_counter == len(data['annotations']) - 2:
+                self.printProgressBar(an_counter, len(
+                    data['annotations']), prefix='Adding annotations:', suffix='Complete', length=50)
             an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
@@ -473,8 +477,9 @@ class dbModule:
                                    'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
                 annotations.append(annotation_data)
             im_id += 1
-            self.printProgressBar(
-                im_id, len(img_files), prefix='Processing ImageNet XML files:', suffix='Complete', length=50)
+            if im_id % 10 == 0 or im_id == len(img_files) - 1:
+                self.printProgressBar(
+                    im_id, len(img_files), prefix='Processing ImageNet XML files:', suffix='Complete', length=50)
         self.add_images_and_annotations(images, annotations, dsID)
         return images, annotations
 
@@ -793,7 +798,7 @@ class dbModule:
         """
         if not os.path.isfile(file_prefix + images[0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
-                  file_prefix + imgs[0]['file_name'], ')')
+                  file_prefix + images[0]['file_name'], ')')
             print('Stop filling dataset')
             return
         print('Adding images')
@@ -808,8 +813,9 @@ class dbModule:
             image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset_id, im_data['coco_url'], im_data['flickr_url'], im_data['license'], im_id)
             buf_images[im_data['id']] = image
-            self.printProgressBar(im_counter, len(
-                images), prefix='Adding images:', suffix='Complete', length=50)
+            if im_counter % 10 == 0 or im_counter == len(images) - 2:
+                self.printProgressBar(im_counter, len(
+                    images), prefix='Adding images:', suffix='Complete', length=50)
             im_counter += 1
             self.sess.add(image)
         self.sess.commit()  # adding images
@@ -829,8 +835,9 @@ class dbModule:
             bbox_str = json.dumps(an_data['bbox'])
             annotation = self.Annotation(
                 cur_image_id, an_data['category_id'], bbox_str, seg_str, an_data['iscrowd'], an_data['area'], anno_id)
-            self.printProgressBar(an_counter, len(
-                annotations), prefix='Adding annotations:', suffix='Complete', length=50)
+            if an_counter % 10 == 0 or an_counter == len(annotations) - 2:
+                self.printProgressBar(an_counter, len(
+                    annotations), prefix='Adding annotations:', suffix='Complete', length=50)
             an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
