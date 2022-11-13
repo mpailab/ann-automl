@@ -104,7 +104,7 @@ learning_rate = learning_rate * 1 / (1 + decay * epoch)
                    'sparse_categorical_accuracy', 'top_k_categorical_accuracy',
                    'sparse_top_k_categorical_accuracy'],
         'default': 'accuracy',
-        'title': 'Метрика',
+        'title': 'Метрика обучения',
         'gui': {
             'widget': 'Select',
             'group': 'Learning'

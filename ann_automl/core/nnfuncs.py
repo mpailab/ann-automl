@@ -9,6 +9,7 @@ import warnings
 from typing import List
 
 import keras
+from keras.preprocessing.image import ImageDataGenerator
 import numpy as np
 import pandas as pd
 from pytz import timezone
@@ -370,7 +371,7 @@ def create_generators(model, data, augmen_params, batch_size):
     if _emulation:
         return EmulateGen(df_train), EmulateGen(df_validate), EmulateGen(df_test)
 
-    data_gen = keras.preprocessing.image.ImageDataGenerator(augmen_params)
+    data_gen = ImageDataGenerator(augmen_params)
 
     train_generator = data_gen.flow_from_dataframe(df_train, x_col=list(df_train.columns)[0],
                                                    y_col=list(df_train.columns)[1], **flow_args)
@@ -406,7 +407,7 @@ class ExperimentHistory:
         self.exp_name = exp_name
         self.exp_path = exp_path
         self.data = data
-        self.task_type = task.task_type
+        self.task_type = task.type
         self.objects = task.objects
 
         self.history = pd.DataFrame(columns=['Index', 'task_type', 'objects', 'exp_name', 'pipeline', 'last_layers',
@@ -419,7 +420,7 @@ class ExperimentHistory:
     def add_row(self, params, metric, train_subdir, time_stat, total_time, save=True):
         self.experiment_number += 1
         row = ({'Index': self.experiment_number,  # номер эксперимента
-                'task_type': self.task_type,  # тип задачи
+                'task_type': self.type,  # тип задачи
                 'objects': [self.objects],  # список объектов, на распознавание которых обучается модель
                 'exp_name': self.exp_name,  # название эксперимента
 
@@ -521,13 +522,13 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
             best_acc = max(best_acc, acc)
             best_loss = min(best_loss, loss)
             for callback in callbacks:
-                callback.on_batch_end(batch, logs={'loss': loss, 'acc': acc})
+                callback.on_batch_end(batch, logs={'loss': loss, 'accuracy': acc})
         for callback in callbacks:
-            callback.on_epoch_end(epoch, logs={'loss': loss, 'acc': acc})
+            callback.on_epoch_end(epoch, logs={'loss': loss, 'accuracy': acc})
         if model.stop_training:
             break
     for callback in callbacks:
-        callback.on_train_end(logs={'loss': best_loss, 'acc': best_acc})
+        callback.on_train_end(logs={'loss': best_loss, 'accuracy': best_acc})
     return [best_loss, best_acc]
 
 
@@ -558,9 +559,8 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
     c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
     c_t = TimeHistory()
     c_tb = keras.callbacks.TensorBoard(
-        log_dir=os.path.join("logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), 
+        log_dir=os.path.join("logs", datetime.now().strftime("%Y%m%d-%H%M%S")), 
         histogram_freq=1)
-    )
     callbacks = [c_log, c_ch, c_es, c_t, c_tb, NotifyCallback()]
     if stop_flag is not None:
         callbacks.append(CheckStopCallback(stop_flag))
@@ -867,7 +867,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
 
     def fit_and_get_score(params):
         scores = create_and_train_model(params, data, exp_dir, history=history, stop_flag=stop_flag)
-        return scores[1]
+        return nn_task.func(scores)
 
     best_point, best_score = None, None
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
@@ -878,7 +878,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         pcall('tune_step', point, value)
         if is_max:
             best_point, best_score = point, value
-            if not nn_task.goals.get('maximize', True) and best_score >= nn_task.goals['target']:
+            if not nn_task.goals.get('maximize', True) and best_score >= nn_task.target:
                 break
 
     printlog(f"Best point: {best_point}, value: {best_score}")

@@ -14,12 +14,12 @@ from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 import ann_automl.gui.tensorboard as tb
-from ..core.nn_solver import NNTask, recommend_hparams
+from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
 from ..core.nnfuncs import nnDB as DB, StopFlag, train
 from ..core import nn_rules_simplified
 
 # Launch TensorBoard
-tb.start("--logdir ./logs --port 0")
+tb.start("--logdir ./logs --port 6006")
 
 css = '''
 .bk.panel-widget-box {
@@ -90,9 +90,9 @@ gui_params = {
             'widget': 'MultiChoice'
         }
     },
-    'task_target': {
-        'values': ['loss', 'metrics'],
-        'default': 'loss',
+    'task_target_func': {
+        'values': ['Функция потерь', 'Метрика обучения'],
+        'default': 'Функция потерь',
         'title': 'Целевой функционал',
         'gui': {
             'group': 'Task',
@@ -112,7 +112,7 @@ gui_params = {
     },
     'task_maximize_target': {
         'default': True,
-        'title': 'Максимизировать целевой функционал после достижения желаемого значения',
+        'title': 'Оптимизировать целевой функционал после достижения желаемого значения',
         'gui': {
             'group': 'Task',
             'widget': 'Checkbox'
@@ -362,6 +362,7 @@ class Database(Window):
         )
 
 
+
 class DatasetLoader(Window):
 
     next_window = param.Selector(default='Database', objects=['Database'])
@@ -461,6 +462,7 @@ class DatasetLoader(Window):
             pn.Row(self.back_button, self.apply_button))
 
 
+
 class Task(Window):
 
     next_window = param.Selector(default='Params', 
@@ -485,7 +487,7 @@ class Task(Window):
             self.task_category_selector,
             self.task_type_selector,
             self.task_objects_selector,
-            self.task_target_selector,
+            self.task_target_func_selector,
             self.task_target_value_selector,
             self.task_maximize_target_selector
         )
@@ -518,12 +520,20 @@ class Task(Window):
         else:
             # CORE:
             self.params['task'] = NNTask(
-                task_ct=self.params['task_category'],
-                task_type=self.params['task_type'],
+                category=self.params['task_category'],
+                type=self.params['task_type'],
                 objects=self.params['task_objects'],
-                metric=self.params['task_target'],
-                target=self.params['task_target_value'],
-                goals={'maximize': self.params['task_maximize_target']}
+                func={
+                    'Функция потерь': loss_target,
+                    'Метрика обучения': metric_target
+                }[self.params['task_target_func']],
+                target={
+                    'Функция потерь': -self.params['task_target_value'],
+                    'Метрика обучения': self.params['task_target_value']
+                }[self.params['task_target_func']],
+                goals={
+                    'maximize': self.params['task_maximize_target']
+                }
             )
             hparams = recommend_hparams(self.params['task'], trace_solution=True)
             self.params['recommended_hparams'] = hparams
@@ -549,7 +559,7 @@ class Task(Window):
             self.task_category_selector,
             self.task_type_selector,
             self.task_objects_selector,
-            self.task_target_selector,
+            self.task_target_func_selector,
             self.task_target_value_selector,
             self.task_maximize_target_selector,
             pn.Row(self.apply_button, self.task_objects_checker),
@@ -557,6 +567,7 @@ class Task(Window):
             self.checkbox,
             pn.Row(self.back_button, self.next_button)
         )
+
 
 
 class Params(Window):
@@ -611,6 +622,7 @@ class Params(Window):
             pn.Row(self.back_button, self.next_button))
 
 
+
 class Training(Window):
 
     next_window = param.Selector(default='Task', objects=['Task'])
@@ -661,7 +673,7 @@ class Training(Window):
     def on_train_callback(self, tp, batch=None, epoch=None, logs=None, model=None):
         if tp == 'epoch':
             self.msg(f'Эпоха {epoch}: {logs}')
-            self.add_plot_point(epoch, logs['loss'], logs['acc'])
+            self.add_plot_point(epoch, logs['loss'], logs['accuracy'])
             time.sleep(0.1)
         elif tp == 'finish':
             self.msg('Обучение завершено')
@@ -687,8 +699,8 @@ class Training(Window):
         return pn.Column(
             '# Меню обучения модели',
             pn.Row(self.output, self.plot),
-            pn.Card(tb.interface(), title="TensorBoard", collapsed=True),
-            pn.Row(self.back_button, self.stop_button)
+            pn.Row(self.back_button, self.stop_button),
+            pn.Card(tb.interface(), title="TensorBoard", collapsed=True)
         )
 
     def add_plot_point(self, epoch, loss, accuracy):
@@ -729,6 +741,7 @@ class TrainedModels(Window):
             ),
             self.back_button
         )
+
 
 
 pipeline = Transition(
