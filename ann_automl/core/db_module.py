@@ -1,3 +1,5 @@
+import sys
+
 from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
@@ -880,7 +882,7 @@ class DBModule:
         annotations : list[dict]
             array of dicts with attributes:
             segmentation, area, iscrowd, image_id, bbox, category_id, id
-        dataset_id : any
+        dataset_id : int
             ID of a dataset images are from
         file_prefix : str
             prefix to be added to filenames
@@ -953,16 +955,16 @@ class DBModule:
         If key update_metrics is set to True, then metric records will be updated if they already exist
         """
         if not isinstance(task_type, str):
-            print('ERROR: Bad input for global history record, expected string as task_type')
+            print('ERROR: Bad input for global history record, expected string as task_type', file=sys.stderr)
             return
         if not isinstance(categories, list):
-            print('ERROR: Bad input for global history record, expected list of objects')
+            print('ERROR: Bad input for global history record, expected list of objects', file=sys.stderr)
             return
         if not isinstance(model_address, str):
-            print('ERROR: Bad input for global history record, expected string for model_address')
+            print('ERROR: Bad input for global history record, expected string for model_address', file=sys.stderr)
             return
         if not isinstance(metrics, dict):
-            print('ERROR: Bad input for global history record, expected dictionary with merics')
+            print('ERROR: Bad input for global history record, expected dictionary with merics', file=sys.stderr)
             return
 
         abs_model_address = os.path.abspath(model_address)

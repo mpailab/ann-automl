@@ -1,4 +1,6 @@
 import inspect
+import json
+import pickle
 import random
 from datetime import datetime
 import itertools
@@ -6,7 +8,7 @@ import math
 import os
 import time
 import warnings
-from typing import List
+from typing import List, Tuple
 
 import keras
 import numpy as np
@@ -531,17 +533,46 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
     return [best_loss, best_acc]
 
 
-def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=None) -> List[float]:
+def save_history(filepath, objects, run_type, model_path, metric_name, metric_value, params, format=None):
+    history = {'run_type': run_type,
+               **params,
+               'result_path': model_path,
+               'metric_name': metric_name,
+               'metric_value': metric_value}
+    if format is None:
+        format = filepath.split('.')[-1]
+    if format == 'json':
+        with open(filepath, 'w') as f:
+            json.dump(history, f)
+    elif format in ('pkl', 'pickle'):
+        with open(filepath, 'wb') as f:
+            pickle.dump(history, f)
+    elif format == 'yaml':
+        import yaml
+        with open(filepath, 'w') as f:
+            yaml.dump(history, f)
+    else:
+        raise ValueError(f'Unknown format: {format}')
+    nnDB.add_model_record(task_type='train',
+                          categories=list(objects),
+                          model_address=model_path,
+                          metrics={metric_name: metric_value},
+                          history_address=filepath)
+    return history
+
+
+def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None) -> Tuple[List[float], dict]:
     """ Обучение модели
     Args:
         model (keras.models.Model): модель, которую нужно обучить
         hparams (dict): словарь с гиперпараметрами обучения
         generators (tuple): кортеж из трех генераторов: train, val, test
         cur_subdir (str): папка, в которой хранятся результаты текущего обучения
-        history (Optional[ExperimentHistory]): история экспериментов
-        stop_flag (Optional[StopFlag]): флаг, с помощью которого можно остановить обучение из другого потока
+        history (ExperimentHistory or None): история экспериментов
+        stop_flag (StopFlag or None): флаг, с помощью которого можно остановить обучение из другого потока
     Returns:
-        Достигнутые значения метрик на тестовой выборке во время обучения
+        Достигнутые значения метрик на тестовой выборке во время обучения, а также
+        словарь со значениями гиперпараметров, метрик и путей к модели и истории
     """
 
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
@@ -552,14 +583,15 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
 
     # set up callbacks
     check_metric = 'val_' + hparams['metrics']
+    date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
     c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
-    c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/weights-{epoch:02d}.h5', monitor=check_metric, verbose=1,
+    c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/best_weights.h5', monitor=check_metric, verbose=1,
                                            save_best_only=True, save_weights_only=False, mode='auto')
     c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
     c_t = TimeHistory()
     c_tb = keras.callbacks.TensorBoard(
-        log_dir=os.path.join("logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), 
-        histogram_freq=1)
+        log_dir=os.path.join(f"{_data_dir}/logs", datetime.now().strftime("%Y%m%d-%H%M%S")),
+        histogram_freq=1
     )
     callbacks = [c_log, c_ch, c_es, c_t, c_tb, NotifyCallback()]
     if stop_flag is not None:
@@ -584,10 +616,13 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
     if history is not None:
         history.add_row(hparams, scores[1], cur_subdir, c_t.times, c_t.total_time, save=True)
 
-    return scores
+    record = save_history(cur_subdir + '/history.json', objects, 'train', cur_subdir + '/best_weights.h5',
+                          hparams['metrics'],
+                          scores[1], dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
+    return scores, record
 
 
-def create_and_train_model(hparams, data, cur_subdir, history=None, stop_flag=None, model=None) -> List[float]:
+def create_and_train_model(hparams, objects, data, cur_subdir, history=None, stop_flag=None, model=None):
     """
     Args:
         hparams (dict): словарь с гиперпараметрами обучения
@@ -608,10 +643,10 @@ def create_and_train_model(hparams, data, cur_subdir, history=None, stop_flag=No
         raise TypeError('model must be either path to weights or keras.models.Model or None')
 
     generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'])
-    return fit_model(model, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag)
+    return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag)
 
 
-def train(nn_task, hparams, stop_flag=None, model=None) -> List[float]:
+def train(nn_task, hparams, stop_flag=None, model=None) -> Tuple[List[float], dict]:
     """
     Args:
         nn_task (NNTask): задача обучения нейросети
@@ -633,7 +668,7 @@ def train(nn_task, hparams, stop_flag=None, model=None) -> List[float]:
                               crop_bbox=hparams.get('crop_bbox', True),
                               split_points=(1 - val_ratio - test_ratio, 1 - test_ratio))
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
-    return create_and_train_model(hparams, data, exp_dir, history=history, stop_flag=stop_flag, model=model)
+    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag, model=model)
 
 
 grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
@@ -866,7 +901,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
 
     def fit_and_get_score(params):
-        scores = create_and_train_model(params, data, exp_dir, history=history, stop_flag=stop_flag)
+        scores, _ = create_and_train_model(params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
         return scores[1]
 
     best_point, best_score = None, None
@@ -950,3 +985,51 @@ def create_exp_dir(prefix, nn_task):
     if not os.path.exists(exp_path):
         os.makedirs(exp_path, exist_ok=True)
     return exp_name, exp_path
+
+
+def load_history(history_file) -> dict:
+    """Загружает историю обучения из файла.
+    Args:
+        history_file (str): Путь к файлу с историей обучения.
+    Returns:
+        История обучения.
+    """
+    if history_file.endswith('.json'):
+        with open(history_file, 'r') as f:
+            history = json.load(f)
+    elif history_file.endswith('.yaml'):
+        import yaml
+        with open(history_file, 'r') as f:
+            history = yaml.load(f, Loader=yaml.SafeLoader)
+    elif history_file.endswith('.pkl'):
+        with open(history_file, 'rb') as f:
+            history = pickle.load(f)
+    elif history_file.endswith('.csv'):
+        history = pd.read_csv(history_file)
+        # convert to dict
+        history = history.to_dict(orient='list')
+    else:
+        raise ValueError(f'Unknown history file format: {history_file}')
+    return history
+
+
+def params_from_history(nn_task):
+    history = nnDB.get_models_by_filter({
+        'min_metrics': {nn_task.metric: nn_task.target},
+        'categories': list(nn_task.objects),
+    })
+    if len(history) == 0:
+        return []
+    results = []
+    for model in history:
+        hist_file = model['history_address']
+        model_file = model['model_address']
+        if hist_file is None:
+            continue
+        if not os.path.exists(hist_file):
+            warnings.warn(f'History file {hist_file} does not exist')
+            continue
+        params = load_history(hist_file)
+        params['model_file'] = model_file
+        results.append(params)
+    return results
