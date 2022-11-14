@@ -121,7 +121,7 @@ def _time_delta_from_info(info):
     return str(datetime.timedelta(seconds=delta_seconds))
 
 
-def interface(port=_port, height=None, print_message=False):
+def interface(port=None, height=None, print_message=False):
     """Interface to display a TensorBoard instance already running on this machine.
 
     Args:
@@ -134,6 +134,7 @@ def interface(port=_port, height=None, print_message=False):
       print_message: True to print which TensorBoard instance was selected
         for display (if applicable), or False otherwise.
     """
+    port = port or _port
     if height is None:
         height = 800
 

@@ -10,7 +10,9 @@ import time
 import warnings
 from typing import List, Tuple
 
+import tensorflow as tf
 import keras
+from keras.preprocessing.image import ImageDataGenerator
 import numpy as np
 import pandas as pd
 from pytz import timezone
@@ -225,7 +227,7 @@ nn_hparams = {
         'default': 'accuracy',
         'title': 'метрика'
     },
-    'dropout': {'type': 'float', 'range': [0, 1], 'step': 0.01, 'default': 0.0, 'title': 'dropout'},
+    'dropout': {'type': 'float', 'range': [0, 1], 'step': 0.01, 'scale': 'lin', 'default': 0.0, 'title': 'dropout'},
     # доля нейронов, которые отключаются при обучении
     'kernel_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
                                                      'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
@@ -288,7 +290,7 @@ tune_hparams = {
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
-    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1,  'title': 'Радиус', 'cond': True},
+    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1, 'scale': 'lin', 'title': 'Радиус', 'cond': True},
     'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1',
                     'title': 'Метрика на сетке', 'cond': True},
     'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
@@ -372,7 +374,7 @@ def create_generators(model, data, augmen_params, batch_size):
     if _emulation:
         return EmulateGen(df_train), EmulateGen(df_validate), EmulateGen(df_test)
 
-    data_gen = keras.preprocessing.image.ImageDataGenerator(augmen_params)
+    data_gen = ImageDataGenerator(augmen_params)
 
     train_generator = data_gen.flow_from_dataframe(df_train, x_col=list(df_train.columns)[0],
                                                    y_col=list(df_train.columns)[1], **flow_args)
@@ -408,7 +410,7 @@ class ExperimentHistory:
         self.exp_name = exp_name
         self.exp_path = exp_path
         self.data = data
-        self.task_type = task.task_type
+        self.task_type = task.type
         self.objects = task.objects
 
         self.history = pd.DataFrame(columns=['Index', 'task_type', 'objects', 'exp_name', 'pipeline', 'last_layers',
@@ -523,13 +525,13 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
             best_acc = max(best_acc, acc)
             best_loss = min(best_loss, loss)
             for callback in callbacks:
-                callback.on_batch_end(batch, logs={'loss': loss, 'acc': acc})
+                callback.on_batch_end(batch, logs={'loss': loss, 'accuracy': acc})
         for callback in callbacks:
-            callback.on_epoch_end(epoch, logs={'loss': loss, 'acc': acc})
+            callback.on_epoch_end(epoch, logs={'loss': loss, 'accuracy': acc})
         if model.stop_training:
             break
     for callback in callbacks:
-        callback.on_train_end(logs={'loss': best_loss, 'acc': best_acc})
+        callback.on_train_end(logs={'loss': best_loss, 'accuracy': best_acc})
     return [best_loss, best_acc]
 
 
@@ -578,7 +580,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
     opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
     kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
-    optimizer = getattr(keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
+    optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
     model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=[hparams['metrics']])
 
     # set up callbacks
@@ -902,7 +904,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
 
     def fit_and_get_score(params):
         scores, _ = create_and_train_model(params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
-        return scores[1]
+        return nn_task.func(scores)
 
     best_point, best_score = None, None
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
@@ -913,7 +915,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         pcall('tune_step', point, value)
         if is_max:
             best_point, best_score = point, value
-            if not nn_task.goals.get('maximize', True) and best_score >= nn_task.goals['target']:
+            if not nn_task.goals.get('maximize', True) and best_score >= nn_task.target:
                 break
 
     printlog(f"Best point: {best_point}, value: {best_score}")

@@ -46,7 +46,8 @@ all_hparams = {
 
 
 param_groups = {
-    'Learning': ['train.epochs', 'train.optimizer', 'train.learning_rate', 'train.decay', 'train.activation',
+    'Learning': ['train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
+                 'train.decay', 'train.activation',
                  'train.loss', 'train.metrics', 'train.dropout', 'train.kernel_initializer',
                  'train.bias_initializer',
                  'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
