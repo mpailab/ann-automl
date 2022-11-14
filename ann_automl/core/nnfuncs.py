@@ -8,6 +8,7 @@ import time
 import warnings
 from typing import List
 
+import tensorflow as tf
 import keras
 from keras.preprocessing.image import ImageDataGenerator
 import numpy as np
@@ -224,7 +225,7 @@ nn_hparams = {
         'default': 'accuracy',
         'title': 'метрика'
     },
-    'dropout': {'type': 'float', 'range': [0, 1], 'step': 0.01, 'default': 0.0, 'title': 'dropout'},
+    'dropout': {'type': 'float', 'range': [0, 1], 'step': 0.01, 'scale': 'lin', 'default': 0.0, 'title': 'dropout'},
     # доля нейронов, которые отключаются при обучении
     'kernel_initializer': {'type': 'str', 'values': ['zeros', 'ones', 'constant', 'random_normal', 'random_uniform',
                                                      'truncated_normal', 'orthogonal', 'identity', 'lecun_uniform',
@@ -287,7 +288,7 @@ tune_hparams = {
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
-    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1,  'title': 'Радиус', 'cond': True},
+    'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1, 'scale': 'lin', 'title': 'Радиус', 'cond': True},
     'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1',
                     'title': 'Метрика на сетке', 'cond': True},
     'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
@@ -420,7 +421,7 @@ class ExperimentHistory:
     def add_row(self, params, metric, train_subdir, time_stat, total_time, save=True):
         self.experiment_number += 1
         row = ({'Index': self.experiment_number,  # номер эксперимента
-                'task_type': self.type,  # тип задачи
+                'task_type': self.task_type,  # тип задачи
                 'objects': [self.objects],  # список объектов, на распознавание которых обучается модель
                 'exp_name': self.exp_name,  # название эксперимента
 
@@ -548,7 +549,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
     opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
     kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
-    optimizer = getattr(keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
+    optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
     model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=[hparams['metrics']])
 
     # set up callbacks

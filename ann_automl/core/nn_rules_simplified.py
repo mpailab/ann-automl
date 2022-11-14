@@ -61,9 +61,9 @@ class RecommendOptimizer(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         # TODO: проверить и добавить рекомендации для разных типов задач
-        prec['optimizer'] = 'SGD'
-        prec['learning_rate'] = 0.01
-        prec['nesterov'] = True
+        prec['optimizer'] = 'Adam'
+        prec['learning_rate'] = 0.001
+        # prec['nesterov'] = True
 
 
 @rule(SelectHParamsTask)

@@ -25,32 +25,6 @@ Base = declarative_base()
 class DBModule:
 
     ############################################################
-    ##########              Helpers          ###################
-    ############################################################
-    def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
-        """
-        Helper to display progress bar, source from https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
-        Call in a loop to create terminal progress bar
-        @params:
-            iteration   - Required  : current iteration (Int)
-            total       - Required  : total iterations (Int)
-            prefix      - Optional  : prefix string (Str)
-            suffix      - Optional  : suffix string (Str)
-            decimals    - Optional  : positive number of decimals in percent complete (Int)
-            length      - Optional  : character length of bar (Int)
-            fill        - Optional  : bar fill character (Str)
-            printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
-        """
-        percent = ("{0:." + str(decimals) + "f}").format(100 *
-                                                         (iteration / float(total)))
-        filledLength = int(length * iteration // total)
-        bar = fill * filledLength + '-' * (length - filledLength)
-        print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=printEnd)
-        # Print New Line on Complete
-        if iteration == total:
-            print()
-
-    ############################################################
     ##########        DB ORM description     ###################
     ############################################################
 
@@ -228,6 +202,7 @@ class DBModule:
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
         self.dbstring_ = dbstring
+        self.ds_filter = None
 
     def create_sqlite_file(self):
         """
@@ -715,6 +690,8 @@ class DBModule:
             dictionary with train, test, val files
             average width, height of images
         """
+        if self.ds_filter is not None:
+            return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation, **kwargs)
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
@@ -891,6 +868,8 @@ class DBModule:
         -------
         None
         """
+        if file_prefix[-1] not in ['\\', '/']:
+            file_prefix += '/'
         if not os.path.isfile(file_prefix + images[0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
                   file_prefix + images[0]['file_name'], ')')
@@ -914,10 +893,10 @@ class DBModule:
                                license_id=im_data['license'],
                                ID=im_id)
             buf_images[im_data['id']] = image
+            self.sess.add(image)
+            im_counter += 1
             print_progress_bar(im_counter, len(images),
                                prefix='Adding images:', suffix='Complete', length=50)
-            im_counter += 1
-            self.sess.add(image)
         self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0
@@ -940,10 +919,10 @@ class DBModule:
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'],
                                          ID=anno_id)
+            self.sess.add(annotation)
+            an_counter += 1
             print_progress_bar(an_counter, len(annotations),
                                prefix='Adding annotations:', suffix='Complete', length=50)
-            an_counter += 1
-            self.sess.add(annotation)
         self.sess.commit()  # adding annotations
 
     def add_model_record(self, task_type, categories, model_address, metrics, history_address=''):

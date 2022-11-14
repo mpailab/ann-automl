@@ -1,5 +1,7 @@
+import os
 import sys
 import time
+import traceback
 
 import panel as pn
 import param
@@ -183,7 +185,8 @@ class Window(param.Parameterized):
 
         return widget
 
-    def group_params_widgets(self, group: str, change_callback: Callable[[], None]):
+    def group_params_widgets(self, group: str, 
+        change_callback: Callable[[Any, Any, Any], None] = lambda attr, old, new: None):
         # widgets = []
         for par, desc in gui_params.items():
             if 'gui' in desc and 'group' in desc['gui'] and desc['gui']['group'] == group:
@@ -344,7 +347,7 @@ class Database(Window):
                      for supercategory in self.params['db'][ds]['categories']
                      for category in self.params['db'][ds]['categories'][supercategory]
         })
-
+        DB.ds_filter = list(self.dataset_selector.value)
         self.dataset_apply_button.disabled = True
         self.next_button.disabled = False
 
@@ -398,16 +401,17 @@ class DatasetLoader(Window):
             placeholder="Введите версию датасета",
             margin=(0, 10, 15, 10)
         )
-
+        self.anno_filename = bokeh.models.TextInput(
+                title="Файл аннотаций:",
+                # accept = '.json',
+                margin=(0, 10, 15, 10)
+            )
         self.anno_file_setter = pn.Column(
             bokeh.models.Div(
                 text="Файл с аннотациями:",
                 margin=(0, 10, 0, 10)
             ),
-            bokeh.models.FileInput(
-                accept = '.json',
-                margin=(0, 10, 15, 10)
-            )
+            self.anno_filename
         )
 
         self.dataset_dir_setter = bokeh.models.TextInput(
@@ -425,25 +429,48 @@ class DatasetLoader(Window):
             name='Назад', button_type='primary', 
             align='start', width=100)
         self.back_button.on_click(self.on_click_back)
+        self.error_message = pn.widgets.TextAreaInput(value="",disabled=True, min_height=100, max_width=500)
 
     def on_click_apply(self, event):
-        # DB.fill_coco(
-        #     self.anno_file_setter.filename,
-        #     self.dataset_dir_setter.value,
-        #     ds_info={
-        #         "description": self.dataset_description_setter.value,
-        #         "url": self.dataset_url_setter.value,
-        #         "version": self.dataset_version_setter.value,
-        #         "year": self.dataset_year_setter.value,
-        #         "contributor": self.dataset_contributor_setter.value,
-        #         "date_created": self.dataset_year_setter.value
-        #     }
-        # )
+        err = ""
+        if not self.dataset_description_setter.value:
+            err += "Название датасета не может быть пустым.\n"
+        if not self.anno_filename.value:
+            err += "Не выбран файл с аннотациями.\n"
+        elif not os.path.exists(self.anno_filename.value):
+            err += "Файл с аннотациями не найден\n"
+        elif not self.anno_filename.value.endswith('.json'):
+            err += "Файл с аннотациями должен быть в формате json\n"
+        if not self.dataset_dir_setter.value:
+            err += "Не указан каталог с изображениями.\n"
+        elif not os.path.exists(self.dataset_dir_setter.value):
+            err += "Каталог с изображениями не найден\n"
+        if err:
+            self.error_message.value = err
+            return
+        self.error_message.value = ""
+        try:
+            DB.fill_coco(
+                self.anno_filename.value,
+                self.dataset_dir_setter.value,
+                ds_info={
+                        "description": self.dataset_description_setter.value,
+                        "url": self.dataset_url_setter.value,
+                        "version": self.dataset_version_setter.value,
+                        "year": self.dataset_year_setter.value,
+                        "contributor": self.dataset_contributor_setter.value,
+                        "date_created": self.dataset_year_setter.value
+                    }
+            )
         self.params['db'] = {
             ds['description'] : ds
             for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
         }
         self.close()
+        except Exception as e:
+            # format exception
+            stack = traceback.format_exc()
+            self.error_message.value = stack+"\n"+str(e)
 
     def on_click_back(self, event):
         self.close()
@@ -458,6 +485,7 @@ class DatasetLoader(Window):
             self.dataset_version_setter,
             self.anno_file_setter,
             self.dataset_dir_setter,
+            self.error_message,
             pn.Spacer(height=10),
             pn.Row(self.back_button, self.apply_button))
 
@@ -578,10 +606,10 @@ class Params(Window):
         super().__init__(**params)
 
         self.params_widgets = [
-            ("Общие параметры", self.group_params_widgets('General', lambda: None)),
-            ("Параметры автонастройки", self.group_params_widgets('Tune', lambda: None)),
-            ("Параметры обучения", self.group_params_widgets('Learning', lambda: None)),
-            ("Параметры оптимизатора", self.group_params_widgets('Optimizer', lambda: None))
+            ("Общие параметры", self.group_params_widgets('General')),
+            ("Параметры автонастройки", self.group_params_widgets('Tune')),
+            ("Параметры обучения", self.group_params_widgets('Learning')),
+            ("Параметры оптимизатора", self.group_params_widgets('Optimizer'))
         ]
 
         def to_column(widgets):
@@ -687,10 +715,10 @@ class Training(Window):
 
     def panel(self):
         #self.output = pn.WidgetBox('### Output', min_width=500, height=500)
-        self.output = pn.widgets.TextAreaInput(min_width=500, height=500, value='### Output', disabled=True)
+        self.output = pn.widgets.TextAreaInput(min_width=500, height=250, value='### Output', disabled=True)
         # create plot widget for loss and accuracy
         self.plot = bokeh.plotting.figure(title='Loss and Accuracy', x_axis_label='Epoch', y_axis_label='Loss/Accuracy',
-                                          plot_width=500, plot_height=500)
+                                          plot_width=500, plot_height=250)
         self.timer = bokeh.plotting.curdoc().add_periodic_callback(self.update_plot, 1000)
         self.epochs = []
         self.losses = []
