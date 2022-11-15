@@ -546,6 +546,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
         Достигнутые значения метрик на тестовой выборке во время обучения
     """
 
+    printlog("Compile model")
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
     opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
     kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
@@ -571,6 +572,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
                              hparams['epochs'], callbacks[3:], generators[1])
     else:
         # fit model
+        printlog("Fit model")
         model.fit(x=generators[0],
                   steps_per_epoch=len(generators[0].filenames) // hparams['batch_size'],
                   epochs=hparams['epochs'],
@@ -583,6 +585,7 @@ def fit_model(model, hparams, generators, cur_subdir, history=None, stop_flag=No
 
     # save results to history
     if history is not None:
+        printlog("Append history")
         history.add_row(hparams, scores[1], cur_subdir, c_t.times, c_t.total_time, save=True)
 
     return scores
@@ -602,12 +605,15 @@ def create_and_train_model(hparams, data, cur_subdir, history=None, stop_flag=No
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
     if model is None:
+        printlog("Create model")
         model = create_model(hparams['pipeline'], hparams['last_layers'], hparams.get('dropout', 0.0))
     elif isinstance(model, str):  # model is path to weights
+        printlog("Load model")
         model = keras.models.load_model(model)
     elif not isinstance(model, keras.models.Model):
         raise TypeError('model must be either path to weights or keras.models.Model or None')
 
+    printlog("Create generators")
     generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'])
     return fit_model(model, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag)
 
@@ -630,9 +636,11 @@ def train(nn_task, hparams, stop_flag=None, model=None) -> List[float]:
     test_ratio = hparams.get('test_frac', 0.15)
     val_ratio = hparams.get('val_frac', 0.15)
     exp_name, exp_dir = create_exp_dir('train', nn_task)
+    printlog("Create data")
     data = create_data_subset(nn_task.objects, exp_dir,
                               crop_bbox=hparams.get('crop_bbox', True),
                               split_points=(1 - val_ratio - test_ratio, 1 - test_ratio))
+    printlog("Make history")
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
     return create_and_train_model(hparams, data, exp_dir, history=history, stop_flag=stop_flag, model=model)
 
@@ -664,32 +672,56 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
 }
 
 
-def param_values(default=None, values=None, step=None, scale=None, zero_point=None, type=None, **kwargs):
+def param_values(default=None, values=None, step=None, scale=None, zero_point=None, type=None, return_str=False, **kwargs):
+    pos = None
     if 'range' in kwargs:
         mn, mx = kwargs['range']
         if scale == 'log':
             back = round(math.log(mn/default, step))
             forward = round(math.log(mx/default, step))
             res = [default * step ** i for i in range(back, forward + 1)]
+            pos = -back
         elif scale == '1-log':
-            back = round(math.log((1-mx)/default, step))
-            forward = round(math.log((1-mn)/default, step))
-            res = [1-default * step ** i for i in range(forward, back-1, -1)]
+            back = round(math.log((1-mx)/(1-default), step))
+            forward = round(math.log((1-mn)/(1-default), step))
+            res = [1-(1-default) * step ** i for i in range(forward, back-1, -1)]
+            pos = forward
         elif scale == 'lin':
             back = round((mn - default) / step)
             forward = round((mx - default) / step)
             res = [default + step * i for i in range(back, forward + 1)]
+            pos = -back
         else:
             raise ValueError(f'Unknown scale {scale}')
         if type == 'int':
             res = [int(round(x)) for x in res]
         if zero_point:
-            res = [0] + res
-        return res
+            res = ['0' if return_str else 0] + res
+        if return_str:
+            if type == 'float':
+                if scale == 'log':
+                    res = [f'{x:.3}' for x in res]
+                elif scale == '1-log':
+                    res = [f'{x:.6f}' for x in res]
+                elif step >= 1:
+                    res = [f'{x:.1f}' for x in res]
+                else:
+                    prec = int(round(-math.log(step, 10)+0.499))
+                    res = [f'{round(x,prec):.{prec}f}' for x in res]
+            else:
+                res = [str(x) for x in res]
+        return res, pos
     elif values is not None:
         if isinstance(values, dict):
-            return list(values.keys()), list(values.values())
-        return list(values)
+            k, v = list(values.keys()), list(values.values())
+            if default is not None:
+                pos = k.index(default)
+            return (k, v), pos
+        if default is not None:
+            pos = values.index(default)
+        if return_str:
+            return [str(x) for x in values], pos
+        return list(values), pos
     else:
         raise ValueError('Either `range` or `values` should be specified')
 
@@ -716,7 +748,7 @@ class HyperParamGrid:
         self.axis = []
         self.deps = []
         for param in tuned_params:
-            v = param_values(**grid_hparams_space[param])
+            v, _ = param_values(**grid_hparams_space[param])
             if isinstance(v, tuple):
                 self.axis.append(v[0])
                 self.deps.append([x.get('params', []) for x in v[1]])
