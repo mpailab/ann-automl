@@ -145,6 +145,12 @@ TrainedNN/
 
 # Logs and databases
 Logs/
+logs/
 data/trainedNN/
 data/architectures/
 data/datasets/
+*.sqlite
+log.txt
+err.txt
+DBModule_log.txt
+click_logs.txt

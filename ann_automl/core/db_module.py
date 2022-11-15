@@ -167,7 +167,6 @@ class DBModule:
         __tablename__ = "model"
         ID = Column(Integer, primary_key=True)
         model_address = Column(String)
-        # TODO - this is very bad from DB perspective, but I'll leave for later
         task_type = Column(String)
         aux = Column(String)
         train_results = relationship("TrainResult", backref=backref("model"))
@@ -184,7 +183,7 @@ class DBModule:
     ##########        DB Module methods      ###################
     ############################################################
 
-    def __init__(self, dbstring='sqlite:///datasets.sqlite', dbecho=False, dbconf_file='dbconfig.txt'):
+    def __init__(self, dbstring='sqlite:///datasets.sqlite', dbconf_file='dbconfig.json', dbecho=False):
         """
         Basic initialization method, creates session to the DB address
         given by dbstring (defult sqlite:///datasets.sqlite).
@@ -258,9 +257,9 @@ class DBModule:
             return
         with open(anno_file_name) as json_file:
             data = json.load(json_file)
-        if not os.path.isfile(file_prefix + data['images'][0]['file_name']):
+        if not os.path.isfile(file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
-                  file_prefix + data['images'][0]['file_name'], ')')
+                  file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name'], ')')
             print('Stop filling dataset')
             return
         dataset_info = data['info']
@@ -274,11 +273,12 @@ class DBModule:
                            prefix='Adding images:', suffix='Complete', length=50)
         im_counter = 0
         for im_data in data['images']:
-            image = self.Image(file_prefix + im_data['file_name'], im_data['width'], im_data['height'],
+            image = self.Image(file_prefix + im_data['file_name'].split('.')[0] + 's/' + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
                                im_data['license'])
-            print_progress_bar(im_counter, len(data['images']), 
-                               prefix='Adding images:', suffix='Complete', length=50)
+            if im_counter % 10 == 0 or im_counter == len(data['images']) - 2:
+                print_progress_bar(im_counter, len(data['images']), 
+                    prefix='Adding images:', suffix='Complete', length=50)
             im_counter += 1
             im_objects[im_data['id']] = image
             self.sess.add(image)
@@ -297,8 +297,9 @@ class DBModule:
                                          segmentation=';'.join(an_data['segmentation']),
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'])
-            print_progress_bar(an_counter, len(data['annotations']),
-                               prefix='Adding annotations:', suffix='Complete', length=50)
+            if an_counter % 10 == 0 or an_counter == len(data['annotations']) - 2:
+                print_progress_bar(an_counter, len(data['annotations']),
+                    prefix='Adding annotations:', suffix='Complete', length=50)
             an_counter += 1
             self.sess.add(annotation)
         self.sess.commit()  # adding annotations
@@ -455,7 +456,7 @@ class DBModule:
         for img_file in img_files:
             im = Image.open(img_file)
             width, height = im.size
-            # creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S') #previous version
             creation_time = time.ctime(os.path.getctime(img_file))
             image_data = {'file_name': img_file, 'width': width, 'height': height, 'date_captured': creation_time,
                           'coco_url': '', 'flickr_url': '', 'license': licence_id,
@@ -486,8 +487,10 @@ class DBModule:
                                    'category_id': categories_assoc[categories_buf_assoc[anno_subdir]]}
                 annotations.append(annotation_data)
             im_id += 1
-            print_progress_bar(im_id, len(img_files), prefix='Processing ImageNet XML files:',
-                               suffix='Complete', length=50)
+            if im_id % 10 == 0 or im_id == len(img_files) - 1:
+                print_progress_bar(im_id, len(img_files), 
+                    prefix='Processing ImageNet XML files:',
+                    suffix='Complete', length=50)
         self.add_images_and_annotations(images, annotations, ds_id)
         return images, annotations
 
@@ -586,8 +589,6 @@ class DBModule:
         """
         column_names = ["file_name", "category_id"]
         buf_df = pd.DataFrame(columns=column_names)
-        # print(buf_df)
-        # print(df)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
         files_dir = kwargs.get('files_dir', '')
@@ -666,8 +667,11 @@ class DBModule:
             df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))
         # A fancy patch for keras to start numbers from 0
         if kwargs.get('normalize_cats', False):
-            min_cat = df_new['target'].min()
-            df_new['target'] = df_new['target'] - min_cat
+            # change category ids to form range(0, num_cats)
+            df_new['target'] = df_new['target'].astype('category').cat.codes
+            # print(set(df_new['target']))
+            # min_cat = df_new['target'].min()
+            # df_new['target'] = df_new['target'] - min_cat
         split_points = kwargs.get('split_points', [0.6, 0.8])
         if not isinstance(kwargs['split_points'], (list, tuple)) or len(kwargs['split_points']) != 2:
             raise ValueError('split_points must be a list of two elements')
@@ -761,8 +765,9 @@ class DBModule:
         if old_norm_cat_value is not None:
             kwargs['normalize_cats'] = old_norm_cat_value
         if kwargs.get('normalize_cats', False):
-            min_cat = result['target'].min()
-            result['target'] = result['target'] - min_cat
+            result['target'] = result['target'].astype('category').cat.codes
+            # min_cat = result['target'].min()
+            # result['target'] = result['target'] - min_cat
         split_points = [0.6, 0.8]
         if 'splitPoints' in kwargs and isinstance(kwargs['splitPoints'], list) and len(kwargs['splitPoints']) == 2:
             split_points = kwargs['splitPoints']
@@ -792,8 +797,9 @@ class DBModule:
         if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:  # TODO: This is an awful patch for keras
             df_new = pd.DataFrame(columns=['images', 'target'],
                                   data=df[['file_name', 'category_id']].values)
-            min_cat = df_new['target'].min()
-            df_new['target'] = df_new['target'] - min_cat
+            df_new['target'] = df_new['target'].astype('category').cat.codes
+            # min_cat = df_new['target'].min()
+            # df_new['target'] = df_new['target'] - min_cat
             return df_new
         return df
 
@@ -897,8 +903,9 @@ class DBModule:
             buf_images[im_data['id']] = image
             self.sess.add(image)
             im_counter += 1
-            print_progress_bar(im_counter, len(images),
-                               prefix='Adding images:', suffix='Complete', length=50)
+            if im_counter % 10 == 0 or im_counter == len(images) - 2:
+                print_progress_bar(im_counter, len(images),
+                    prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0
@@ -923,8 +930,9 @@ class DBModule:
                                          ID=anno_id)
             self.sess.add(annotation)
             an_counter += 1
-            print_progress_bar(an_counter, len(annotations),
-                               prefix='Adding annotations:', suffix='Complete', length=50)
+            if an_counter % 10 == 0 or an_counter == len(annotations) - 2:
+                print_progress_bar(an_counter, len(annotations),
+                    prefix='Adding annotations:', suffix='Complete', length=50)
         self.sess.commit()  # adding annotations
 
     def add_model_record(self, task_type, categories, model_address, metrics, history_address=''):

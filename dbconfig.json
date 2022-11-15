@@ -1,0 +1,19 @@
+{
+    "dbString": "sqlite:///datasets.sqlite", 
+    "KaggleCatsVsDogs":
+    {
+        "anno_filename": "dogs_vs_cats_coco_anno.json", 
+        "file_prefix": "./datasets/Kaggle/train/"
+    }, 
+    "COCO2017": 
+    {
+        "anno_filename": "./datasets/COCO2017/annotations/instances_train2017.json", 
+        "file_prefix": "./datasets/COCO2017/images/train2017/"
+    }, 
+    "ImageNet": 
+    {
+        "annotations_dir": "./datasets/imagenet/annotations", 
+        "file_prefix": "./datasets/imagenet/ILSVRC2012_img_train/", 
+        "categories_assoc_file": "imageNetToCOCOClasses.txt"
+    }
+}

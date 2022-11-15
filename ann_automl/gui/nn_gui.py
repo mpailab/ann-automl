@@ -17,11 +17,11 @@ from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 import ann_automl.gui.tensorboard as tb
 from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
-from ..core.nnfuncs import nnDB as DB, StopFlag, train
+from ..core.nnfuncs import nnDB as DB, StopFlag, train, param_values
 from ..core import nn_rules_simplified
 
 # Launch TensorBoard
-tb.start("--logdir ./logs --port 6006")
+tb.start("--logdir ./logs --host 0.0.0.0 --port 6006")
 
 css = '''
 .bk.panel-widget-box {
@@ -102,9 +102,10 @@ gui_params = {
         }
     },
     'task_target_value': {
+        'type': 'float',
         'range': [0, 1], 
-        'default': 0.7, 
-        'step': 0.05, 
+        'default': 0.9, 
+        'step': 0.01, 
         'scale': 'lin',
         'title': 'Желаемое значение целевого функционала',
         'gui': {
@@ -113,6 +114,7 @@ gui_params = {
         }
     },
     'task_maximize_target': {
+        'type': 'bool',
         'default': True,
         'title': 'Оптимизировать целевой функционал после достижения желаемого значения',
         'gui': {
@@ -121,6 +123,7 @@ gui_params = {
         }
     },
     'tune': {
+        'type': 'bool',
         'default': False,
         'title': 'Оптимизировать гиперпараметры обучения нейронной сети',
         'gui': {
@@ -171,9 +174,35 @@ class Window(param.Parameterized):
             widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'Slider':
-            widget = bokeh.models.Slider(**kwargs, title=desc['title'], value=self.params[name], 
-                start=desc['range'][0], end=desc['range'][1], step=desc['step'])
-            widget.on_change('value', change_value)
+
+            str_values, cur_index = param_values(return_str=True, **{**desc, 'default': self.params[name]})
+            values, _ = param_values(**desc)
+
+            print("params > ", name, str_values, cur_index)
+
+            try:
+                # create custom bokeh.models.FuncTickFormatter that returns string values[i] for tick i
+                formatter = bokeh.models.FuncTickFormatter(code=f"const labels = {str_values};\nreturn labels[tick];")
+                # formatter = bokeh.models.FuncTickFormatter.from_py_func(lambda i: values[i])
+            except:
+                # print stacktrace
+                traceback.print_exc()
+                raise
+
+            print("params > 1")
+            def change_slider_value(attr, old, new):
+                old = values[max(0,min(old,len(values)-1))]
+                new = values[max(0,min(new,len(values)-1))]
+                self.params[name] = new
+                change_callback(attr, old, new)
+
+            widget = bokeh.models.Slider(**kwargs, title=desc['title'], value=cur_index, 
+                start=0, 
+                end=len(values)-1, 
+                step=1,
+                format=formatter)
+            widget.on_change('value', change_slider_value)
+            print("params > 2")
 
         elif desc['gui']['widget'] == 'Checkbox':
             widget = bokeh.models.CheckboxGroup(**kwargs, labels=[desc['title']],
@@ -424,7 +453,7 @@ class DatasetLoader(Window):
             name='Загрузить', button_type='primary', 
             align='end', width=100)
         self.apply_button.on_click(self.on_click_apply)
-
+        
         self.back_button=pn.widgets.Button(
             name='Назад', button_type='primary', 
             align='start', width=100)
@@ -462,11 +491,11 @@ class DatasetLoader(Window):
                         "date_created": self.dataset_year_setter.value
                     }
             )
-        self.params['db'] = {
-            ds['description'] : ds
-            for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
-        }
-        self.close()
+            self.params['db'] = {
+                ds['description'] : ds
+                for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
+            }
+            self.close()
         except Exception as e:
             # format exception
             stack = traceback.format_exc()
