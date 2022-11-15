@@ -33,17 +33,6 @@ def find_zero_neighbor(center, table, radius=1):
     return None
 
 
-# class Recommender(Rule, abc.ABC):
-#     def __init__(self):
-#         self.key = self.__class__.__name__
-#
-#     def can_recommend(self, task) -> bool:
-#         return True
-#
-#     def can_apply(self, task, state: SolverState) -> bool:
-#         return self.key not in task.recommendations and self.can_recommend(task)
-
-
 # Базовые приёмы для начальной рекомендации гиперпараметров
 @rule(SelectHParamsTask)
 class RecommendLoss(Recommender):

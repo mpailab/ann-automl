@@ -497,7 +497,7 @@ class DBModule:
             self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
-        df_rec = df.to_dict('record')
+        df_rec = df.to_dict(orient='records')
         df_dict = {}
         for el in df_rec:
             if not full_info:
@@ -512,7 +512,7 @@ class DBModule:
             self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
-        df_rec = df.to_dict('records')
+        df_rec = df.to_dict(orient='records')
         df_dict = {}
         for el in df_rec:
             df_dict[el['ID']] = el

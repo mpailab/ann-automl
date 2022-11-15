@@ -69,7 +69,7 @@ def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, lengt
     if prev_filled_length == filled_length and prev_percent == percent and total > iteration > 1:
         return
     bar = fill * filled_length + '-' * (length - filled_length)
-    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=print_end)
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=print_end, flush=True)
     # Print New Line on Complete
     if iteration == total:
         print()
