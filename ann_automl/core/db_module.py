@@ -165,7 +165,6 @@ class DBModule:
         __tablename__ = "model"
         ID = Column(Integer, primary_key=True)
         model_address = Column(String)
-        # TODO - this is very bad from DB perspective, but I'll leave for later
         task_type = Column(String)
         aux = Column(String)
         train_results = relationship("TrainResult", backref=backref("model"))
@@ -455,7 +454,7 @@ class DBModule:
         for img_file in img_files:
             im = Image.open(img_file)
             width, height = im.size
-            # creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # creation_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S') #previous version
             creation_time = time.ctime(os.path.getctime(img_file))
             image_data = {'file_name': img_file, 'width': width, 'height': height, 'date_captured': creation_time,
                           'coco_url': '', 'flickr_url': '', 'license': licence_id,
