@@ -17,7 +17,7 @@ from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 import ann_automl.gui.tensorboard as tb
 from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
-from ..core.nnfuncs import nnDB as DB, StopFlag, train, param_values
+from ..core.nnfuncs import cur_db, StopFlag, train, param_values
 from ..core import nn_rules_simplified
 
 # Launch TensorBoard
@@ -53,7 +53,7 @@ gui_params = {
     'db': {
         'default': {
             ds['description'] : ds
-            for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
+            for db in [cur_db().get_all_datasets_info(full_info=True)] for ds in db.values()
         },
         'title': 'База данных'
     },
@@ -376,7 +376,8 @@ class Database(Window):
                      for supercategory in self.params['db'][ds]['categories']
                      for category in self.params['db'][ds]['categories'][supercategory]
         })
-        DB.ds_filter = list(self.dataset_selector.value)
+        print("ds_dict = ", self.params['db'][self.dataset_selector.value[0]])
+        cur_db().ds_filter = list(self.dataset_selector.value)
         self.dataset_apply_button.disabled = True
         self.next_button.disabled = False
 
@@ -479,7 +480,7 @@ class DatasetLoader(Window):
             return
         self.error_message.value = ""
         try:
-            DB.fill_coco(
+            cur_db().fill_coco(
                 self.anno_filename.value,
                 self.dataset_dir_setter.value,
                 ds_info={
@@ -493,7 +494,7 @@ class DatasetLoader(Window):
             )
             self.params['db'] = {
                 ds['description'] : ds
-                for db in [DB.get_all_datasets_info(full_info=True)] for ds in db.values()
+                for db in [cur_db().get_all_datasets_info(full_info=True)] for ds in db.values()
             }
             self.close()
         except Exception as e:

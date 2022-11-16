@@ -725,6 +725,7 @@ class DBModule:
             dictionary with train, test, val files
             average width, height of images
         """
+        datasets_ids = [self.get_dataset_id(ds) for ds in datasets_ids]
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
@@ -1138,6 +1139,18 @@ class DBModule:
             else:
                 result.append(query[0])
         return result
+
+    def get_dataset_id(self, dataset_id_or_name):
+        """
+        Returns ID of dataset with given name or ID. If not found, returns -1. 
+        If dataset_id_or_name is int, then it is assumed that it is ID, otherwise it is assumed that it is name.
+        """
+        if not isinstance(dataset_id_or_name, str):
+            return int(dataset_id_or_name)
+        query = self.sess.query(self.Dataset.ID).filter(self.Dataset.description == dataset_id_or_name).first()
+        if query is None:
+            return -1
+        return query[0]
 
     def get_full_dataset_info(self, ds_id):
         """

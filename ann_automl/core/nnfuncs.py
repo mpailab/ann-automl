@@ -32,6 +32,12 @@ nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
 _emulation = False  # флаг отладочного режима, когда не выполняются долгие операции
 
 
+def cur_db():
+    """ Возвращает текущий объект базы данных """
+    global nnDB
+    return nnDB
+
+
 def set_emulation(emulation=True):
     global _emulation
     _emulation = emulation
@@ -606,6 +612,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     else:
         # fit model
         printlog("Fit model")
+        printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
         model.fit(x=generators[0],
                   steps_per_epoch=len(generators[0].filenames) // hparams['batch_size'],
                   epochs=hparams['epochs'],
