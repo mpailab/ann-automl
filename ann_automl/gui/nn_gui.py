@@ -246,7 +246,7 @@ class Database(Window):
 
         self.dataset_selector = bokeh.models.MultiSelect(
             options=list(self.params['db'].keys()),  
-            max_width=450, width_policy='min', height_policy="max", margin=(5,15,5,5)
+            width=450, height_policy="max", margin=(5,15,5,5)
         )
         self.dataset_selector.on_change('value', changeDatasetCallback)
 
@@ -286,13 +286,13 @@ class Database(Window):
             ds = self.dataset_selector.options[0]
             self.init_dataset_info_interface(ds)
 
-        self.dataset_info = pn.Column(
+        self.dataset_info = bokeh.models.Column(
             self.dataset_description,
             self.dataset_url,
             self.dataset_contributor,
             self.dataset_data,  
             self.dataset_version,
-            pn.Row(
+            bokeh.models.Row(
                 bokeh.models.Div(text="<b>Категории изображений:</b>", min_width=160),
                 self.dataset_supercategories_selector,
                 self.dataset_categories_selector,
@@ -306,19 +306,18 @@ class Database(Window):
             visible=ds is not None, margin=(5,5,10,10)
         )
 
-        self.dataset_load_button=pn.widgets.Button(
-            name='Добавить датасет', button_type='primary', 
-            align='start', width=120)
+        self.dataset_load_button=bokeh.models.Button(
+            label='Добавить датасет', button_type='primary', width=120)
         self.dataset_load_button.on_click(self.on_click_dataset_load)
 
-        self.dataset_apply_button=pn.widgets.Button(
-            name='Использовать выбранные датасеты', button_type='primary', 
-            align='end', width=220, disabled=True)
+        self.dataset_apply_button=bokeh.models.Button(
+            label='Использовать выбранные датасеты', button_type='primary', 
+            width=220, disabled=True)
         self.dataset_apply_button.on_click(self.on_click_dataset_apply)
 
-        self.next_button=pn.widgets.Button(
-            name='Далее', button_type='primary', 
-            align='end', width=100, disabled=len(self.params['selected_datasets']) == 0)
+        self.next_button=bokeh.models.Button(
+            label='Далее', button_type='primary', 
+            width=70, disabled=len(self.params['selected_datasets']) == 0)
         self.next_button.on_click(self.on_click_next)
 
 
@@ -389,9 +388,14 @@ class Database(Window):
         return pn.Column(
             '# База данных изображений',
             bokeh.models.Div(text="<b>Доступные датасеты:</b>", margin=(-10,0,0,10)),
-            pn.Row(self.dataset_selector, self.dataset_info, margin=(0,5,5,5)),
+            bokeh.models.Row(self.dataset_selector, self.dataset_info, margin=(0,5,5,5)),
             self.selected_datasets,
-            pn.Row(self.dataset_load_button, self.dataset_apply_button, self.next_button),
+            bokeh.models.Row(
+                self.dataset_load_button, 
+                self.dataset_apply_button, 
+                self.next_button,
+                spacing=5
+            )
         )
 
 
@@ -402,6 +406,8 @@ class DatasetLoader(Window):
 
     def __init__(self, **params):
         super().__init__(**params)
+
+        self.dataset_checker = bokeh.models.Div(align="center", margin=(5, 5, 5, 5))
 
         self.dataset_description_setter = bokeh.models.TextInput(
             title="Название:",
@@ -431,18 +437,8 @@ class DatasetLoader(Window):
             placeholder="Введите версию датасета",
             margin=(0, 10, 15, 10)
         )
-        self.anno_filename = bokeh.models.TextInput(
-                title="Файл аннотаций:",
-                # accept = '.json',
-                margin=(0, 10, 15, 10)
-            )
-        self.anno_file_setter = pn.Column(
-            bokeh.models.Div(
-                text="Файл с аннотациями:",
-                margin=(0, 10, 0, 10)
-            ),
-            self.anno_filename
-        )
+        self.anno_file_setter = bokeh.models.TextInput(
+            placeholder="Путь до файла с аннотациями в формате json")
 
         self.dataset_dir_setter = bokeh.models.TextInput(
             title="Каталог с изображениями:",
@@ -450,38 +446,45 @@ class DatasetLoader(Window):
             margin=(0, 10, 15, 10)
         )
 
-        self.apply_button=pn.widgets.Button(
-            name='Загрузить', button_type='primary', 
-            align='end', width=100)
+        self.apply_button=bokeh.models.Button(
+            label='Загрузить', button_type='primary', width=100)
         self.apply_button.on_click(self.on_click_apply)
         
-        self.back_button=pn.widgets.Button(
-            name='Назад', button_type='primary', 
-            align='start', width=100)
+        self.back_button=bokeh.models.Button(
+            label='Назад', button_type='primary', width=80)
         self.back_button.on_click(self.on_click_back)
-        self.error_message = pn.widgets.TextAreaInput(value="",disabled=True, min_height=100, max_width=500)
+        self.error_message = pn.widgets.TextAreaInput(
+            value="", visible=False, disabled=True, min_height=100, max_width=500)
 
     def on_click_apply(self, event):
         err = ""
         if not self.dataset_description_setter.value:
             err += "Название датасета не может быть пустым.\n"
-        if not self.anno_filename.value:
+        if not self.anno_file_setter.value:
             err += "Не выбран файл с аннотациями.\n"
-        elif not os.path.exists(self.anno_filename.value):
+        elif not os.path.exists(self.anno_file_setter.value):
             err += "Файл с аннотациями не найден\n"
-        elif not self.anno_filename.value.endswith('.json'):
+        elif not self.anno_file_setter.value.endswith('.json'):
             err += "Файл с аннотациями должен быть в формате json\n"
         if not self.dataset_dir_setter.value:
             err += "Не указан каталог с изображениями.\n"
         elif not os.path.exists(self.dataset_dir_setter.value):
             err += "Каталог с изображениями не найден\n"
+
         if err:
             self.error_message.value = err
+            self.dataset_checker.text = \
+                '<font color=red>Не удалось загрузить датасет</font>'
+            self.error_message.visible = True
             return
+            
         self.error_message.value = ""
+        self.error_message.visible = False
+        self.dataset_checker.text = ""
+
         try:
             cur_db().fill_coco(
-                self.anno_filename.value,
+                self.anno_file_setter.value,
                 self.dataset_dir_setter.value,
                 ds_info={
                         "description": self.dataset_description_setter.value,
@@ -501,6 +504,7 @@ class DatasetLoader(Window):
             # format exception
             stack = traceback.format_exc()
             self.error_message.value = stack+"\n"+str(e)
+            self.error_message.visible = True
 
     def on_click_back(self, event):
         self.close()
@@ -513,11 +517,20 @@ class DatasetLoader(Window):
             self.dataset_contributor_setter,
             self.dataset_year_setter,
             self.dataset_version_setter,
-            self.anno_file_setter,
+            bokeh.models.Column(
+                bokeh.models.Div(text="Файл с аннотациями:", margin=(5, 5, 0, 5)),
+                self.anno_file_setter,
+                margin=(0, 10, 15, 5)
+            ),
             self.dataset_dir_setter,
-            self.error_message,
+            bokeh.models.Row(
+                self.back_button, 
+                self.apply_button,
+                self.dataset_checker
+            ),
             pn.Spacer(height=10),
-            pn.Row(self.back_button, self.apply_button))
+            self.error_message
+        )
 
 
 
@@ -552,21 +565,20 @@ class Task(Window):
         
         self.task_objects_checker = bokeh.models.Div(align="center", margin=(5, 5, 5, 25))
 
-        self.checkbox = pn.widgets.Checkbox(name='Подобрать готовые модели')
+        self.checkbox = bokeh.models.CheckboxGroup(labels=['Подобрать готовые модели'])
 
-        self.apply_button=pn.widgets.Button(
-            name='Создать задачу', button_type='primary', 
-            align='start', width=100, disabled=self.params['task'] is not None)
+        self.apply_button=bokeh.models.Button(
+            label='Создать задачу', button_type='primary', 
+            width=100, disabled=self.params['task'] is not None)
         self.apply_button.on_click(self.on_click_apply)
 
-        self.next_button=pn.widgets.Button(
-            name='Далее', button_type='primary', 
-            align='end', width=100, disabled=self.params['task'] is None)
+        self.next_button=bokeh.models.Button(
+            label='Далее', button_type='primary', 
+            width=100, disabled=self.params['task'] is None)
         self.next_button.on_click(self.on_click_next)
 
-        self.back_button=pn.widgets.Button(
-            name='Назад', button_type='primary', 
-            align='start', width=100)
+        self.back_button=bokeh.models.Button(
+            label='Назад', button_type='primary', width=100)
         self.back_button.on_click(self.on_click_back)
 
     def on_click_apply(self, event):
@@ -603,7 +615,7 @@ class Task(Window):
             self.next_button.disabled = False
 
     def on_click_next(self, event):
-        if self.checkbox.value:
+        if len(self.checkbox.active) > 0:
             self.next_window = 'TrainedModels'
         self.close()
 
@@ -620,10 +632,10 @@ class Task(Window):
             self.task_target_func_selector,
             self.task_target_value_selector,
             self.task_maximize_target_selector,
-            pn.Row(self.apply_button, self.task_objects_checker),
+            bokeh.models.Row(self.apply_button, self.task_objects_checker),
             pn.Spacer(height=10),
             self.checkbox,
-            pn.Row(self.back_button, self.next_button)
+            bokeh.models.Row(self.back_button, self.next_button)
         )
 
 
@@ -656,10 +668,12 @@ class Params(Window):
 
         self.tabs.on_change('active', panelActive)
         
-        self.next_button=pn.widgets.Button(name='Далее', align='end', width=100, button_type='primary')
+        self.next_button=bokeh.models.widgets.Button(
+            label='Далее', width=100, button_type='primary')
         self.next_button.on_click(self.on_click_next)
 
-        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary')
+        self.back_button=bokeh.models.widgets.Button(
+            label='Назад', width=100, button_type='primary')
         self.back_button.on_click(self.on_click_back)
 
         self.qq = pn.widgets.StaticText(name='Static Text', value=self.params['task_category'])
@@ -677,7 +691,7 @@ class Params(Window):
             '# Меню параметров',
             self.tabs,
             pn.Spacer(height=10),
-            pn.Row(self.back_button, self.next_button))
+            bokeh.models.Row(self.back_button, self.next_button))
 
 
 
@@ -688,10 +702,12 @@ class Training(Window):
     def __init__(self, **params):
         super().__init__(**params)
 
-        self.stop_button=pn.widgets.Button(name='Стоп', align='end', width=100, button_type='primary')
+        self.stop_button=bokeh.models.Button(
+            label='Стоп', width=100, button_type='primary')
         self.stop_button.on_click(self.on_click_stop)
 
-        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary', disabled=True)
+        self.back_button=bokeh.models.Button(
+            label='Назад', width=100, button_type='primary', disabled=True)
         self.back_button.on_click(self.on_click_back)
 
         self.stop = StopFlag()
@@ -757,7 +773,7 @@ class Training(Window):
         return pn.Column(
             '# Меню обучения модели',
             pn.Row(self.output, self.plot),
-            pn.Row(self.back_button, self.stop_button),
+            bokeh.models.Row(self.back_button, self.stop_button),
             pn.Card(tb.interface(), title="TensorBoard", collapsed=True)
         )
 
@@ -784,7 +800,7 @@ class TrainedModels(Window):
 
         self.models_list = pn.widgets.Select(name='Список обученных моделй', options=['Модель 1', 'Модель 2', 'Модель 3', 'Модель 4', 'Модель 5'], size=31)
 
-        self.back_button=pn.widgets.Button(name='Назад', align='start', width=100, button_type='primary')
+        self.back_button=bokeh.models.Button(label='Назад', align='start', width=100, button_type='primary')
         self.back_button.on_click(self.on_click_back)
 
     def on_click_back(self,event):
