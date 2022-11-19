@@ -158,32 +158,33 @@ class Window(param.Parameterized):
     ready = param.Boolean(False)
     next_window = param.Selector(
         objects=['Database', 'DatasetLoader', 'Task', 'Params', 'Training', 'History'])
-    prev_window = param.Selector(
-        objects=['Database', 'DatasetLoader', 'Task', 'Params', 'Training', 'History'])
+    prev_windows = param.List()
     logs = param.String()
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # print(f"{self.__class__.__name__}.__init__ called")
 
-    def close(self):
-        self.prev_window = self.__class__.__name__
-        print(f"close {self.prev_window}")
+    def close(self, forward=True):
+        # print(f"close {self.__class__.__name__}")
+        if forward:
+            self.prev_windows.append(self.__class__.__name__)
         self.ready=True
 
     def on_click_back(self, event):
-        print(f"back to {self.prev_window}")
-        self.next_window = self.prev_window
-        self.close()
+        assert len(self.prev_windows) > 0
+        self.next_window = self.prev_windows.pop()
+        # print(f"back to {self.next_window}")
+        self.close(forward=False)
 
     def _params_widgets(self, param_widget_maker, group: str, *args, **kwargs):
-        print("_params_widgets >", self, param_widget_maker, group, *args, **kwargs)
+        # print("_params_widgets >", self, param_widget_maker, group, *args, **kwargs)
         for par, desc in gui_params.items():
             if 'gui' in desc and (group == '' or desc['gui'].get('group', '') == group):
                 yield param_widget_maker(self, par, *args, **kwargs)
 
     def param_widget_info(self, name: str):
-        print("param_widget_info >", self, name)
+        # print("param_widget_info >", self, name)
         
         desc = gui_params[name]
         info = ""
@@ -211,11 +212,11 @@ class Window(param.Parameterized):
         )
 
     def params_widget_infos(self, group: str = ''):
-        print("params_widget_infos >", self, group)
+        # print("params_widget_infos >", self, group)
         return self._params_widgets(self.param_widget_info.__func__, group)
 
     def param_widget_setter(self, name: str, change_callback: Callback):
-        print("param_widget_setter >", self, name, change_callback)
+        # print("param_widget_setter >", self, name, change_callback)
 
         def change_value(attr, old, new):
             self.params[name] = new
@@ -277,7 +278,7 @@ class Window(param.Parameterized):
     def params_widget_setters(self,
             group: str = '',
             change_callback: Callback = lambda attr, old, new: None):
-        print("params_widget_setters >", self, group, change_callback)
+        # print("params_widget_setters >", self, group, change_callback)
         return self._params_widgets(self.param_widget_setter.__func__,
                                     group, change_callback)
 
@@ -700,7 +701,7 @@ class Training(Window):
     def __init__(self, **params):
         super().__init__(**params)
 
-        self.is_start = self.prev_window == 'Params'
+        self.is_start = self.prev_windows[-1] == 'Params'
 
         print("Create params_box ... ", end='', flush=True)
         self.params_box = Column(
