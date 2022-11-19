@@ -276,12 +276,12 @@ class DBModule:
             image = self.Image(file_prefix + im_data['file_name'].split('.')[0] + 's/' + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
                                im_data['license'])
-            if im_counter % 10 == 0 or im_counter == len(data['images']) - 2:
-                print_progress_bar(im_counter, len(data['images']), 
-                    prefix='Adding images:', suffix='Complete', length=50)
-            im_counter += 1
             im_objects[im_data['id']] = image
             self.sess.add(image)
+            im_counter += 1
+            if im_counter % 10 == 0 or im_counter == len(data['images']):
+                print_progress_bar(im_counter, len(data['images']),
+                                   prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
         ###################################
 
@@ -297,11 +297,11 @@ class DBModule:
                                          segmentation=';'.join(an_data['segmentation']),
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'])
-            if an_counter % 10 == 0 or an_counter == len(data['annotations']) - 2:
+            self.sess.add(annotation)
+            an_counter += 1
+            if an_counter % 10 == 0 or an_counter == len(data['annotations']):
                 print_progress_bar(an_counter, len(data['annotations']),
                     prefix='Adding annotations:', suffix='Complete', length=50)
-            an_counter += 1
-            self.sess.add(annotation)
         self.sess.commit()  # adding annotations
         print('Finished with Kaggle CatsVsDogs')
 
@@ -313,7 +313,7 @@ class DBModule:
         Parameters
         ----------
         anno_file_name : str
-            file with json annotation in COCO format for cats and dogs
+            file with json annotation in COCO format
         file_prefix : str
             prefix added to the file names in annotation file
         first_time : bool
@@ -362,6 +362,37 @@ class DBModule:
         print(f'Adding {len(anns)} annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
         return
+
+    def fill_in_coco_format(self, anno_file_name, file_prefix, ds_info):
+        """Method to add new dataset in COCO format into db. It is supposed to be called for each new dataset.
+
+        Args:
+            anno_file_name (str): file with json annotation in COCO format
+            file_prefix (str): prefix added to the file names in annotation file
+            ds_info (dict): dictionary with info about dataset. Necessary keys:
+                description, url, version, year, contributor, date_created
+        """
+        if not os.path.isfile(anno_file_name):
+            raise FileNotFoundError(f'No file {anno_file_name} found, stop filling dataset')
+        if not os.path.isdir(file_prefix):
+            raise FileNotFoundError(f'No directory {file_prefix} found, stop filling dataset')
+        coco = COCO(anno_file_name)
+        cats = coco.loadCats(coco.getCatIds())
+        cat_names = [cat['name'] for cat in cats]
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
+        add_cats = [cat for cat, cat_id in zip(cats, cat_ids) if cat_id < 0]
+        if len(add_cats) > 0:
+            # preserve ids if there are no such ids in DB
+            respect_ids = not any(x for x in self.get_cat_names_by_IDs(cat_ids))
+            self.add_categories(add_cats, respect_ids=respect_ids)
+        img_ids = coco.getImgIds()
+        imgs = coco.loadImgs(img_ids)
+        ann_ids = coco.getAnnIds()
+        anns = coco.loadAnns(ann_ids)
+        print(f'Dataset description: {ds_info["description"]}')
+        print(f'Adding {len(anns)} annotations in COCO format to DB')
+        ds_id = self.add_dataset_info(ds_info)
+        self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
 
     def fill_imagenet(self, annotations_dir='./datasets/imagenet/annotations',
                       file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
@@ -931,7 +962,7 @@ class DBModule:
                                          ID=anno_id)
             self.sess.add(annotation)
             an_counter += 1
-            if an_counter % 10 == 0 or an_counter == len(annotations) - 2:
+            if an_counter % 10 == 0 or an_counter == len(annotations):
                 print_progress_bar(an_counter, len(annotations),
                     prefix='Adding annotations:', suffix='Complete', length=50)
         self.sess.commit()  # adding annotations
@@ -1111,8 +1142,7 @@ class DBModule:
         In case of bad input empty list is returned.
         """
         if not isinstance(cat_names, list):
-            print('ERROR: Bad input for cat_names, must be a list')
-            return []
+            raise ValueError('Bad input for cat_names, must be a list')
         result = []
         for cat_name in cat_names:
             query = self.sess.query(self.Category.ID).filter(self.Category.name == cat_name).first()
@@ -1129,8 +1159,7 @@ class DBModule:
         In case of bad input empty list is returned.
         """
         if not isinstance(cat_IDs, list):
-            print('ERROR: Bad input for cat_names, must be a list')
-            return []
+            raise ValueError('Bad input for cat_names, must be a list')
         result = []
         for cat_ID in cat_IDs:
             query = self.sess.query(self.Category.name).filter(self.Category.ID == cat_ID).first()

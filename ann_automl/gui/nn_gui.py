@@ -446,7 +446,6 @@ class Database(Window):
         )
 
 
-
 class DatasetLoader(Window):
 
     next_window = param.Selector(default='Database', objects=['Database'])
@@ -508,7 +507,7 @@ class DatasetLoader(Window):
         self.dataset_checker.text = ""
 
         try:
-            cur_db().fill_coco(
+            cur_db().fill_in_coco_format(
                 self.anno_file_setter.value,
                 self.dataset_dir_setter.value,
                 ds_info={
