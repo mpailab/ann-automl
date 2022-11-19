@@ -156,13 +156,25 @@ class Window(param.Parameterized):
 
     params = param.Dict({p: gui_params[p]['default'] for p in gui_params})
     ready = param.Boolean(False)
-    
+    next_window = param.Selector(
+        objects=['Database', 'DatasetLoader', 'Task', 'Params', 'Training', 'History'])
+    prev_window = param.Selector(
+        objects=['Database', 'DatasetLoader', 'Task', 'Params', 'Training', 'History'])
+    logs = param.String()
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # print(f"{self.__class__.__name__}.__init__ called")
 
     def close(self):
+        self.prev_window = self.__class__.__name__
+        print(f"close {self.prev_window}")
         self.ready=True
+
+    def on_click_back(self, event):
+        print(f"back to {self.prev_window}")
+        self.next_window = self.prev_window
+        self.close()
 
     def _params_widgets(self, param_widget_maker, group: str, *args, **kwargs):
         print("_params_widgets >", self, param_widget_maker, group, *args, **kwargs)
@@ -277,8 +289,6 @@ class Window(param.Parameterized):
 
 class Database(Window):
 
-    next_window = param.Selector(default='Task', objects=['DatasetLoader', 'Task'])
-    
     def __init__(self, **params):
         super().__init__(**params)
 
@@ -439,8 +449,6 @@ class Database(Window):
 
 class DatasetLoader(Window):
 
-    next_window = param.Selector(default='Database', objects=['Database'])
-
     def __init__(self, **params):
         super().__init__(**params)
 
@@ -523,9 +531,6 @@ class DatasetLoader(Window):
             self.error_message.value = '<br>'.join(stack.split('\n') + [str(e)])
             self.error_message.visible = True
 
-    def on_click_back(self, event):
-        self.close()
-
     def panel(self):
         return pn.Column(
             pn.pane.Markdown('# Меню загрузки датасета', margin=(5, 5, -10, 5)),
@@ -546,9 +551,6 @@ class DatasetLoader(Window):
 
 class Task(Window):
 
-    next_window = param.Selector(default='Params', 
-                                 objects=['Database', 'Params', 'TrainedModels'])
-    
     def __init__(self, **params):
         super().__init__(**params)
         
@@ -626,12 +628,10 @@ class Task(Window):
             self.next_button.disabled = False
 
     def on_click_next(self, event):
-        if len(self.checkbox.active) > 0:
-            self.next_window = 'TrainedModels'
-        self.close()
-
-    def on_click_back(self, event):
-        self.next_window = 'Database'
+        if len(self.checkbox.active) == 0:
+            self.next_window = 'Params'
+        else:
+            self.next_window = 'History'
         self.close()
 
     def panel(self):
@@ -651,8 +651,6 @@ class Task(Window):
 
 
 class Params(Window):
-
-    next_window = param.Selector(default='Task', objects=['Task', 'Training'])
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -678,7 +676,7 @@ class Params(Window):
 
         self.tabs.on_change('active', panelActive)
         
-        self.next_button=Button(label='Далее', width=100, button_type='primary')
+        self.next_button=Button(label='Запустить обучение', width=150, button_type='primary')
         self.next_button.on_click(self.on_click_next)
 
         self.back_button=Button(label='Назад', width=100, button_type='primary')
@@ -687,9 +685,6 @@ class Params(Window):
     def on_click_next(self, event):
         # вызвать train
         self.next_window = 'Training'
-        self.close()
-
-    def on_click_back(self, event):
         self.close()
 
     def panel(self):
@@ -702,10 +697,10 @@ class Params(Window):
 
 class Training(Window):
 
-    next_window = param.Selector(default='Task', objects=['Task'])
-
     def __init__(self, **params):
         super().__init__(**params)
+
+        self.is_start = self.prev_window == 'Params'
 
         print("Create params_box ... ", end='', flush=True)
         self.params_box = Column(
@@ -716,12 +711,11 @@ class Training(Window):
 
         print("Create output_box ... ", end='', flush=True)
         self.output = TextAreaInput(
-            min_width=500, sizing_mode='stretch_both', disabled=True)
-        self.output_value = "\n"
+            value = self.logs, min_width=500, sizing_mode='stretch_both', disabled=True)
 
         self.output_box = Column(
             self.output,
-            height=730, height_policy='fixed', sizing_mode='stretch_both', visible=True,
+            height=730, height_policy='fixed', sizing_mode='stretch_both',
             css_classes=['panel-widget-box'], margin=(10,10,10,10))
         print("ok")
 
@@ -738,7 +732,7 @@ class Training(Window):
 
         self.tools_box = Column(
             self.loss_acc_plot,
-            height=730, height_policy='fixed', sizing_mode='stretch_both', visible=True,
+            height=730, height_policy='fixed', sizing_mode='stretch_both',
             css_classes=['panel-widget-box'], margin=(10,10,10,10))
         print("ok")
 
@@ -756,18 +750,36 @@ class Training(Window):
             CustomJS(code='window.open("http://localhost:6006/#scalars");'))
         print("ok")
 
+        self.back_button=Button(
+            label='Назад', width=100, button_type='primary',
+            disabled=self.is_start)
+        self.back_button.on_click(self.on_click_back)
+
+        self.next_button=Button(
+            label='История обучения', width=150, button_type='primary',
+            disabled=self.is_start)
+        self.next_button.on_click(self.on_click_next)
+
         self.stop_button=Button(
-            label='Стоп', width=100, button_type='primary')
+            label='Стоп', width=100, button_type='primary',
+            disabled=not self.is_start)
         self.stop_button.on_click(self.on_click_stop)
 
-        self.back_button=Button(
-            label='Назад', width=100, button_type='primary', disabled=True)
-        self.back_button.on_click(self.on_click_back)
+        self.continue_button=Button(
+            label='Продолжить обучение', width=100, button_type='primary',
+            visible=not self.is_start)
+        self.continue_button.on_click(self.on_click_continue)
+
+        if self.is_start:
+            self.start()
+
+    def start(self):
+        self.is_stop = False
+        self.is_break = False
 
         # create timer to update bokeh widgets
         self.bokeh_timer = bokeh.io.curdoc().add_periodic_callback(
             self.update_bokeh_server, 1000)
-        self.bokeh_timer_stop_flag = False
 
         self.stop = StopFlag()
         hparams = self.params.get('recommended_hparams', {})
@@ -785,7 +797,7 @@ class Training(Window):
         self.process.start()
 
     def update_bokeh_server(self, *args, **kwargs):
-        self.output.value = self.output_value
+        self.output.value = self.logs
 
         # TODO: сделать здесь по-нормальному обновление графиков (через поток данных)
         if len(self.epochs) > self.last_epoch+1:
@@ -811,12 +823,15 @@ class Training(Window):
                     legend_label='Val Accuracy', line_color='black')
             self.last_epoch = ll
 
-        if self.bokeh_timer_stop_flag:
+        if self.is_stop:
             self.back_button.disabled = False
+            self.next_button.disabled = False
             self.stop_button.disabled = True
+            self.continue_button.visible = self.is_break
             bokeh.io.curdoc().remove_periodic_callback(self.bokeh_timer)
             self.bokeh_timer = None
-            self.bokeh_timer_stop_flag = False
+            self.is_stop = False
+            self.is_break = False
 
     def add_plot_point(self, epoch, loss, accuracy, val_loss, val_accuracy):
         self.epochs.append(epoch)
@@ -829,12 +844,12 @@ class Training(Window):
 
     def msg(self, *args, file=None, end='\n', **kwargs):
         if file is None:
-            self.output_value += ''.join(map(str, args)) + end
+            self.logs += ''.join(map(str, args)) + end
         else:
             print(*args, **kwargs, file=file, end=end)
 
     def on_process_finish(self):
-        self.bokeh_timer_stop_flag = True
+        self.is_stop = True
 
     def on_train_callback(self, tp, batch=None, epoch=None, logs=None, model=None):
         if tp == 'epoch':
@@ -844,11 +859,8 @@ class Training(Window):
         elif tp == 'finish':
             self.msg('Обучение завершено')
 
-    def on_click_stop(self, event):
-        self.stop()
-        self.stop_button.disabled = True
-
-    def on_click_back(self,event):
+    def on_click_next(self,event):
+        self.next_window = 'History'
         self.close()
 
     def on_click_box_button(self, active):
@@ -856,14 +868,29 @@ class Training(Window):
         self.output_box.visible = 1 in active
         self.tools_box.visible = 2 in active
 
+    def on_click_stop(self, event):
+        self.stop()
+        self.is_break = True
+        self.stop_button.disabled = True
+
+    def on_click_continue(self, event):
+        self.back_button.disabled = True
+        self.next_button.disabled = True
+        self.stop_button.disabled = False
+        self.continue_button.visible = False
+        self.output.value += "\nContinue training ...\n"
+        self.start()
+
     def panel(self):
         return pn.Column(
             '# Меню обучения модели',
             Row(
                 self.back_button,
+                self.next_button,
                 self.box_button_group,
                 self.tensorboard_button,
                 self.stop_button,
+                self.continue_button,
                 margin=(-5,5,10,0)
             ),
             Row(
@@ -875,9 +902,7 @@ class Training(Window):
         )
 
 
-class TrainedModels(Window):
-
-    next_window = param.Selector(default='Task', objects=['Task'])
+class History(Window):
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -887,11 +912,16 @@ class TrainedModels(Window):
             options=['Модель 1', 'Модель 2', 'Модель 3', 'Модель 4', 'Модель 5'],
             size=31)
 
+        self.next_button=Button(
+            label='Далее', align='end', width=100, button_type='primary')
+        self.next_button.on_click(self.on_click_next)
+
         self.back_button=Button(
             label='Назад', align='start', width=100, button_type='primary')
         self.back_button.on_click(self.on_click_back)
 
-    def on_click_back(self,event):
+    def on_click_next(self, event):
+        self.next_window = 'Params'
         self.close()
 
     def panel(self):
@@ -901,7 +931,7 @@ class TrainedModels(Window):
                 self.models_list,
                 pn.WidgetBox('## Описание модели', min_width=500, height=500)
             ),
-            self.back_button
+            Row(self.back_button, self.next_button)
         )
 
 
@@ -912,15 +942,15 @@ pipeline = Transition(
         ('Task', Task),
         ('Params', Params),
         ('Training', Training),
-        ('TrainedModels', TrainedModels)
+        ('History', History)
     ],
     graph={
         'Database': ('DatasetLoader', 'Task'),
         'DatasetLoader': 'Database',
-        'Task': ('Database', 'Params', 'TrainedModels'),
-        'Params': ('Task', 'Training'),
-        'Training': 'Task',
-        'TrainedModels': 'Task'
+        'Task': ('Database', 'Params', 'History'),
+        'Params': ('Task', 'Training', 'History'),
+        'Training': ('Params', 'History'),
+        'History': ('Task', 'Training', 'Params')
     },
     root='Database',
     ready_parameter='ready', 
