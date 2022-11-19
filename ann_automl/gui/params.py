@@ -79,7 +79,11 @@ def create_params_dict(params):
         for param in params_list:
             pfrom, pname = param.split('.')
             pvalue = copy(all_hparams[pfrom][pname])
-            pvalue['gui'] = {'group': group, 'widget': widget_type(pvalue)}
+            pvalue['gui'] = {
+                'group': group, 
+                'widget': widget_type(pvalue),
+                'info': True
+            }
             pvalue['param_from'] = pfrom
             pvalue['param_key'] = pname
             result[param] = pvalue
