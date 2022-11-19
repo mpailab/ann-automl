@@ -8,7 +8,7 @@ import param
 import pandas as pd
 import datetime as dt
 import bokeh
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Optional
 from bokeh.models import CustomJS, Div, Row, Column, Button, Select, Slider,\
                          MultiChoice, MultiSelect, CheckboxGroup, CheckboxButtonGroup, \
                          DatePicker, TextInput, TextAreaInput, Spacer, Tabs, Panel
@@ -23,6 +23,7 @@ from ..core.nnfuncs import cur_db, StopFlag, train, param_values
 from ..core import nn_rules_simplified
 
 Callback = Callable[[Any, Any, Any], None]
+Params = Optional[Dict[str, Any]]
 
 # Launch TensorBoard
 tb.start("--logdir ./logs --host 0.0.0.0 --port 6006")
@@ -160,6 +161,7 @@ class Window(param.Parameterized):
         objects=['Database', 'DatasetLoader', 'Task', 'Params', 'Training', 'History'])
     prev_windows = param.List()
     logs = param.String()
+    task_learning_history = param.List()
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -177,28 +179,33 @@ class Window(param.Parameterized):
         # print(f"back to {self.next_window}")
         self.close(forward=False)
 
-    def _params_widgets(self, param_widget_maker, group: str, *args, **kwargs):
-        # print("_params_widgets >", self, param_widget_maker, group, *args, **kwargs)
-        for par, desc in gui_params.items():
+    def _params_widgets(self, param_widget_maker, group: str, params : Params, 
+                        *args, **kwargs):
+        print("_params_widgets >", self, param_widget_maker, group, params, *args, **kwargs)
+        if params is None:
+            params = { par : self.params[par] for par in gui_params }
+        print(params)
+        for par, value in params.items():
+            print(par)
+            desc = gui_params[par]
             if 'gui' in desc and (group == '' or desc['gui'].get('group', '') == group):
-                yield param_widget_maker(self, par, *args, **kwargs)
+                yield param_widget_maker(self, par, value, desc, *args, **kwargs)
 
-    def param_widget_info(self, name: str):
-        # print("param_widget_info >", self, name)
+    def param_widget_info(self, name: str, value: Any, desc: Dict[str, Any]):
+        print("param_widget_info >", self, name, value, desc)
         
-        desc = gui_params[name]
         info = ""
         if desc['gui']['widget'] == 'Select':
-            info = self.params[name]
+            info = value
 
         elif desc['gui']['widget'] == 'MultiChoice':
-            info = ', '.join(self.params[name])
+            info = ', '.join(value)
 
         elif desc['gui']['widget'] == 'Slider':
-            info = str(self.params[name])
+            info = str(value)
 
         elif desc['gui']['widget'] == 'Checkbox':
-            info = 'Да' if self.params[name] else 'Нет'
+            info = 'Да' if value else 'Нет'
 
         else:
             raise ValueError(f'Unsupported widget type {desc["gui"]["widget"]}')
@@ -208,25 +215,25 @@ class Window(param.Parameterized):
                 min_height=20, sizing_mode='stretch_height', width=250, align='center', margin=(0, 10, 0, 0)),
             Div(text=f"<b>{info}</b>",
                 min_height=20, sizing_mode='stretch_height', width=150, align='center', margin=(0, 0, 0, 0)),
-            margin=(15, 30, 0, 15)
+            name = name, margin=(15, 30, 0, 15)
         )
 
-    def params_widget_infos(self, group: str = ''):
-        # print("params_widget_infos >", self, group)
-        return self._params_widgets(self.param_widget_info.__func__, group)
+    def params_widget_infos(self, group: str = '', params : Params = None):
+        print("params_widget_infos >", self, group, params)
+        return self._params_widgets(self.param_widget_info.__func__, group, params)
 
-    def param_widget_setter(self, name: str, change_callback: Callback):
-        # print("param_widget_setter >", self, name, change_callback)
+    def param_widget_setter(self, name: str, value: Any, desc: Dict[str, Any], 
+                            callback: Callback):
+        print("param_widget_setter >", self, name, value, desc, callback)
 
         def change_value(attr, old, new):
             self.params[name] = new
-            change_callback(attr, old, new)
+            callback(attr, old, new)
 
         def change_active_value(attr, old, new):
             self.params[name] = name in new
-            change_callback(attr, old, new)
+            callback(attr, old, new)
         
-        desc = gui_params[name]
         kwargs = {
             'name': name,
             'margin': (5, 10, 5, 10)
@@ -234,18 +241,18 @@ class Window(param.Parameterized):
 
         if desc['gui']['widget'] == 'Select':
             widget = Select(**kwargs, title=desc['title'],
-                value=self.params[name], options=[x for x in desc['values']])
+                value=value, options=[x for x in desc['values']])
             widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'MultiChoice':
             widget = MultiChoice(**kwargs, title=desc['title'],
-                value=self.params[name], options=[x for x in desc['values']])
+                value=value, options=[x for x in desc['values']])
             widget.on_change('value', change_value)
 
         elif desc['gui']['widget'] == 'Slider':
 
             str_values, cur_index = param_values(return_str=True,
-                **{**desc, 'default': self.params[name]})
+                **{**desc, 'default': value})
             values, _ = param_values(**desc)
 
             try:
@@ -259,7 +266,7 @@ class Window(param.Parameterized):
                 old = values[max(0,min(old,len(values)-1))]
                 new = values[max(0,min(new,len(values)-1))]
                 self.params[name] = new
-                change_callback(attr, old, new)
+                callback(attr, old, new)
 
             widget = Slider(**kwargs, title=desc['title'], value=cur_index,
                 start=0, end=len(values)-1, step=1, format=formatter)
@@ -267,7 +274,7 @@ class Window(param.Parameterized):
 
         elif desc['gui']['widget'] == 'Checkbox':
             widget = CheckboxGroup(**kwargs, labels=[desc['title']],
-                active=[0] if self.params[name] else [])
+                active=[0] if value else [])
             widget.on_change('active', change_active_value)
 
         else:
@@ -275,12 +282,11 @@ class Window(param.Parameterized):
 
         return widget
 
-    def params_widget_setters(self,
-            group: str = '',
-            change_callback: Callback = lambda attr, old, new: None):
-        # print("params_widget_setters >", self, group, change_callback)
+    def params_widget_setters(self, group: str = '', params : Params = None,
+            callback: Callback = lambda attr, old, new: None):
+        print("params_widget_setters >", self, group, params, callback)
         return self._params_widgets(self.param_widget_setter.__func__,
-                                    group, change_callback)
+                                    group, params, callback)
 
     def is_param_widget_visible(self, widget):
         return (widget.name not in gui_params or
@@ -558,13 +564,8 @@ class Task(Window):
         def changeTaskParamCallback(attr, old, new):
             self.apply_button.disabled = False
 
-        print("==========================================================")
-
-        for widget in self.params_widget_setters('Task', changeTaskParamCallback):
-            print("%", widget)
+        for widget in self.params_widget_setters('Task', callback=changeTaskParamCallback):
             setattr(self, f"{widget.name}_selector", widget)
-
-        print("==========================================================")
 
         def changeTaskObjects(attr, old, new):
             changeTaskParamCallback(attr, old, new)
