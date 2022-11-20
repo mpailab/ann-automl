@@ -51,10 +51,12 @@ def set_multithreading_mode(mode=True):
     if mode and not isinstance(nnDB, ObjectWrapper):
         nnDB.close()
         nnDB = ObjectWrapper(db_module.DBModule, dbstring=f'sqlite:///{_db_file}')
+        print('Enter multithreading mode')
     elif not mode and isinstance(nnDB, ObjectWrapper):
         nnDB.close()
         nnDB.join_thread()
         nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
+        print('Exit multithreading mode')
 
 
 class multithreading_mode:
@@ -366,11 +368,11 @@ def create_data_subset(objects, cur_experiment_dir, crop_bbox=True, temp_dir='tm
         crop_bbox = False
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir, exist_ok=True)
-    return nnDB.load_specific_categories_annotations(list(objects), normalize_cats=True,
-                                                     split_points=split_points,
-                                                     cur_experiment_dir=cur_experiment_dir,
-                                                     crop_bbox=crop_bbox,
-                                                     cropped_dir=temp_dir + '/crops/')[1]
+    return cur_db().load_specific_categories_annotations(list(objects), normalize_cats=True,
+                                                         split_points=split_points,
+                                                         cur_experiment_dir=cur_experiment_dir,
+                                                         crop_bbox=crop_bbox,
+                                                         cropped_dir=temp_dir + '/crops/')[1]
 
 
 class EmulateGen:
@@ -553,12 +555,13 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
     return [best_loss, best_acc]
 
 
-def save_history(filepath, objects, run_type, model_path, metric_name, metric_value, params, format=None):
+def save_history(filepath, objects, run_type, model_path, metrics, params, format=None):
     history = {'run_type': run_type,
                **params,
                'result_path': model_path,
-               'metric_name': metric_name,
-               'metric_value': metric_value,
+               'metric_name': 'accuracy',
+               'metric_value': metrics['accuracy'],
+               'metrics': metrics,
                'objects': objects}
     if format is None:
         format = filepath.split('.')[-1]
@@ -574,10 +577,10 @@ def save_history(filepath, objects, run_type, model_path, metric_name, metric_va
             yaml.dump(history, f)
     else:
         raise ValueError(f'Unknown format: {format}')
-    nnDB.add_model_record(task_type='train',
+    cur_db().add_model_record(task_type='train',
                           categories=list(objects),
                           model_address=model_path,
-                          metrics={metric_name: metric_value},
+                          metrics=metrics,
                           history_address=filepath)
     pcall('append_history', history)
     return history
@@ -596,6 +599,9 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         Достигнутые значения метрик на тестовой выборке во время обучения, а также
         словарь со значениями гиперпараметров, метрик и путей к модели и истории
     """
+    measured_metrics = hparams['metrics']
+    if not isinstance(measured_metrics, list):
+        measured_metrics = [measured_metrics]
 
     # if model is not compiled, compile it
     if not model.optimizer:
@@ -604,10 +610,10 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
         kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
         optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
-        model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=[hparams['metrics']])
+        model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
 
     # set up callbacks
-    check_metric = 'val_' + hparams['metrics']
+    check_metric = 'val_' + measured_metrics[0]
     date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
 
     if not _emulation:
@@ -655,9 +661,11 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         history.add_row(hparams, scores[1], cur_subdir, c_t.times, c_t.total_time, save=True)
 
     printlog("Save history")
+    metrics = {'accuracy': scores[1]}
+    for i, metric in enumerate(measured_metrics):
+        metrics[metric] = scores[i + 1]
     record = save_history(cur_subdir + '/history.json', objects, 'train', cur_subdir + '/best_weights.h5',
-                          hparams['metrics'],
-                          scores[1], dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
+                          metrics, dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
     return scores, record
 
 
@@ -700,7 +708,7 @@ def train(nn_task, hparams, stop_flag=None, model=None) -> Tuple[List[float], di
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
     # first, check that all nn_task.objects are available in nnDB
-    unavail = [str(nm) for cid, nm in zip(nnDB.get_cat_IDs_by_names(nn_task.objects), nn_task.objects) if cid < 0]
+    unavail = [str(nm) for cid, nm in zip(cur_db().get_cat_IDs_by_names(nn_task.objects), nn_task.objects) if cid < 0]
     if len(unavail) > 0:
         raise ValueError(f'`{"`, `".join(unavail)}` not available in the training dataset')
     test_ratio = hparams.get('test_frac', 0.15)
@@ -1089,7 +1097,7 @@ def create_exp_dir(prefix, nn_task):
             exp_name -- имя директории,
             exp_path -- путь к директории.
     """
-    obj_set = sorted(nnDB.get_cat_IDs_by_names(list(nn_task.objects)))
+    obj_set = sorted(cur_db().get_cat_IDs_by_names(list(nn_task.objects)))
     if len(obj_set) > 10:
         obj_set = obj_set[:10] + ['etc']
     obj_str = '_'.join(map(str, obj_set))
@@ -1130,22 +1138,29 @@ def load_history(history_file) -> dict:
 
 
 def params_from_history(nn_task):
-    history = cur_db().get_models_by_filter({
+    req = {
         'min_metrics': {nn_task.metric: nn_task.target},
         'categories': list(nn_task.objects),
-    })
+    }
+    history = cur_db().get_models_by_filter(req)  # history is a pandas DataFrame
+    print(f'History request: {req}')
+    print(f'Found {len(history)} models')
     if len(history) == 0:
         return []
     results = []
-    for model in history:
+    for i, model in history.iterrows():
         hist_file = model['history_address']
         model_file = model['model_address']
+
         if hist_file is None:
             continue
         if not os.path.exists(hist_file):
             warnings.warn(f'History file {hist_file} does not exist')
             continue
-        params = load_history(hist_file)
-        params['model_file'] = model_file
-        results.append(params)
+        try:
+            params = load_history(hist_file)
+            params['model_file'] = model_file
+            results.append(params)
+        except Exception as e:
+            warnings.warn(f'Error while loading history file {hist_file}: {e}')
     return results

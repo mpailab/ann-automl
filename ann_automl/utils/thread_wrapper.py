@@ -44,11 +44,21 @@ class ObjectWrapper:
         if callable(attr):
             def wrapper(*args, **kwargs):
                 def request():
+                    print(f"Request process loop: executing {name}({args}, {kwargs}) in thread {self._thread.ident}")
                     return attr(*args, **kwargs)
                 self._request_queue.put(request)
                 return self._response_queue.get()
             return wrapper
         return attr
+
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            super().__setattr__(name, value)
+        else:
+            def request():
+                setattr(self._obj, name, value)
+            self._request_queue.put(request)
+            self._response_queue.get()
 
     def join_thread(self):
         self._obj = None

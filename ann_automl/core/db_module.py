@@ -1016,8 +1016,7 @@ class DBModule:
                                                 model_id=model_from_db.ID,
                                                 history_address=abs_history_address)
             self.sess.add(new_train_result)
-            self.sess.commit()
-        return
+        self.sess.commit()
 
     def update_train_result_record(self, model_address, metric_name, metric_value, history_address=''):
         """

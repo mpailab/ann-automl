@@ -645,22 +645,8 @@ class Task(Window):
             print("ok")
 
             print("Loading learning history ... ", end='', flush=True)
-            self.task_learning_history = [] # params_from_history(self.params['task'])
-            # TODO: вызов params_from_history выдает ошибку:
-            # SQLite objects created in a thread can only be used in that same thread
-            if len(self.task_learning_history) == 0:
-                objs = gui_params['task_objects']['values']
-                params = list(hparams.keys())
-                for _ in range(100):
-                    self.task_learning_history.append({
-                        'date': date(2020 + randint(0, 2), randint(1, 12), randint(1, 28)),
-                        'run_type': 'train',
-                        'objects': sample(objs, randint(2, min(5, len(objs)))),
-                        'metric_name': 'Метрика обучения',
-                        'metric_value': random(),
-                        'total_time': randint(60, 86400),
-                        'hparams': { k: hparams[k] for k in sample(params, len(params)//2) }
-                    })
+            self.task_learning_history = params_from_history(self.params['task'])
+            # TODO: может всё-таки историю не всегда, а только по запросу загружать?
             print("ok")
 
             self.apply_button.disabled = True
@@ -956,71 +942,75 @@ class Training(Window):
 class History(Window):
 
     def __init__(self, **params):
-        super().__init__(**params)
+        try:
+            super().__init__(**params)
 
-        self.selected_params = None
+            self.selected_params = None
 
-        data = { x:[] for x in ['dates', 'types', 'objects', 'funcs', 'values', 'times'] }
-        hparams = []
-        for h in self.task_learning_history:
-            data['dates'].append(h['date'])
-            data['types'].append(h['run_type'])
-            data['objects'].append(h['objects'])
-            data['funcs'].append(h['metric_name'])
-            data['values'].append(h['metric_value'])
-            data['times'].append(h['total_time'])
-            hparams.append(h['hparams'])
+            data = { x:[] for x in ['dates', 'types', 'objects', 'funcs', 'values', 'times'] }
+            hparams = []
+            for h in self.task_learning_history:
+                data['dates'].append(h['date'])
+                data['types'].append(h['run_type'])
+                data['objects'].append(h.get('objects', 'not saved'))
+                data['funcs'].append(h['metric_name'])
+                data['values'].append(h['metric_value'])
+                data['times'].append(h.get('total_time', -1.0))
+                hparams.append(h['hparams'])
 
-        source = ColumnDataSource(data)
+            source = ColumnDataSource(data)
 
-        columns = [
-            TableColumn(field="dates", title="Дата"),
-            TableColumn(field="types", title="Задача"),
-            TableColumn(field="objects", title="Категории изображений"),
-            TableColumn(field="funcs", title="Функционал"),
-            TableColumn(field="values", title="Значение"),
-            TableColumn(field="times", title="Время обучения",
-                        formatter=NumberFormatter(format='00:00:00')),
-        ]
+            columns = [
+                TableColumn(field="dates", title="Дата"),
+                TableColumn(field="types", title="Задача"),
+                TableColumn(field="objects", title="Категории изображений"),
+                TableColumn(field="funcs", title="Функционал"),
+                TableColumn(field="values", title="Значение"),
+                TableColumn(field="times", title="Время обучения",
+                            formatter=NumberFormatter(format='00:00:00')),
+            ]
 
-        self.history_table = DataTable(
-            source=source, columns=columns,
-            index_position=None, autosize_mode='fit_columns',
-            height=600, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['bokeh-datatable'])
+            self.history_table = DataTable(
+                source=source, columns=columns,
+                index_position=None, autosize_mode='fit_columns',
+                height=600, height_policy='fixed', sizing_mode='stretch_both',
+                css_classes=['bokeh-datatable'])
 
-        self.params_box = Column(
-            height=600, height_policy='fixed', visible=False,
-            css_classes=['panel-widget-box'], margin=(5,5,5,10))
+            self.params_box = Column(
+                height=600, height_policy='fixed', visible=False,
+                css_classes=['panel-widget-box'], margin=(5,5,5,10))
 
-        def on_select(attr, old, new):
-            try:
-                selected_index = source.selected.indices[0]
-                self.selected_params = hparams[selected_index]
-                self.params_box.children = list(self.params_widget_infos(
-                    params=self.selected_params))
-                self.info_button.visible = True
-                self.save_button.disabled = False
-                self.next_button.disabled = False
-            except IndexError:
-                pass
-        source.selected.on_change('indices', on_select)
+            def on_select(attr, old, new):
+                try:
+                    selected_index = source.selected.indices[0]
+                    self.selected_params = hparams[selected_index]
+                    self.params_box.children = list(self.params_widget_infos(
+                        params=self.selected_params))
+                    self.info_button.visible = True
+                    self.save_button.disabled = False
+                    self.next_button.disabled = False
+                except IndexError:
+                    pass
+            source.selected.on_change('indices', on_select)
 
-        self.info_button=Toggle(
-            label='Параметры', width=110, button_type='primary', visible=False)
-        self.info_button.on_click(self.on_click_info)
+            self.info_button=Toggle(
+                label='Параметры', width=110, button_type='primary', visible=False)
+            self.info_button.on_click(self.on_click_info)
 
-        self.save_button=Button(
-            label='Сохранить', width=110, button_type='primary', disabled=True)
-        self.save_button.on_click(self.on_click_save)
+            self.save_button=Button(
+                label='Сохранить', width=110, button_type='primary', disabled=True)
+            self.save_button.on_click(self.on_click_save)
 
-        self.next_button = Button(
-            label='Использовать', width=120, button_type='primary', disabled=True)
-        self.next_button.on_click(self.on_click_next)
+            self.next_button = Button(
+                label='Использовать', width=120, button_type='primary', disabled=True)
+            self.next_button.on_click(self.on_click_next)
 
-        self.back_button = Button(
-            label='Назад', width=100, button_type='primary')
-        self.back_button.on_click(self.on_click_back)
+            self.back_button = Button(
+                label='Назад', width=100, button_type='primary')
+            self.back_button.on_click(self.on_click_back)
+        except Exception as e:
+            traceback.print_exc()
+            print(f'Exception occured during History.__init__: {e}')
 
     def on_click_info(self, event):
         self.params_box.visible = not self.params_box.visible

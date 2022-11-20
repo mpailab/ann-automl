@@ -12,22 +12,27 @@ from ..utils.process import pcall
 
 TargetFunc = Callable[[List[float]], float]
 
-def loss_target(scores : List[float]) -> float:
+
+def loss_target(scores: List[float]) -> float:
     return -scores[0]
 
-def metric_target(scores : List[float]) -> float:
+
+def metric_target(scores: List[float]) -> float:
     return scores[1]
+
 
 class NNTask(Task):
     """ Класс, задающий задачу на обучение нейронной сети """
 
-    def __init__(self, 
-        category : str = 'train', 
-        objects : List[str] = [], 
-        type : str = 'classification', 
-        func : TargetFunc = metric_target, 
-        target : float = 0.9, 
-        goals : Dict[str, Any] = {}):
+    def __init__(self,
+                 category: str = 'train',
+                 objects: List[str] = (),
+                 type: str = 'classification',
+                 func: TargetFunc = metric_target,
+                 # TODO: кажется, надо вернуть как было -- либо accuracy,
+                 #       либо конкретный вид accuracy (categorial, binary, sparse_categorical, etc.)
+                 target: float = 0.9,
+                 goals: Dict[str, Any] = None):
         """
         Инициализация задачи.
 
@@ -49,13 +54,13 @@ class NNTask(Task):
         goal: dict[str, Any]
             Словарь целей задачи (например {"метрика" : желаемое значение метрики})
         """
-        super().__init__(goals=goals)
+        super().__init__(goals=goals or {})
         self._category = category  # str
 
         # Необязательные входные параметры задачи, нужны при категориях "train" и "test"
         self._type = type  # str - тип задачи {classification, detection, segmentation}
-        self._objects = objects      # set of strings - набор категорий объектов интереса
-        self.input_type = 'image'    # тип объектов задачи (image, video, audio, text)
+        self._objects = objects or []  # set of strings - набор категорий объектов интереса
+        self.input_type = 'image'  # тип объектов задачи (image, video, audio, text)
         self.object_category = 'object'  # категория объектов задачи (object, symbol)
         self.func = func
         self.target = target
@@ -79,7 +84,8 @@ class NNTask(Task):
     @property
     def metric(self):
         """ Возвращает название целевого функционала """
-        return self.func.__name__
+        return 'accuracy' if self.func.__name__ == 'metric_target' else self.func.__name__
+        # TODO: это пока костыль для поиска по истории (не хорошо передавать имя функции в качестве метрики)
 
 
 class SelectHParamsTask(RecommendTask):
