@@ -32,28 +32,22 @@ Params = Optional[Dict[str, Any]]
 # Launch TensorBoard
 tb.start("--logdir ./logs --host 0.0.0.0 --port 6006")
 
-css = '''
-.bk.panel-widget-box {
-    background: #fafafa;
+shadow_border_css = '''
+.bk.ann-automl-shadow-border {
     border-radius: 0px;
     border: none;
     box-shadow: 0 1px 5px grey;
-    padding: 15px 15px;
-    overflow: auto !important;
 }
 '''
 
-table_css = '''
-.bk.bokeh-datatable {
-    background: #ffffff;
-    border-radius: 0px;
-    border: none;
-    box-shadow: 0 1px 5px grey;
-    overflow: auto !important;
+scroll_css = '''
+.bk.ann-automl-scroll {
+    overflow-x: visible !important;
+    overflow-y: auto !important;
 }
 '''
 
-pn.extension(raw_css=[css, table_css])
+pn.extension(raw_css=[shadow_border_css, scroll_css])
 pn.config.sizing_mode = 'stretch_width'
 
 # GUI titles of datasets attributes
@@ -247,7 +241,7 @@ class Window(param.Parameterized):
         
         kwargs = {
             'name': name,
-            'margin': (5, 10, 5, 10)
+            'margin': (5, 30, 5, 10)
         }
 
         if desc['gui']['widget'] == 'Select':
@@ -262,8 +256,8 @@ class Window(param.Parameterized):
 
         elif desc['gui']['widget'] == 'Slider':
 
-            str_values, cur_index = param_values(return_str=True,
-                **{**desc, 'default': value})
+            str_values, cur_index = param_values(
+                return_str=True, **{**desc, 'default': value})
             values, _ = param_values(**desc)
 
             try:
@@ -701,7 +695,8 @@ class Params(Window):
 
         def to_column(widgets):
             return Column( Spacer(height=10), *widgets,
-                sizing_mode="stretch_width", height=500, height_policy="fixed", css_classes=['scrollable'])
+                sizing_mode="stretch_width", height=500, height_policy="fixed", 
+                css_classes=['ann-automl-scroll'])
 
         self.tabs = Tabs(
             tabs=[Panel(title=title, child=to_column(widgets)) for title, widgets in self.params_widgets])
@@ -742,7 +737,8 @@ class Training(Window):
         self.params_box = Column(
             *self.params_widget_infos(),
             height=730, height_policy='fixed', visible=True,
-            css_classes=['panel-widget-box'], margin=(10,10,10,10))
+            css_classes=['ann-automl-shadow-border'], 
+            margin=(10,10,10,10))
         print("ok")
 
         print("Create output_box ... ", end='', flush=True)
@@ -752,7 +748,8 @@ class Training(Window):
         self.output_box = Column(
             self.output,
             height=730, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['panel-widget-box'], margin=(10,10,10,10))
+            css_classes=['ann-automl-shadow-border'], 
+            margin=(10,10,10,10))
         print("ok")
 
         print("Create tools_box ... ", end='', flush=True)
@@ -769,7 +766,8 @@ class Training(Window):
         self.tools_box = Column(
             self.loss_acc_plot,
             height=730, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['panel-widget-box'], margin=(10,10,10,10))
+            css_classes=['ann-automl-shadow-border'], 
+            margin=(10,10,10,10))
         print("ok")
 
         print("Create box_button_group ... ", end='', flush=True)
@@ -980,11 +978,12 @@ class History(Window):
             source=source, columns=columns,
             index_position=None, autosize_mode='fit_columns',
             height=600, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['bokeh-datatable'])
+            css_classes=['ann-automl-shadow-border'])
 
         self.params_box = Column(
             height=600, height_policy='fixed', visible=False,
-            css_classes=['panel-widget-box'], margin=(5,5,5,10))
+            css_classes=['ann-automl-shadow-border'], 
+            margin=(5,5,5,10))
 
         def on_select(attr, old, new):
             try:
