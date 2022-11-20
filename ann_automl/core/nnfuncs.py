@@ -546,7 +546,8 @@ def save_history(filepath, objects, run_type, model_path, metric_name, metric_va
                **params,
                'result_path': model_path,
                'metric_name': metric_name,
-               'metric_value': metric_value}
+               'metric_value': metric_value,
+               'objects': objects}
     if format is None:
         format = filepath.split('.')[-1]
     if format == 'json':
@@ -566,6 +567,7 @@ def save_history(filepath, objects, run_type, model_path, metric_name, metric_va
                           model_address=model_path,
                           metrics={metric_name: metric_value},
                           history_address=filepath)
+    pcall('append_history', history)
     return history
 
 

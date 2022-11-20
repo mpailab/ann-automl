@@ -86,7 +86,7 @@ def create_params_dict(params):
             }
             pvalue['param_from'] = pfrom
             pvalue['param_key'] = pname
-            result[param] = pvalue
+            result[pname] = pvalue # TODO: использование 'param' вместо 'pname' затрудняет поиск описания параметра по его названию (конфликт с именами, которые выдает nnfuncs.params_from_history)
             if 'cond' in pvalue:
                 pvalue['cond'] = [(f"{pfrom}.{p}", v) for p, v in pvalue['cond']]
     return result

@@ -9,17 +9,21 @@ import pandas as pd
 import datetime as dt
 import bokeh
 from typing import Any, Callable, Dict, Optional
-from bokeh.models import CustomJS, Div, Row, Column, Button, Select, Slider,\
+from bokeh.models import CustomJS, Div, Row, Column, Button, Select, Slider, Toggle, \
                          MultiChoice, MultiSelect, CheckboxGroup, CheckboxButtonGroup, \
-                         DatePicker, TextInput, TextAreaInput, Spacer, Tabs, Panel
+                         DatePicker, TextInput, TextAreaInput, Spacer, Tabs, Panel, \
+                         ColumnDataSource, DataTable, TableColumn, \
+                         DateFormatter, NumberFormatter
 import bokeh.plotting.figure as Figure
+from datetime import date
+from random import randint, random, sample
 
 from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 import ann_automl.gui.tensorboard as tb
 from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
-from ..core.nnfuncs import cur_db, StopFlag, train, param_values
+from ..core.nnfuncs import cur_db, StopFlag, train, param_values, params_from_history
 from ..core import nn_rules_simplified
 
 Callback = Callable[[Any, Any, Any], None]
@@ -39,7 +43,17 @@ css = '''
 }
 '''
 
-pn.extension(raw_css=[css])
+table_css = '''
+.bk.bokeh-datatable {
+    background: #ffffff;
+    border-radius: 0px;
+    border: none;
+    box-shadow: 0 1px 5px grey;
+    overflow: auto !important;
+}
+'''
+
+pn.extension(raw_css=[css, table_css])
 pn.config.sizing_mode = 'stretch_width'
 
 # GUI titles of datasets attributes
@@ -73,7 +87,6 @@ gui_params = {
         'title': 'Выделенный список датасетов',
         'gui': {
             'widget': 'MultiChoice',
-            'info': True
         }
     },
     'task_category': {
@@ -92,7 +105,6 @@ gui_params = {
         'gui': {
             'group': 'Task',
             'widget': 'Select',
-            'info': True
         }
     },
     'task_objects': {
@@ -102,7 +114,6 @@ gui_params = {
         'gui': {
             'group': 'Task',
             'widget': 'MultiChoice',
-            'info': True
         }
     },
     'task_target_func': {
@@ -112,7 +123,6 @@ gui_params = {
         'gui': {
             'group': 'Task',
             'widget': 'Select',
-            'info': True
         }
     },
     'task_target_value': {
@@ -125,7 +135,6 @@ gui_params = {
         'gui': {
             'group': 'Task',
             'widget': 'Slider',
-            'info': True
         }
     },
     'task_maximize_target': {
@@ -135,7 +144,6 @@ gui_params = {
         'gui': {
             'group': 'Task',
             'widget': 'Checkbox',
-            'info': True
         }
     },
     'tune': {
@@ -145,8 +153,12 @@ gui_params = {
         'gui': {
             'group': 'General',
             'widget': 'Checkbox',
-            'info': True
         }
+    },
+    'start_training': {
+        'type': 'bool',
+        'default': False,
+        'title': 'Признак необходимости начать обучение',
     },
 }
 
@@ -159,9 +171,9 @@ class Window(param.Parameterized):
     ready = param.Boolean(False)
     next_window = param.Selector(
         objects=['Database', 'DatasetLoader', 'Task', 'Params', 'Training', 'History'])
-    prev_windows = param.List()
-    logs = param.String()
-    task_learning_history = param.List()
+    prev_windows = param.List([])
+    logs = param.String("")
+    task_learning_history = param.List([])
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -181,19 +193,18 @@ class Window(param.Parameterized):
 
     def _params_widgets(self, param_widget_maker, group: str, params : Params, 
                         *args, **kwargs):
-        print("_params_widgets >", self, param_widget_maker, group, params, *args, **kwargs)
+        # print("_params_widgets >", self, param_widget_maker, group, params, *args, **kwargs)
         if params is None:
             params = { par : self.params[par] for par in gui_params }
-        print(params)
         for par, value in params.items():
-            print(par)
-            desc = gui_params[par]
-            if 'gui' in desc and (group == '' or desc['gui'].get('group', '') == group):
-                yield param_widget_maker(self, par, value, desc, *args, **kwargs)
+            if par in gui_params:
+                desc = gui_params[par]
+                if 'gui' in desc and \
+                    (group == '' or desc['gui'].get('group', '') == group):
+                    yield param_widget_maker(self, par, value, desc, *args, **kwargs)
 
     def param_widget_info(self, name: str, value: Any, desc: Dict[str, Any]):
-        print("param_widget_info >", self, name, value, desc)
-        
+        # print("param_widget_info >", self, name, value, desc)
         info = ""
         if desc['gui']['widget'] == 'Select':
             info = value
@@ -219,12 +230,12 @@ class Window(param.Parameterized):
         )
 
     def params_widget_infos(self, group: str = '', params : Params = None):
-        print("params_widget_infos >", self, group, params)
+        # print("params_widget_infos >", self, group, params)
         return self._params_widgets(self.param_widget_info.__func__, group, params)
 
     def param_widget_setter(self, name: str, value: Any, desc: Dict[str, Any], 
                             callback: Callback):
-        print("param_widget_setter >", self, name, value, desc, callback)
+        # print("param_widget_setter >", self, name, value, desc, callback)
 
         def change_value(attr, old, new):
             self.params[name] = new
@@ -284,7 +295,7 @@ class Window(param.Parameterized):
 
     def params_widget_setters(self, group: str = '', params : Params = None,
             callback: Callback = lambda attr, old, new: None):
-        print("params_widget_setters >", self, group, params, callback)
+        # print("params_widget_setters >", self, group, params, callback)
         return self._params_widgets(self.param_widget_setter.__func__,
                                     group, params, callback)
 
@@ -430,7 +441,7 @@ class Database(Window):
                      for supercategory in self.params['db'][ds]['categories']
                      for category in self.params['db'][ds]['categories'][supercategory]
         })
-        print("ds_dict = ", self.params['db'][self.dataset_selector.value[0]])
+        # print("ds_dict = ", self.params['db'][self.dataset_selector.value[0]])
         cur_db().ds_filter = list(self.dataset_selector.value)
         self.dataset_apply_button.disabled = True
         self.next_button.disabled = False
@@ -608,6 +619,7 @@ class Task(Window):
 
         else:
             # CORE:
+            print("Creating an NNTask object ... " , end='', flush=True)
             self.params['task'] = NNTask(
                 category=self.params['task_category'],
                 type=self.params['task_type'],
@@ -620,11 +632,34 @@ class Task(Window):
                     'maximize': self.params['task_maximize_target']
                 }
             )
+            print("ok")
+
+            print("Getting recommended hyperparamters ... ", end='', flush=True)
             hparams = recommend_hparams(self.params['task'], trace_solution=True)
             self.params['recommended_hparams'] = hparams
             for k, v in hparams.items():
                 key = 'train.' + k
                 self.params[key] = v
+            print("ok")
+
+            print("Loading learning history ... ", end='', flush=True)
+            self.task_learning_history = [] # params_from_history(self.params['task'])
+            # TODO: вызов params_from_history выдает ошибку:
+            # SQLite objects created in a thread can only be used in that same thread
+            if len(self.task_learning_history) == 0:
+                objs = gui_params['task_objects']['values']
+                params = list(hparams.keys())
+                for _ in range(100):
+                    self.task_learning_history.append({
+                        'date': date(2020 + randint(0, 2), randint(1, 12), randint(1, 28)),
+                        'run_type': 'train',
+                        'objects': sample(objs, randint(2, min(5, len(objs)))),
+                        'metric_name': 'Метрика обучения',
+                        'metric_value': random(),
+                        'total_time': randint(60, 86400),
+                        'hparams': { k: hparams[k] for k in sample(params, len(params)//2) }
+                    })
+            print("ok")
 
             self.apply_button.disabled = True
             self.next_button.disabled = False
@@ -687,6 +722,7 @@ class Params(Window):
     def on_click_next(self, event):
         # вызвать train
         self.next_window = 'Training'
+        self.params['start_training'] = True
         self.close()
 
     def panel(self):
@@ -701,8 +737,6 @@ class Training(Window):
 
     def __init__(self, **params):
         super().__init__(**params)
-
-        self.is_start = self.prev_windows[-1] == 'Params'
 
         print("Create params_box ... ", end='', flush=True)
         self.params_box = Column(
@@ -752,30 +786,34 @@ class Training(Window):
             CustomJS(code='window.open("http://localhost:6006/#scalars");'))
         print("ok")
 
+        is_start = self.params['start_training']
+
         self.back_button=Button(
             label='Назад', width=100, button_type='primary',
-            disabled=self.is_start)
+            disabled=is_start)
         self.back_button.on_click(self.on_click_back)
 
         self.next_button=Button(
             label='История обучения', width=150, button_type='primary',
-            disabled=self.is_start)
+            disabled=is_start)
         self.next_button.on_click(self.on_click_next)
 
         self.stop_button=Button(
             label='Стоп', width=100, button_type='primary',
-            disabled=not self.is_start)
+            disabled=not is_start)
         self.stop_button.on_click(self.on_click_stop)
 
         self.continue_button=Button(
             label='Продолжить обучение', width=100, button_type='primary',
-            visible=not self.is_start)
+            visible=not is_start)
         self.continue_button.on_click(self.on_click_continue)
 
-        if self.is_start:
+        if is_start:
+            self.logs = ""
             self.start()
 
     def start(self):
+        self.params['start_training'] = False
         self.is_stop = False
         self.is_break = False
 
@@ -788,12 +826,13 @@ class Training(Window):
         hparams.update({gui_params[k]['param_key']: v for k, v in self.params.items()
                         if gui_params.get(k, {}).get('param_from', '') == 'train'})
         self.process = process(train)(
-            nn_task=self.params['task'],
-            stop_flag=self.stop, hparams=hparams, start=False)
+            nn_task=self.params['task'], stop_flag=self.stop, hparams=hparams, start=False)
         self.process.set_handler(
             'print', lambda *args, **kwargs: self.msg(*args, **kwargs))
         self.process.set_handler(
             'train_callback', lambda *args, **kwargs: self.on_train_callback(*args, **kwargs))
+        self.process.set_handler(
+            'append_history', lambda *args, **kwargs: self.append_history(*args, **kwargs))
         self.process.on_finish = lambda _: self.on_process_finish()
         print('Запуск процесса обучения')
         self.process.start()
@@ -861,6 +900,9 @@ class Training(Window):
         elif tp == 'finish':
             self.msg('Обучение завершено')
 
+    def append_history(self, history_item):
+        self.task_learning_history.append(history_item)
+
     def on_click_next(self,event):
         self.next_window = 'History'
         self.close()
@@ -909,31 +951,95 @@ class History(Window):
     def __init__(self, **params):
         super().__init__(**params)
 
-        self.models_list = pn.widgets.Select(
-            name='Список обученных моделй',
-            options=['Модель 1', 'Модель 2', 'Модель 3', 'Модель 4', 'Модель 5'],
-            size=31)
+        self.selected_params = None
+
+        data = { x:[] for x in ['dates', 'types', 'objects', 'funcs', 'values', 'times'] }
+        hparams = []
+        for h in self.task_learning_history:
+            data['dates'].append(h['date'])
+            data['types'].append(h['run_type'])
+            data['objects'].append(h['objects'])
+            data['funcs'].append(h['metric_name'])
+            data['values'].append(h['metric_value'])
+            data['times'].append(h['total_time'])
+            hparams.append(h['hparams'])
+
+        source = ColumnDataSource(data)
+
+        columns = [
+            TableColumn(field="dates", title="Дата"),
+            TableColumn(field="types", title="Задача"),
+            TableColumn(field="objects", title="Категории изображений"),
+            TableColumn(field="funcs", title="Функционал"),
+            TableColumn(field="values", title="Значение"),
+            TableColumn(field="times", title="Время обучения", 
+                        formatter=NumberFormatter(format='00:00:00')),
+        ]
+
+        self.history_table = DataTable(
+            source=source, columns=columns,
+            index_position=None, autosize_mode='fit_columns',
+            height=600, height_policy='fixed', sizing_mode='stretch_both',
+            css_classes=['bokeh-datatable'])
+
+        self.params_box = Column(
+            height=600, height_policy='fixed', visible=False,
+            css_classes=['panel-widget-box'], margin=(5,5,5,10))
+
+        def on_select(attr, old, new):
+            try:
+                selected_index = source.selected.indices[0]
+                self.selected_params = hparams[selected_index]
+                self.params_box.children = list(self.params_widget_infos(
+                    params=self.selected_params))
+                self.info_button.visible = True
+                self.save_button.disabled = False
+                self.next_button.disabled = False
+            except IndexError:
+                pass
+        source.selected.on_change('indices', on_select)
+
+        self.info_button=Toggle(
+            label='Параметры', width=110, button_type='primary', visible=False)
+        self.info_button.on_click(self.on_click_info)
+
+        self.save_button=Button(
+            label='Сохранить', width=110, button_type='primary', disabled=True)
+        self.save_button.on_click(self.on_click_save)
 
         self.next_button=Button(
-            label='Далее', align='end', width=100, button_type='primary')
+            label='Использовать', width=120, button_type='primary', disabled=True)
         self.next_button.on_click(self.on_click_next)
 
         self.back_button=Button(
-            label='Назад', align='start', width=100, button_type='primary')
+            label='Назад', width=100, button_type='primary')
         self.back_button.on_click(self.on_click_back)
 
+    def on_click_info(self, event):
+        self.params_box.visible = not self.params_box.visible
+
+    def on_click_save(self, event):
+        pass
+
     def on_click_next(self, event):
+        self.params.update(self.selected_params)
         self.next_window = 'Params'
         self.close()
 
     def panel(self):
         return pn.Column(
-            '# Меню обученных моделей', 
-            pn.Row(
-                self.models_list,
-                pn.WidgetBox('## Описание модели', min_width=500, height=500)
+            '# История обучений',
+            Row(
+                self.history_table,
+                self.params_box,
+                margin=(-5,5,10,0),
             ),
-            Row(self.back_button, self.next_button)
+            Row(
+                self.back_button, 
+                self.next_button, 
+                self.save_button, 
+                self.info_button,
+            )
         )
 
 
