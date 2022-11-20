@@ -146,6 +146,7 @@ TrainedNN/
 # Logs and databases
 Logs/
 logs/
+tmp/
 data/trainedNN/
 data/architectures/
 data/datasets/
