@@ -27,9 +27,14 @@ def check_coco_images(anno_file, image_dir):
         print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
 
 
+# current file path
+file_path = os.path.dirname(os.path.abspath(__file__))
+# path to test datasets
+test_datasets_path = os.path.join(file_path, 'datasets')
+
 # At first run download images from coco dataset
-check_coco_images('datasets/test1/annotations1.json', 'datasets/test1/images')
-check_coco_images('datasets/test2/annotations/train.json', 'datasets/test2/images')
+check_coco_images(f'{test_datasets_path}/test1/annotations1.json', f'{test_datasets_path}/test1/images')
+check_coco_images(f'{test_datasets_path}/test2/annotations/train.json', f'{test_datasets_path}/test2/images')
 
 
 @pytest.fixture(scope='module')
@@ -42,11 +47,12 @@ def db_dir():
 # Test database creation in temporary directory
 @pytest.mark.usefixtures('db_dir')
 def test_db(db_dir):
-    mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
+    mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite", dbconf_file=f"{test_datasets_path}/dbconf.json")
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir+'/test.sqlite')
 
-    mydb.fill_coco('datasets/test1/annotations1.json', file_prefix='datasets/test1/', first_time=True)
+    mydb.fill_coco(f'{test_datasets_path}/test1/annotations1.json',
+                   file_prefix=f'{test_datasets_path}/test1/', first_time=True)
     mydb.close()
 
     mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
@@ -54,7 +60,14 @@ def test_db(db_dir):
     print(f'Categories: {list(mydb.get_all_categories()["name"])}')
     assert set(mydb.get_all_categories()['name']) == {'bicycle', 'airplane'}
 
-    mydb.fill_coco('datasets/test2/annotations/train.json', file_prefix='datasets/test2/', first_time=False)
+    mydb.fill_in_coco_format(f'{test_datasets_path}/test2/annotations/train.json',
+                             file_prefix=f'{test_datasets_path}/test2/',
+                             ds_info={'description': 'test2',
+                                      'url': f'{test_datasets_path}/test2/',
+                                        'version': '1.0',
+                                        'year': 2020,
+                                        'contributor': 'test',
+                                        'date_created': '2020-01-01'})
     assert len(mydb.get_all_datasets()) == 2
     print(f'Categories: {list(mydb.get_all_categories()["name"])}')
     assert set(mydb.get_all_categories()['name']) == {'bicycle', 'airplane', 'cat', 'dog'}

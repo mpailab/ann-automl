@@ -39,6 +39,12 @@ def set_emulation(emulation=True):
     _emulation = emulation
 
 
+def cur_db():
+    """ Возвращает текущий объект базы данных """
+    global nnDB
+    return nnDB
+
+
 def set_multithreading_mode(mode=True):
     """ Set the multithreading mode """
     global nnDB
@@ -293,7 +299,10 @@ nn_hparams = {
 
 tune_hparams = {
     'method': {'type': 'str',
-               'values': {'grid': {'params': ['radius', 'grid_metric', 'start_point']}},
+               'values': {
+                   'grid': {'params': ['radius', 'grid_metric', 'start_point']},
+                   'history': {'params': ['exact_category_match']}
+               },
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
@@ -302,6 +311,8 @@ tune_hparams = {
                     'title': 'Метрика на сетке', 'cond': True},
     'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
                     'title': 'Начальная точка', 'cond': True},
+    'exact_category_match': {'type': 'bool', 'default': False,
+                             'title': 'Точное совпадение списка категорий', 'cond': True},
 }
 
 
@@ -409,68 +420,6 @@ def create_model(base, last_layers, dropout=0.0):
         y = create_layer(**layer)(y)
 
     return keras.models.Model(inputs=x, outputs=y)
-
-
-
-
-class RunHistory:
-    def __init__(self, file_name, fmt=None):
-        self.file_name = file_name
-        if fmt is None:
-            if self.file_name.endswith('.json'):
-                fmt = 'json'
-            elif self.file_name.endswith('.yaml') or self.file_name.endswith('.yml'):
-                fmt = 'yaml'
-            elif self.file_name.endswith('.pickle') or self.file_name.endswith('.pkl'):
-                fmt = 'pickle'
-            else:
-                raise ValueError(f'Unknown format for file {self.file_name}')
-        self.format = fmt
-        self.history = []
-        self.need_save = False
-        self.load()
-
-    def add_entry(self, entry, save=True):
-        self.history.append(entry)
-        if save:
-            self.save()
-        else:
-            self.need_save = True
-
-    def load(self):
-        if os.path.exists(self.file_name):
-            if self.format == 'json':
-                with open(self.file_name, 'r') as f:
-                    self.history = json.load(f)
-            elif self.format == 'yaml':
-                import yaml
-                with open(self.file_name, 'r') as f:
-                    self.history = yaml.load(f, Loader=yaml.SafeLoader)
-            elif self.format == 'pickle':
-                import pickle
-                with open(self.file_name, 'rb') as f:
-                    self.history = pickle.load(f)
-            else:
-                raise ValueError(f'Unknown format {self.format}')
-        else:
-            self.history = []
-        self.need_save = False
-
-    def save(self):
-        if not self.need_save:
-            return
-        if self.format == 'json':
-            with open(self.file_name, 'w') as f:
-                json.dump(self.history, f)
-        elif self.format == 'yaml':
-            import yaml
-            with open(self.file_name, 'w') as f:
-                yaml.dump(self.history, f)
-        elif self.format == 'pickle':
-            import pickle
-            with open(self.file_name, 'wb') as f:
-                pickle.dump(self.history, f)
-        self.need_save = False
 
 
 class ExperimentHistory:
@@ -609,7 +558,8 @@ def save_history(filepath, objects, run_type, model_path, metric_name, metric_va
                **params,
                'result_path': model_path,
                'metric_name': metric_name,
-               'metric_value': metric_value}
+               'metric_value': metric_value,
+               'objects': objects}
     if format is None:
         format = filepath.split('.')[-1]
     if format == 'json':
@@ -629,6 +579,7 @@ def save_history(filepath, objects, run_type, model_path, metric_name, metric_va
                           model_address=model_path,
                           metrics={metric_name: metric_value},
                           history_address=filepath)
+    pcall('append_history', history)
     return history
 
 
@@ -658,28 +609,36 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     # set up callbacks
     check_metric = 'val_' + hparams['metrics']
     date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
-    c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
-    c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/best_weights.h5', monitor=check_metric, verbose=1,
-                                           save_best_only=True, save_weights_only=False, mode='auto')
-    c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
-    c_t = TimeHistory()
-    # clear tensorboard logs
-    if os.path.exists(tensorboard_logdir()):
-        shutil.rmtree(tensorboard_logdir(), ignore_errors=True)
-    os.makedirs(tensorboard_logdir(), exist_ok=True)
 
-    c_tb = keras.callbacks.TensorBoard(
-        log_dir=tensorboard_logdir(),  # , datetime.now().strftime("%Y%m%d-%H%M%S")),
-        histogram_freq=1
-    )
-    callbacks = [c_log, c_ch, c_es, c_t, c_tb, NotifyCallback()]
+    if not _emulation:
+        c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
+        c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/best_weights.h5', monitor=check_metric, verbose=1,
+                                               save_best_only=True, save_weights_only=False, mode='auto')
+        c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
+        # clear tensorboard logs
+        if os.path.exists(tensorboard_logdir()):
+            shutil.rmtree(tensorboard_logdir(), ignore_errors=True)
+        os.makedirs(tensorboard_logdir(), exist_ok=True)
+
+        c_tb = keras.callbacks.TensorBoard(
+            log_dir=tensorboard_logdir(),  # , datetime.now().strftime("%Y%m%d-%H%M%S")),
+            histogram_freq=1
+        )
+        callbacks = [c_log, c_ch, c_es, c_tb]
+    else:
+        callbacks = []
+
+    c_t = TimeHistory()
+    callbacks += [c_t, NotifyCallback()]
     if stop_flag is not None:
         callbacks.append(CheckStopCallback(stop_flag))
 
     if _emulation:
         scores = emulate_fit(model, generators[0], len(generators[0].filenames) // hparams['batch_size'],
-                             hparams['epochs'], callbacks[3:], generators[1])
+                             hparams['epochs'], callbacks, generators[1])
     else:
+        printlog("Fit model")
+        printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
         # fit model
         model.fit(x=generators[0],
                   steps_per_epoch=len(generators[0].filenames) // hparams['batch_size'],
@@ -695,6 +654,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     if history is not None:
         history.add_row(hparams, scores[1], cur_subdir, c_t.times, c_t.total_time, save=True)
 
+    printlog("Save history")
     record = save_history(cur_subdir + '/history.json', objects, 'train', cur_subdir + '/best_weights.h5',
                           hparams['metrics'],
                           scores[1], dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
@@ -715,10 +675,13 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
     if model is None:
+        printlog("Create model")
         model = create_model(hparams['pipeline'], hparams['last_layers'], hparams.get('dropout', 0.0))
     elif isinstance(model, str):  # model is path to weights
+        printlog("Load model")
         model = keras.models.load_model(model)
     elif not isinstance(model, keras.models.Model):
+        printlog("Create generators")
         raise TypeError('model must be either path to weights or keras.models.Model or None')
 
     generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'])
@@ -743,8 +706,9 @@ def train(nn_task, hparams, stop_flag=None, model=None) -> Tuple[List[float], di
     test_ratio = hparams.get('test_frac', 0.15)
     val_ratio = hparams.get('val_frac', 0.15)
     exp_name, exp_dir = create_exp_dir('train', nn_task)
+    printlog("Prepare data subset for training")
     data = create_data_subset(nn_task.objects, exp_dir,
-                              crop_bbox=hparams.get('crop_bbox', True),
+                              crop_bbox=hparams.get('crop_bbox', not _emulation),
                               split_points=(1 - val_ratio - test_ratio, 1 - test_ratio))
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
     return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag, model=model)
@@ -777,32 +741,57 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
 }
 
 
-def param_values(default=None, values=None, step=None, scale=None, zero_point=None, type=None, **kwargs):
+def param_values(default=None, values=None, step=None, scale=None,
+                 zero_point=None, type=None, return_str=False, **kwargs):
+    pos = None
     if 'range' in kwargs:
         mn, mx = kwargs['range']
         if scale == 'log':
             back = round(math.log(mn/default, step))
             forward = round(math.log(mx/default, step))
             res = [default * step ** i for i in range(back, forward + 1)]
+            pos = -back
         elif scale == '1-log':
-            back = round(math.log((1-mx)/default, step))
-            forward = round(math.log((1-mn)/default, step))
-            res = [1-default * step ** i for i in range(forward, back-1, -1)]
+            back = round(math.log((1-mx)/(1-default), step))
+            forward = round(math.log((1-mn)/(1-default), step))
+            res = [1-(1-default) * step ** i for i in range(forward, back-1, -1)]
+            pos = forward
         elif scale == 'lin':
             back = round((mn - default) / step)
             forward = round((mx - default) / step)
             res = [default + step * i for i in range(back, forward + 1)]
+            pos = -back
         else:
             raise ValueError(f'Unknown scale {scale}')
         if type == 'int':
             res = [int(round(x)) for x in res]
         if zero_point:
-            res = [0] + res
-        return res
+            res = ['0' if return_str else 0] + res
+        if return_str:
+            if type == 'float':
+                if scale == 'log':
+                    res = [f'{x:.3}' for x in res]
+                elif scale == '1-log':
+                    res = [f'{x:.6f}' for x in res]
+                elif step >= 1:
+                    res = [f'{x:.1f}' for x in res]
+                else:
+                    prec = int(round(-math.log(step, 10)+0.499))
+                    res = [f'{round(x,prec):.{prec}f}' for x in res]
+            else:
+                res = [str(x) for x in res]
+        return res, pos
     elif values is not None:
         if isinstance(values, dict):
-            return list(values.keys()), list(values.values())
-        return list(values)
+            k, v = list(values.keys()), list(values.values())
+            if default is not None:
+                pos = k.index(default)
+            return (k, v), pos
+        if default is not None:
+            pos = values.index(default)
+        if return_str:
+            return [str(x) for x in values], pos
+        return list(values), pos
     else:
         raise ValueError('Either `range` or `values` should be specified')
 
@@ -829,7 +818,7 @@ class HyperParamGrid:
         self.axis = []
         self.deps = []
         for param in tuned_params:
-            v = param_values(**grid_hparams_space[param])
+            v, _ = param_values(**grid_hparams_space[param])
             if isinstance(v, tuple):
                 self.axis.append(v[0])
                 self.deps.append([x.get('params', []) for x in v[1]])
@@ -1141,7 +1130,7 @@ def load_history(history_file) -> dict:
 
 
 def params_from_history(nn_task):
-    history = nnDB.get_models_by_filter({
+    history = cur_db().get_models_by_filter({
         'min_metrics': {nn_task.metric: nn_task.target},
         'categories': list(nn_task.objects),
     })
