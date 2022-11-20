@@ -1,6 +1,6 @@
 from ann_automl.core.nn_solver import recommend_hparams, NNTask
 from ann_automl.core.nnfuncs import train, tune, set_emulation, multithreading_mode, params_from_history
-from ann_automl.core import nn_rules_simplified
+from ann_automl.core import nn_recommend
 
 
 def test_recommend():

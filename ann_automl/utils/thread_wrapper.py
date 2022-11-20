@@ -44,7 +44,6 @@ class ObjectWrapper:
         if callable(attr):
             def wrapper(*args, **kwargs):
                 def request():
-                    print(f"Request process loop: executing {name}({args}, {kwargs}) in thread {self._thread.ident}")
                     return attr(*args, **kwargs)
                 self._request_queue.put(request)
                 return self._response_queue.get()
