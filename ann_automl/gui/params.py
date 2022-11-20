@@ -48,14 +48,15 @@ all_hparams = {
 param_groups = {
     'Learning': ['train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
                  'train.decay', 'train.activation',
-                 'train.loss', 'train.metrics', 'train.dropout', 'train.kernel_initializer',
-                 'train.bias_initializer',
-                 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
-                 'train.kernel_constraint', 'train.bias_constraint'],
+                 'train.loss', 'train.metrics', 'train.dropout',
+                 # 'train.kernel_initializer', 'train.bias_initializer',
+                 # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
+                 # 'train.kernel_constraint', 'train.bias_constraint'
+                 ],
     'Optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
                   'train.beta_1', 'train.beta_2'],
-    'Tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point']
+    'Tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point', 'tune.exact_category_match']
 }
 
 
