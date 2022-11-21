@@ -39,6 +39,11 @@ def set_emulation(emulation=True):
     _emulation = emulation
 
 
+def set_db(db):
+    global nnDB
+    nnDB = db
+
+
 def cur_db():
     """ Возвращает текущий объект базы данных """
     global nnDB
@@ -380,7 +385,7 @@ class EmulateGen:
         self.filenames = [f'{i}.jpg' for i in range(len(data))]
 
 
-def create_generators(model, data, augmen_params, batch_size):
+def create_generators(model, data, augmen_params, batch_size, num_classes):
     """
     Создание генераторов изображений по заданным в curStrategy параметрам аугментации
     В этот прием попадем как при первичном обучении, так и при смене параметров аугментации после обучения модели
@@ -395,6 +400,12 @@ def create_generators(model, data, augmen_params, batch_size):
         return EmulateGen(df_train), EmulateGen(df_validate), EmulateGen(df_test)
 
     data_gen = ImageDataGenerator(augmen_params)
+
+    flow_args['class_mode'] = 'binary' if num_classes == 2 else 'categorical'
+    flow_args['classes'] = list(map(str, range(num_classes)))
+    df_train['target'] = df_train['target'].apply(str)
+    df_validate['target'] = df_validate['target'].apply(str)
+    df_test['target'] = df_test['target'].apply(str)
 
     train_generator = data_gen.flow_from_dataframe(df_train, x_col=list(df_train.columns)[0],
                                                    y_col=list(df_train.columns)[1], **flow_args)
@@ -413,11 +424,11 @@ def create_layer(type, **kwargs):
 def create_model(base, last_layers, dropout=0.0):
     y = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
     # insert dropout layer if needed
-    if dropout > 0:
-        y = keras.layers.Dropout(dropout)(y.output)
     input_shape = y.input_shape[1:]
     x = keras.layers.Input(shape=input_shape)
     y = y(x)
+    if dropout > 0:
+        y = keras.layers.Dropout(dropout)(y)
     for layer in last_layers:
         y = create_layer(**layer)(y)
 
@@ -640,18 +651,18 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         callbacks.append(CheckStopCallback(stop_flag))
 
     if _emulation:
-        scores = emulate_fit(model, generators[0], len(generators[0].filenames) // hparams['batch_size'],
+        scores = emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
                              hparams['epochs'], callbacks, generators[1])
     else:
         printlog("Fit model")
         printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
         # fit model
         model.fit(x=generators[0],
-                  steps_per_epoch=len(generators[0].filenames) // hparams['batch_size'],
+                  steps_per_epoch=max(1, len(generators[0].filenames) // hparams['batch_size']),
                   epochs=hparams['epochs'],
                   validation_data=generators[1],
                   callbacks=callbacks,
-                  validation_steps=len(generators[1].filenames) // hparams['batch_size'])
+                  validation_steps=max(1, len(generators[1].filenames) // hparams['batch_size']))
 
         # evaluate model
         scores = model.evaluate(generators[2], steps=None, verbose=1)
@@ -685,6 +696,8 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
     if model is None:
         printlog("Create model")
         model = create_model(hparams['pipeline'], hparams['last_layers'], hparams.get('dropout', 0.0))
+        model.save(cur_subdir + '/initial_model.h5')
+        tf.keras.utils.plot_model(model, to_file=cur_subdir + '/model_plot.png', rankdir='TB', show_shapes=True)
     elif isinstance(model, str):  # model is path to weights
         printlog("Load model")
         model = keras.models.load_model(model)
@@ -692,7 +705,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
         printlog("Create generators")
         raise TypeError('model must be either path to weights or keras.models.Model or None')
 
-    generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'])
+    generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'], len(objects))
     return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag)
 
 

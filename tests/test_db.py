@@ -8,33 +8,14 @@ import shutil
 import pytest
 
 
-def check_coco_images(anno_file, image_dir):
-    if os.path.exists(image_dir):
-        return
-    print(f'Downloading COCO images for test (annotations = {anno_file})')
-    from pycocotools.coco import COCO
-    import requests
-    coco = COCO(anno_file)
-    img_ids = coco.getImgIds()
-    if not os.path.exists(image_dir):
-        os.makedirs(image_dir, exist_ok=True)
-    print_progress_bar(0, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
-    for i, img_id in enumerate(img_ids):
-        img = coco.loadImgs([img_id])[0]
-        img_data = requests.get(img['coco_url']).content
-        with open(image_dir + '/' + img['file_name'], 'wb') as handler:
-            handler.write(img_data)
-        print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
-
-
 # current file path
 file_path = os.path.dirname(os.path.abspath(__file__))
 # path to test datasets
 test_datasets_path = os.path.join(file_path, 'datasets')
 
 # At first run download images from coco dataset
-check_coco_images(f'{test_datasets_path}/test1/annotations1.json', f'{test_datasets_path}/test1/images')
-check_coco_images(f'{test_datasets_path}/test2/annotations/train.json', f'{test_datasets_path}/test2/images')
+db.check_coco_images(f'{test_datasets_path}/test1/annotations1.json', f'{test_datasets_path}/test1/images')
+db.check_coco_images(f'{test_datasets_path}/test2/annotations/train.json', f'{test_datasets_path}/test2/images')
 
 
 @pytest.fixture(scope='module')
