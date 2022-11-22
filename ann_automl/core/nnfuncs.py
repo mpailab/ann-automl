@@ -979,21 +979,27 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
     Returns:
-        Пара (best_params, best_score), где
+        Пара (best_params, best_score, params_of_best), где
             best_params -- лучшие найденные гиперпараметры,
-            best_score -- значение метрики на лучших гиперпараметрах.
+            best_score -- значение метрики на лучших гиперпараметрах,
+            params_of_best -- список с параметрами лучшей обученной модели.
     """
     grid = HyperParamGrid(hparams, tuned_params)
     grid_size = list(map(len, grid.axis))
     cat_axis = ['values' in grid_hparams_space[p] for p in tuned_params]
 
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
+    best_point, best_score = None, None
+    params_of_best = None
 
     def fit_and_get_score(params):
-        scores, _ = create_and_train_model(params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
-        return nn_task.func(scores)
+        scores, p = create_and_train_model(params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
+        val = nn_task.func(scores)
+        nonlocal params_of_best, best_score
+        if best_score is None or val > best_score:
+            params_of_best = params
+        return val
 
-    best_point, best_score = None, None
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
                                                 grid, start_point, grid_metric, radius):
         if stop_flag is not None and stop_flag.stop:
@@ -1011,7 +1017,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     else:
         printlog("did not achieve target score")
 
-    return best_point, best_score
+    return best_point, best_score, params_of_best
 
 
 def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None,
@@ -1063,13 +1069,16 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
 def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, **kwargs):
     """
     Оптимизирует гиперпараметры обучения нейронной сети.
+
     Args:
         nn_task (NNTask): Задача, для которой оптимизируются параметры.
-        tuned_params (list): Параметры, которые будут оптимизироваться.
+        tuned_params (list or str): Параметры, которые будут оптимизироваться (если 'all',
+            то будут оптимизироваться все гиперпараметры, для которых предусмотрена оптимизация).
         method (str): Метод оптимизации (пока поддерживается только 'grid').
         hparams (dict): Исходные гиперпараметры, часть из них будет оптимизироваться.
         stop_flag (StopFlag, optional): Флаг, который можно использовать для остановки оптимизации.
         **kwargs: Дополнительные параметры для метода оптимизации.
+
     Returns:
         Пара (best_params, best_score), где
             best_params -- лучшие найденные гиперпараметры,

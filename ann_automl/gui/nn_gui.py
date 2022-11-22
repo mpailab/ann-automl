@@ -22,9 +22,9 @@ from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 import ann_automl.gui.tensorboard as tb
-from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
+from ..core.nn_solver import loss_target, metric_target, NNTask
 from ..core.nnfuncs import cur_db, StopFlag, train, param_values, tensorboard_logdir, params_from_history
-from ..core import nn_recommend
+from ..core.nn_recommend import recommend_hparams
 
 Callback = Callable[[Any, Any, Any], None]
 Params = Optional[Dict[str, Any]]

@@ -601,8 +601,9 @@ class DBModule:
         if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:
             df_new = pd.DataFrame(columns=['images', 'target'], data=df[[
                                   'file_name', 'category_id']].values)
-            min_cat = df_new['target'].min()
-            df_new['target'] = df_new['target'] - min_cat
+            df_new['target'] = df_new['target'].astype('category').cat.codes
+            # min_cat = df_new['target'].min()
+            # df_new['target'] = df_new['target'] - min_cat
             return df_new
         return df
 
@@ -678,7 +679,7 @@ class DBModule:
         np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
         return {'train': f'{save_dir}train.csv', 'test': f'{save_dir}test.csv', 'validate': f'{save_dir}val.csv'}
 
-    def _process_query(self, query, with_segmentation, kwargs):
+    def _process_query(self, query, cat_names, with_segmentation, kwargs):
         """
         Helper to process SQL query for Annotations
             - query -> sqlalchemy query object
@@ -708,9 +709,9 @@ class DBModule:
             g = df_new.groupby('target', group_keys=False)
             # balance-out too large categories with random selection:
             df_new = g.apply(lambda x: x.sample(g.size().min()).reset_index(drop=True))
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
         if kwargs.get('balance_by_categories', False):
             cat_names = [el for el in kwargs['balance_by_categories']]
-            cat_ids = self.get_cat_IDs_by_names(cat_names)
             cat_ids_dict = {}
             for i in range(len(cat_ids)):
                 if cat_ids[i] != -1:
@@ -721,8 +722,13 @@ class DBModule:
             df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))
         # A fancy patch for keras to start numbers from 0
         if kwargs.get('normalize_cats', False):
-            # change category ids to form range(0, num_cats)
-            df_new['target'] = df_new['target'].astype('category').cat.codes
+            # change category ids to form range(0, num_cats) according to order in cat_names
+            cat_ids_dict = {}
+            for i in range(len(cat_ids)):
+                if cat_ids[i] != -1:
+                    cat_ids_dict[cat_ids[i]] = i
+            df_new['target'] = df_new['target'].map(cat_ids_dict)
+            # df_new['target'] = df_new['target'].astype('category').cat.codes
             # print(set(df_new['target']))
             # min_cat = df_new['target'].min()
             # df_new['target'] = df_new['target'] - min_cat
@@ -758,7 +764,7 @@ class DBModule:
         if with_segmentation:
             # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
             query = query.filter(func.length(self.Annotation.segmentation) > 2)
-        return self._process_query(query, with_segmentation, kwargs)
+        return self._process_query(query, cat_names, with_segmentation, kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
         """Method to load annotations from specific categories, given their IDs.
@@ -786,7 +792,7 @@ class DBModule:
         if with_segmentation:
             # lengths 0 and 1 do not work since there are records with empty brackets
             query = query.filter(func.length(self.Annotation.segmentation) > 2)
-        return self._process_query(query, with_segmentation, kwargs)
+        return self._process_query(query, cat_names, with_segmentation, kwargs)
 
     def load_specific_categories_from_specific_datasets_annotations(self, dataset_categories_dict, **kwargs):
         """Method to load annotations from specific datasets filtered by specific categories (different from load_categories_datasets_annotations).
@@ -849,12 +855,10 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation
                                 ).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:  # TODO: This is an awful patch for keras
+        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:
             df_new = pd.DataFrame(columns=['images', 'target'],
                                   data=df[['file_name', 'category_id']].values)
             df_new['target'] = df_new['target'].astype('category').cat.codes
-            # min_cat = df_new['target'].min()
-            # df_new['target'] = df_new['target'] - min_cat
             return df_new
         return df
 
@@ -962,7 +966,7 @@ class DBModule:
             im_counter += 1
             if im_counter % 10 == 0 or im_counter == len(images) - 2:
                 print_progress_bar(im_counter, len(images),
-                    prefix='Adding images:', suffix='Complete', length=50)
+                                   prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0

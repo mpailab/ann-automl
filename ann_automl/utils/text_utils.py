@@ -48,7 +48,7 @@ def convert(x):
     return ReprWrapper(f"load64('''{x}''',{dump64(x)})")
 
 
-def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', print_end="\r"):
+def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='#', print_end="\r"):
     """
     Helper to display progress bar, source from https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
     Call in a loop to create terminal progress bar
