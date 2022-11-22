@@ -170,7 +170,7 @@ thread_vars.pdelayed = None
 
 
 def pstate():
-    return thread_vars.pdelayed
+    return getattr(thread_vars, 'pdelayed', None)
 
 
 def set_pstate(**kwargs):

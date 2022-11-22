@@ -22,13 +22,15 @@ from ..utils.process import process
 from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tb
 from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
-from ..core.nnfuncs import cur_db, StopFlag, train, param_values, params_from_history
+from ..core.nnfuncs import cur_db, StopFlag, train, param_values, tensorboard_logdir, params_from_history
+from ..core import nn_recommend
 
 Callback = Callable[[Any, Any, Any], None]
 Params = Optional[Dict[str, Any]]
 
 # Launch TensorBoard
-tb.start("--logdir ./logs --host 0.0.0.0 --port 6006")
+#tb.start(f"--logdir {tensorboard_logdir()} --host 0.0.0.0 --port 6006")
+tb.start(f"--logdir {tensorboard_logdir()} --port 6006")
 
 shadow_border_css = '''
 .bk.ann-automl-shadow-border {
@@ -198,7 +200,7 @@ class ParamWidget(object):
             try:
                 formatter = bokeh.models.FuncTickFormatter(
                     code=f"const labels = {str_values};\nreturn labels[tick];")
-            except:
+            except Exception:
                 traceback.print_exc()
                 raise
 
@@ -635,21 +637,8 @@ class NNGui(object):
             print("ok")
 
             print("Loading learning history ... ", end='', flush=True)
-            learning_histories = [] # params_from_history(self.task)
-            # TODO: вызов params_from_history выдает ошибку:
-            # SQLite objects created in a thread can only be used in that same thread
-            objs = self.task_objects.value
-            params = list(hparams.keys())
-            for _ in range(100):
-                learning_histories.append({
-                        'date': date(2020 + randint(0, 2), randint(1, 12), randint(1, 28)),
-                        'run_type': 'train',
-                        'objects': sample(objs, randint(2, min(5, len(objs)))),
-                        'metric_name': 'Метрика обучения',
-                        'metric_value': random(),
-                        'total_time': randint(60, 86400),
-                        'hparams': { k: hparams[k] for k in sample(params, len(params)//2) }
-                    })
+            learning_histories = params_from_history(self.task)
+            # TODO: может всё-таки историю не всегда, а только по запросу загружать?
             self.update_history_interface(learning_histories)
             print("ok")
 
@@ -765,6 +754,8 @@ class NNGui(object):
         self.is_train_stop = True
 
     def on_train_callback(self, tp, batch=None, epoch=None, logs=None, model=None):
+        if model is not None:
+            self.model = model
         if tp == 'epoch':
             self.msg(f'Эпоха {epoch}: {logs}')
             self.add_plot_point(epoch, logs['loss'], logs['accuracy'], 
@@ -795,7 +786,8 @@ class NNGui(object):
 
         self.stop = StopFlag()
         self.process = process(train)(nn_task=self.task, stop_flag=self.stop, 
-                                      hparams=self.hparams(), start=False)
+                                      hparams=self.hparams(), start=False,
+                                      model=self.model)
         self.process.set_handler(
             'print', lambda *args, **kwargs: self.msg(*args, **kwargs))
         self.process.set_handler(
@@ -848,6 +840,7 @@ class NNGui(object):
         self.loss_acc_plot_attr = dict(epochs = [], losses = [], accuracies = [],
                                        val_losses = [], val_accuracies = [],
                                        last_epoch = 0)
+        self.model = None
         self.trining_tools_box = Box(self.loss_acc_plot)
         print("ok")
 
@@ -902,37 +895,43 @@ class NNGui(object):
         self.history_apply_button.disabled = True
 
     def init_history_interface(self):
-        self.history_hparams = []
-        source = ColumnDataSource({ x:[] for x in ['dates', 'funcs', 'values', 'times'] })
-        self.history_table = Table(source, [
-                TableColumn(field="dates", title="Дата"),
-                TableColumn(field="funcs", title="Функционал"),
-                TableColumn(field="values", title="Значение"),
-                TableColumn(field="times", title="Время обучения", 
-                            formatter=NumberFormatter(format='00:00:00')),
-            ])
+        try:
+            self.history_hparams = []
+            source = ColumnDataSource({ 
+                    x:[] for x in ['dates', 'funcs', 'values', 'times']
+                })
+            self.history_table = Table(source, [
+                    TableColumn(field="dates", title="Дата"),
+                    TableColumn(field="funcs", title="Функционал"),
+                    TableColumn(field="values", title="Значение"),
+                    TableColumn(field="times", title="Время обучения", 
+                                formatter=NumberFormatter(format='00:00:00')),
+                ])
 
-        def on_select_history_item(attr, old, new):
-            try:
-                for widget in [*self.train_params, *self.optimizer_params]:
-                    widget.hide()
-                self.history_params = []
-                i = source.selected.indices[0]
-                for k,v in self.history_hparams[i].items():
-                    if hasattr(self, f'train_{k}'):
-                        # TODO: Среди рекомендованных параметров встречаются те,
-                        # которые не имеют параметра 'gui', поэтому для них
-                        # не были созданы виджеты
-                        widget = getattr(self, f'train_{k}')
-                        self.history_params.append(widget)
-                        widget.value = v
-                        widget.activate()
-                self.history_params_button.visible = True
-                self.history_download_button.disabled = False
-                self.history_apply_button.disabled = False
-            except IndexError:
-                pass
-        source.selected.on_change('indices', on_select_history_item)
+            def on_select_history_item(attr, old, new):
+                try:
+                    for widget in [*self.train_params, *self.optimizer_params]:
+                        widget.hide()
+                    self.history_params = []
+                    i = source.selected.indices[0]
+                    for k,v in self.history_hparams[i].items():
+                        if hasattr(self, f'train_{k}'):
+                            # TODO: Среди рекомендованных параметров встречаются те,
+                            # которые не имеют параметра 'gui', поэтому для них
+                            # не были созданы виджеты
+                            widget = getattr(self, f'train_{k}')
+                            self.history_params.append(widget)
+                            widget.value = v
+                            widget.activate()
+                    self.history_params_button.visible = True
+                    self.history_download_button.disabled = False
+                    self.history_apply_button.disabled = False
+                except IndexError:
+                    pass
+            source.selected.on_change('indices', on_select_history_item)
+        except Exception as e:
+            traceback.print_exc()
+            print(f'Exception occured during History.__init__: {e}')
 
         self.history_params_box = Box(Spacer(height=10), 
                                       *[w.interface for w in self.train_params],
@@ -950,14 +949,19 @@ class NNGui(object):
         self.history_interfaces = [self.history_table, self.history_params_box]
 
     def update_history_interface(self, histories):
-        data = { x:[] for x in ['dates', 'funcs', 'values', 'times'] }
-        self.history_hparams = []
-        for h in histories:
-            data['dates'].append(h['date'])
-            data['funcs'].append(h['metric_name'])
-            data['values'].append(h['metric_value'])
-            data['times'].append(h['total_time'])
-            self.history_hparams.append(h['hparams'])
+        try:
+            data = { x:[] for x in ['dates', 'funcs', 'values', 'times'] }
+            self.history_hparams = []
+            for h in histories:
+                data['dates'].append(h['date'])
+                data['funcs'].append(h['metric_name'])
+                data['values'].append(h['metric_value'])
+                data['times'].append(h.get('total_time', -1.0))
+                self.history_hparams.append(h['hparams'])
+        except Exception as e:
+            traceback.print_exc()
+            print(f'Exception occured during History.__init__: {e}')
+            
         self.history_table.source.data = data
 
     def activate_history_interface(self):

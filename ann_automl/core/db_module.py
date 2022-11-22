@@ -24,6 +24,25 @@ from ann_automl.utils.text_utils import print_progress_bar
 Base = declarative_base()
 
 
+def check_coco_images(anno_file, image_dir):
+    if os.path.exists(image_dir):
+        return
+    print(f'Downloading COCO images for test (annotations = {anno_file})')
+    from pycocotools.coco import COCO
+    import requests
+    coco = COCO(anno_file)
+    img_ids = coco.getImgIds()
+    if not os.path.exists(image_dir):
+        os.makedirs(image_dir, exist_ok=True)
+    print_progress_bar(0, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
+    for i, img_id in enumerate(img_ids):
+        img = coco.loadImgs([img_id])[0]
+        img_data = requests.get(img['coco_url']).content
+        with open(image_dir + '/' + img['file_name'], 'wb') as handler:
+            handler.write(img_data)
+        print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
+
+
 class DBModule:
 
     ############################################################
@@ -363,7 +382,7 @@ class DBModule:
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
         return
 
-    def fill_in_coco_format(self, anno_file_name, file_prefix, ds_info):
+    def fill_in_coco_format(self, anno_file_name, file_prefix, ds_info, auto_download=False):
         """Method to add new dataset in COCO format into db. It is supposed to be called for each new dataset.
 
         Args:
@@ -371,7 +390,11 @@ class DBModule:
             file_prefix (str): prefix added to the file names in annotation file
             ds_info (dict): dictionary with info about dataset. Necessary keys:
                 description, url, version, year, contributor, date_created
+            auto_download (bool): if True and directory file_prefix doesn`t exist,
+                                  then download images from url in annotation file
         """
+        if auto_download:
+            check_coco_images(anno_file_name, file_prefix)
         if not os.path.isfile(anno_file_name):
             raise FileNotFoundError(f'No file {anno_file_name} found, stop filling dataset')
         if not os.path.isdir(file_prefix):
@@ -886,7 +909,8 @@ class DBModule:
         self.sess.commit()  # adding dataset
         return dataset.ID
 
-    def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='', respect_ids=False):
+    def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='',
+                                   respect_ids=False):
         """Method to add a chunk of images and their annotations to DB.
 
         Parameters
@@ -908,6 +932,7 @@ class DBModule:
         -------
         None
         """
+
         if file_prefix[-1] not in ['\\', '/']:
             file_prefix += '/'
         if not os.path.isfile(file_prefix + images[0]['file_name']):
@@ -1016,8 +1041,7 @@ class DBModule:
                                                 model_id=model_from_db.ID,
                                                 history_address=abs_history_address)
             self.sess.add(new_train_result)
-            self.sess.commit()
-        return
+        self.sess.commit()
 
     def update_train_result_record(self, model_address, metric_name, metric_value, history_address=''):
         """
