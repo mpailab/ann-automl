@@ -737,8 +737,8 @@ class Training(Window):
         self.params_box = Column(
             *self.params_widget_infos(),
             height=730, height_policy='fixed', visible=True,
-            css_classes=['ann-automl-shadow-border'], 
-            margin=(10,10,10,10))
+            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'], 
+            margin=(10, 10, 10, 10))
         print("ok")
 
         print("Create output_box ... ", end='', flush=True)
@@ -748,7 +748,7 @@ class Training(Window):
         self.output_box = Column(
             self.output,
             height=730, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['ann-automl-shadow-border'], 
+            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'], 
             margin=(10,10,10,10))
         print("ok")
 
@@ -766,7 +766,7 @@ class Training(Window):
         self.tools_box = Column(
             self.loss_acc_plot,
             height=730, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['ann-automl-shadow-border'], 
+            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'], 
             margin=(10,10,10,10))
         print("ok")
 
@@ -978,11 +978,11 @@ class History(Window):
             source=source, columns=columns,
             index_position=None, autosize_mode='fit_columns',
             height=600, height_policy='fixed', sizing_mode='stretch_both',
-            css_classes=['ann-automl-shadow-border'])
+            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'])
 
         self.params_box = Column(
             height=600, height_policy='fixed', visible=False,
-            css_classes=['ann-automl-shadow-border'], 
+            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'], 
             margin=(5,5,5,10))
 
         def on_select(attr, old, new):
@@ -1064,7 +1064,6 @@ pipeline = Transition(
     next_parameter='next_window',
     auto_advance=True
 )
-
 
 interface = pn.template.MaterialTemplate(
     title="Ann Automl",
