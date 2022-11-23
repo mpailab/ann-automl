@@ -996,7 +996,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     best_point, best_score = None, None
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
                                                 grid, start_point, grid_metric, radius):
-        if stop_flag is not None and stop_flag.stop:
+        if stop_flag is not None and stop_flag.flag:
             break
         printlog(f"Evaluated point: {point}, value: {value}")
         pcall('tune_step', point, value)

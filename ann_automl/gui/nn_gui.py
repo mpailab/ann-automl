@@ -7,6 +7,7 @@ import panel as pn
 import param
 import pandas as pd
 import datetime as dt
+import numpy as np
 import bokeh
 from typing import Any, Callable, Dict, Optional
 from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, \
@@ -22,7 +23,7 @@ from ..utils.process import process
 from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tb
 from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
-from ..core.nnfuncs import cur_db, StopFlag, train, param_values, tensorboard_logdir, params_from_history
+from ..core.nnfuncs import cur_db, StopFlag, train, tune, param_values, tensorboard_logdir, params_from_history
 from ..core import nn_recommend
 
 Callback = Callable[[Any, Any, Any], None]
@@ -213,7 +214,7 @@ class ParamWidget(object):
                 return self._values[max(0,min(self._obj.value,len(self._values)-1))]
 
             def slicer_setter(value):
-                self._obj.value = self._values.index(value)
+                self._obj.value = np.argmin(np.abs(np.array(self._values) - value))
 
             self._getter = slicer_getter
             self._setter = slicer_setter
@@ -345,6 +346,11 @@ class ParamWidget(object):
     def default(self):
         self.value = self._default_value
 
+    def set_default(self, value):
+        self._default_value = value
+        self._value = value
+        self.value = value
+
     def update(self):
         self._value = self.value
     
@@ -372,7 +378,7 @@ class NNGui(object):
         self.make_params_widgets(gui_params)
         self.init_database_interface()
         self.init_task_interface()
-        self.init_trining_interface()
+        self.init_train_interface()
         self.init_history_interface()
         self.init_interface()
         self.activate_database_interface()
@@ -467,8 +473,8 @@ class NNGui(object):
                 '<font color=red>Не удалось загрузить датасет</font>'
             self.dataset_error.visible = True
             stack = traceback.format_exc()
-            self.dataset_logs.value = '<br>'.join(stack.split('\n') + [str(e)])
-            self.dataset_logs.visible = True
+            self.database_logs.value = '<br>'.join(stack.split('\n') + [str(e)])
+            self.database_logs.visible = True
             return
 
         dataset = self.dataset_description.value
@@ -486,8 +492,8 @@ class NNGui(object):
     def on_click_dataset_cancel(self, event):
         self.dataset_error.text = ""
         self.dataset_error.visible = False
-        self.dataset_logs.text = ""
-        self.dataset_logs.visible = False
+        self.database_logs.text = ""
+        self.database_logs.visible = False
         self.dataset_selector.value = [self.dataset]
         self.setup_dataset(self.dataset)
         for widget in self.dataset_params:
@@ -534,7 +540,7 @@ class NNGui(object):
 
     def init_database_interface(self):
         self.dataset_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
-        self.dataset_logs = Div(align="start", visible=False)
+        self.database_logs = Div(align="start", visible=False)
 
         def changeDataset(attr, old, new):
             self.setup_dataset(new[0])
@@ -608,7 +614,7 @@ class NNGui(object):
         self.menu_button.label = "База данных"
         self.buttons_interface.children = self.database_buttons
         self.window_interface.children = self.database_interfaces
-        self.logs_interface.children = [self.dataset_logs]
+        self.logs_interface.children = [self.database_logs]
 
     def on_click_task_apply(self, event):
 
@@ -632,8 +638,11 @@ class NNGui(object):
             print("ok")
 
             print("Getting recommended hyperparamters ... ", end='', flush=True)
-            hparams = recommend_hparams(self.task, trace_solution=True)
-            self.hparams_vals = { f'train_{k}': v for k,v in hparams.items() }
+            self.hparams_vals = recommend_hparams(self.task, trace_solution=True)
+            for widget in [*self.train_params, *self.optimizer_params]:
+                par = '_'.join(widget.name.split('_')[1:])
+                if par in self.hparams_vals:
+                    widget.set_default(self.hparams_vals[par])
             print("ok")
 
             print("Loading learning history ... ", end='', flush=True)
@@ -655,8 +664,8 @@ class NNGui(object):
             self.task_apply_button.disabled = True
 
     def init_task_interface(self):
-
         self.task_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
+        self.task_logs = Div(align="start", visible=False)
         
         def changeTaskParam(attr, old, new):
             self.task_apply_button.disabled = False
@@ -688,7 +697,7 @@ class NNGui(object):
         self.menu_button.label = "Задача"
         self.buttons_interface.children = self.task_buttons
         self.window_interface.children = self.task_interfaces
-        self.logs_interface.children = []
+        self.logs_interface.children = [self.task_logs]
 
     def on_click_train_box_button(self, active):
         self.train_params_box.visible = 0 in active
@@ -720,7 +729,7 @@ class NNGui(object):
                                         legend_label='Val Loss', line_color='blue')
             if val_accuracies:
                 self.loss_acc_plot.line(list(epochs[last_epoch:]),
-                                        ist(val_accuracies[last_epoch:]),
+                                        list(val_accuracies[last_epoch:]),
                                         legend_label='Val Accuracy', line_color='black')
             self.loss_acc_plot_attr['last_epoch'] = ll
 
@@ -767,10 +776,10 @@ class NNGui(object):
 
     def append_history(self, history):
         self.history_table.source.stream({
-            'dates': history['date'],
-            'funcs': history['metric_name'],
-            'values': history['metric_value'],
-            'times': history['total_time']
+            'dates': [str(history['date'])],
+            'funcs': [str(history['metric_name'])],
+            'values': [str(history['metric_value'])],
+            'times': [str(history['total_time'])]
         })
         self.history_hparams.append(history['hparams'])
 
@@ -785,9 +794,15 @@ class NNGui(object):
             self.update_bokeh_server, 1000)
 
         self.stop = StopFlag()
-        self.process = process(train)(nn_task=self.task, stop_flag=self.stop, 
-                                      hparams=self.hparams(), start=False,
-                                      model=self.model)
+        if self.tune.value:
+            self.process = process(tune)(nn_task=self.task, stop_flag=self.stop, 
+                                         tuned_params=['optimizer', 'batch_size', 'learning_rate'],
+                                         method=self.tune_method.value,
+                                         hparams=self.hparams(), start=False)
+        else:
+            self.process = process(train)(nn_task=self.task, stop_flag=self.stop, 
+                                          hparams=self.hparams(), start=False,
+                                          model=self.model)
         self.process.set_handler(
             'print', lambda *args, **kwargs: self.msg(*args, **kwargs))
         self.process.set_handler(
@@ -807,7 +822,7 @@ class NNGui(object):
         self.continue_button.visible = False
         # TODO: реализовать интерфейс
 
-    def init_trining_interface(self):
+    def init_train_interface(self):
 
         self.train_logs = ""
 
@@ -895,6 +910,7 @@ class NNGui(object):
         self.history_apply_button.disabled = True
 
     def init_history_interface(self):
+        self.history_logs = Div(align="start", visible=False)
         try:
             self.history_hparams = []
             source = ColumnDataSource({ 
@@ -955,8 +971,8 @@ class NNGui(object):
             for h in histories:
                 data['dates'].append(h['date'])
                 data['funcs'].append(h['metric_name'])
-                data['values'].append(h['metric_value'])
-                data['times'].append(h.get('total_time', -1.0))
+                data['values'].append(str(h['metric_value']))
+                data['times'].append(str(h.get('total_time', -1.0)))
                 self.history_hparams.append(h['hparams'])
         except Exception as e:
             traceback.print_exc()
@@ -970,7 +986,7 @@ class NNGui(object):
         self.menu_button.label = "История"
         self.buttons_interface.children = self.history_buttons
         self.window_interface.children = self.history_interfaces
-        self.logs_interface.children = []
+        self.logs_interface.children = [self.history_logs]
         self.history_params_box.visible = False
         self.history_params_button.visible = False
         self.history_download_button.disabled = True
@@ -1032,9 +1048,9 @@ class NNGui(object):
     
 gui = NNGui()
 
-interface = pn.template.MaterialTemplate(
+interface = pn.template.VanillaTemplate(
     title="Ann Automl",
-    sidebar=[pn.pane.Markdown("## Settings")],
+    # sidebar=[pn.pane.Markdown("## Settings")],
     main=[
         gui.interface
         # pipeline.stage, 
