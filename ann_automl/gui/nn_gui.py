@@ -98,7 +98,7 @@ gui_params = {
 
 
 def Box(*args, **kwargs):
-    return Column(*args, **kwargs, spacing=10, height=730, height_policy='fixed',
+    return Column(*args, **kwargs, spacing=10, height=700, height_policy='fixed',
                   css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'], 
                   margin=(10, 10, 10, 10))
 
@@ -119,7 +119,7 @@ def Delimiter(*args, **kwargs, ):
 def Table(source, columns, *args, **kwargs):
     return DataTable(*args, **kwargs, source=source, columns=columns, 
                      index_position=None, autosize_mode='fit_columns', 
-                     height=600, height_policy='fixed', sizing_mode='stretch_both',
+                     sizing_mode='stretch_both',
                      css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
                      margin=(10, 10, 10, 10))
 
@@ -786,6 +786,8 @@ class NNGui(object):
     def on_click_start(self, event):
         self.is_train_stop = False
         self.is_train_break = False
+        self.start_button.disabled = True
+        self.stop_button.disabled = False
         for widget_interface in self.train_params_box.children:
             widget_interface.disabled = True
 
@@ -820,6 +822,8 @@ class NNGui(object):
 
     def on_click_continue(self, event):
         self.continue_button.visible = False
+        self.train_logs += 'Continue is not supported, use start button.\n'
+        self.train_output.value = self.train_logs
         # TODO: реализовать интерфейс
 
     def init_train_interface(self):
@@ -843,7 +847,7 @@ class NNGui(object):
                                           min_width=500, 
                                           sizing_mode='stretch_both', 
                                           disabled=True)
-        self.trining_output_box = Box(self.train_output)
+        self.trining_output_box = Box(self.train_output, sizing_mode='stretch_width')
         print("ok")
 
         print("Create train_tools_box ... ", end='', flush=True)
@@ -856,7 +860,7 @@ class NNGui(object):
                                        val_losses = [], val_accuracies = [],
                                        last_epoch = 0)
         self.model = None
-        self.trining_tools_box = Box(self.loss_acc_plot)
+        self.trining_tools_box = Box(self.loss_acc_plot, sizing_mode='stretch_width')
         print("ok")
 
         print("Create box_button_group ... ", end='', flush=True)
@@ -897,9 +901,6 @@ class NNGui(object):
             widget.enable()
             widget.activate()
 
-    def on_click_history_params(self, event):
-        self.history_params_box.visible = not self.history_params_box.visible
-
     def on_click_history_download(self, event):
         # TODO: реализовать интерфейс
         pass
@@ -939,7 +940,6 @@ class NNGui(object):
                             self.history_params.append(widget)
                             widget.value = v
                             widget.activate()
-                    self.history_params_button.visible = True
                     self.history_download_button.disabled = False
                     self.history_apply_button.disabled = False
                 except IndexError:
@@ -955,12 +955,10 @@ class NNGui(object):
                                       *[w.interface for w in self.optimizer_params], 
                                       Spacer(height=10))
 
-        self.history_params_button = Toggle('Параметры', self.on_click_history_params)
         self.history_download_button = Button('Скачать', self.on_click_history_download)
         self.history_apply_button = Button('Использовать', self.on_click_history_apply)
 
-        self.history_buttons = [self.history_params_button, self.history_download_button, 
-                                self.history_apply_button]
+        self.history_buttons = [self.history_download_button, self.history_apply_button]
 
         self.history_interfaces = [self.history_table, self.history_params_box]
 
@@ -983,12 +981,11 @@ class NNGui(object):
     def activate_history_interface(self):
         if self.task is None:
             return
+        self.history_table.source.selected.indices = [0]
         self.menu_button.label = "История"
         self.buttons_interface.children = self.history_buttons
         self.window_interface.children = self.history_interfaces
         self.logs_interface.children = [self.history_logs]
-        self.history_params_box.visible = False
-        self.history_params_button.visible = False
         self.history_download_button.disabled = True
         self.history_apply_button.disabled = True
         for widget in [*self.train_params, *self.optimizer_params]:
@@ -998,7 +995,8 @@ class NNGui(object):
 
         for field in ['datasets', 'task_type', 'task_objects', \
                       'task_func', 'task_value', 'task_maximize']:
-            widget = Div(align='start', visible=False, sizing_mode='stretch_both')
+            widget = Div(align='start', visible=False, height=50, height_policy='fixed', 
+                         sizing_mode='stretch_width')
             setattr(self, f'{field}_info', widget)
 
         menu = [
@@ -1043,7 +1041,8 @@ class NNGui(object):
             Column(self.menu_button,
                    Row(self.datasets_info, self.task_type_info, self.task_objects_info, 
                        self.task_func_info, self.task_value_info, self.task_maximize_info,
-                       spacing=10, sizing_mode='stretch_both', margin=(-10, 5, -10, 5)),
+                       spacing=10, min_width=1200, sizing_mode='stretch_width', 
+                       margin=(-10, 5, -5, 5)),
                    self.buttons_interface, self.window_interface, self.logs_interface, spacing=5)
     
 gui = NNGui()
