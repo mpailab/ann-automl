@@ -230,24 +230,20 @@ class DBModule:
         """
         Base.metadata.create_all(self.engine)
 
-    def fill_all_default(self, anno_file_name='./datasets/coco/annotations/instances_train2017.json'):
+    def fill_all_default(self):
         """
         Method to fill all at once, supposing datasets are at default locations (CatsDogs, COCO, ImageNet)
-
-        Parameters
-        ----------
-        anno_file_name : str
-            shows path to the default COCO2017 annotations (train subset as default)
         """
         if os.path.exists(self.dbstring_.split('/')[-1]):  # If file exists we suppose it is filled
             return
         self.create_sqlite_file()
-        self.fill_coco(anno_file_name=anno_file_name, first_time=True)
+        self.fill_coco(first_time=True)
         self.fill_kaggle_cats_vs_dogs()
         self.fill_imagenet(first_time=True)
         return
 
-    def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
+    def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', 
+                                 file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         
         Parameters
@@ -324,7 +320,9 @@ class DBModule:
         self.sess.commit()  # adding annotations
         print('Finished with Kaggle CatsVsDogs')
 
-    def fill_coco(self, anno_file_name, file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
+    def fill_coco(self, 
+                  anno_file_name='./datasets/COCO2017/annotations/instances_train2017.json', 
+                  file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
         """Method to fill COCOdataset into db. It is supposed to be called once.
 
         To create custom COCO annotations use some aux tools like https://github.com/jsbroks/coco-annotator
