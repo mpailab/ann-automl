@@ -1,0 +1,249 @@
+{
+    "info": {
+        "description": "Dogs vs Cats",
+        "url": "https://www.kaggle.com/c/dogs-vs-cats",
+        "version": "1.0",
+        "year": 2013,
+        "contributor": "Asirra ",
+        "date_created": "2013/09/25"
+    },
+    "licenses": [
+        {
+            "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/",
+            "id": 1,
+            "name": "Attribution-NonCommercial-ShareAlike License"
+        },
+        {
+            "url": "http://creativecommons.org/licenses/by-nc/2.0/",
+            "id": 2,
+            "name": "Attribution-NonCommercial License"
+        }
+    ],
+    "images": [
+        {
+            "license": 1,
+            "file_name": "cat.0.jpg",
+            "coco_url": "",
+            "height": 374,
+            "width": 500,
+            "date_captured": "Fri Sep 20 10:05:42 2013",
+            "flickr_url": "",
+            "id": 0
+        },
+        {
+            "license": 1,
+            "file_name": "cat.1.jpg",
+            "coco_url": "",
+            "height": 280,
+            "width": 300,
+            "date_captured": "Fri Sep 20 10:05:42 2013",
+            "flickr_url": "",
+            "id": 1
+        },
+        {
+            "license": 1,
+            "file_name": "cat.10.jpg",
+            "coco_url": "",
+            "height": 499,
+            "width": 489,
+            "date_captured": "Fri Sep 20 10:05:42 2013",
+            "flickr_url": "",
+            "id": 2
+        },
+        {
+            "license": 1,
+            "file_name": "cat.100.jpg",
+            "coco_url": "",
+            "height": 499,
+            "width": 403,
+            "date_captured": "Fri Sep 20 10:05:42 2013",
+            "flickr_url": "",
+            "id": 3
+        },
+        {
+            "license": 1,
+            "file_name": "cat.1000.jpg",
+            "coco_url": "",
+            "height": 149,
+            "width": 150,
+            "date_captured": "Fri Sep 20 10:05:42 2013",
+            "flickr_url": "",
+            "id": 4
+        },
+        {
+            "license": 1,
+            "file_name": "dog.0.jpg",
+            "coco_url": "",
+            "height": 375,
+            "width": 499,
+            "date_captured": "Fri Sep 20 09:58:42 2013",
+            "flickr_url": "",
+            "id": 12500
+        },
+        {
+            "license": 1,
+            "file_name": "dog.1.jpg",
+            "coco_url": "",
+            "height": 499,
+            "width": 327,
+            "date_captured": "Fri Sep 20 09:58:42 2013",
+            "flickr_url": "",
+            "id": 12501
+        },
+        {
+            "license": 1,
+            "file_name": "dog.10.jpg",
+            "coco_url": "",
+            "height": 292,
+            "width": 269,
+            "date_captured": "Fri Sep 20 09:58:42 2013",
+            "flickr_url": "",
+            "id": 12502
+        },
+        {
+            "license": 1,
+            "file_name": "dog.100.jpg",
+            "coco_url": "",
+            "height": 397,
+            "width": 500,
+            "date_captured": "Fri Sep 20 09:58:42 2013",
+            "flickr_url": "",
+            "id": 12503
+        },
+        {
+            "license": 1,
+            "file_name": "dog.1000.jpg",
+            "coco_url": "",
+            "height": 375,
+            "width": 499,
+            "date_captured": "Fri Sep 20 09:58:42 2013",
+            "flickr_url": "",
+            "id": 12504
+        }
+    ],
+    "annotations": [
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 0,
+            "bbox": [],
+            "category_id": 16,
+            "id": 0
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 1,
+            "bbox": [],
+            "category_id": 16,
+            "id": 1
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 2,
+            "bbox": [],
+            "category_id": 16,
+            "id": 2
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 3,
+            "bbox": [],
+            "category_id": 16,
+            "id": 3
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 4,
+            "bbox": [],
+            "category_id": 16,
+            "id": 4
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 12500,
+            "bbox": [],
+            "category_id": 17,
+            "id": 12500
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 12501,
+            "bbox": [],
+            "category_id": 17,
+            "id": 12501
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 12502,
+            "bbox": [],
+            "category_id": 17,
+            "id": 12502
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 12503,
+            "bbox": [],
+            "category_id": 17,
+            "id": 12503
+        },
+        {
+            "segmentation": [],
+            "num_keypoints": 0,
+            "area": 0,
+            "iscrowd": 0,
+            "keypoints": [],
+            "image_id": 12504,
+            "bbox": [],
+            "category_id": 17,
+            "id": 12504
+        }
+    ],
+    "categories": [
+        {
+            "supercategory": "animal",
+            "id": 16,
+            "name": "cat"
+        },
+        {
+            "supercategory": "animal",
+            "id": 17,
+            "name": "dog"
+        }
+    ],
+    "segment_info": []
+}
