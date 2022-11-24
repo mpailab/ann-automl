@@ -366,6 +366,7 @@ class NNGui(object):
 
         self.task = None
         self._task = Widget(name="")
+        self.dataset = None
         self.datasets = None
         self._datasets = Widget(name="")
         self.database = {
@@ -494,8 +495,9 @@ class NNGui(object):
         self.dataset_error.visible = False
         self.database_logs.text = ""
         self.database_logs.visible = False
-        self.dataset_selector.value = [self.dataset]
-        self.setup_dataset(self.dataset)
+        if self.dataset is not None:
+            self.dataset_selector.value = [self.dataset]
+            self.setup_dataset(self.dataset)
         for widget in self.dataset_params:
             widget.disable()
         self.dataset_anno_file.hide()
