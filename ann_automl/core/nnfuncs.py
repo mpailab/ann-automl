@@ -566,7 +566,7 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
     return [best_loss, best_acc]
 
 
-def save_history(filepath, objects, run_type, model_path, metrics, params, format=None):
+def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=None):
     history = {'run_type': run_type,
                **params,
                'result_path': model_path,
@@ -574,20 +574,20 @@ def save_history(filepath, objects, run_type, model_path, metrics, params, forma
                'metric_value': metrics['accuracy'],
                'metrics': metrics,
                'objects': objects}
-    if format is None:
-        format = filepath.split('.')[-1]
-    if format == 'json':
+    if fmt is None:
+        fmt = filepath.split('.')[-1]
+    if fmt == 'json':
         with open(filepath, 'w') as f:
             json.dump(history, f)
-    elif format in ('pkl', 'pickle'):
+    elif fmt in ('pkl', 'pickle'):
         with open(filepath, 'wb') as f:
             pickle.dump(history, f)
-    elif format == 'yaml':
+    elif fmt == 'yaml':
         import yaml
         with open(filepath, 'w') as f:
             yaml.dump(history, f)
     else:
-        raise ValueError(f'Unknown format: {format}')
+        raise ValueError(f'Unknown format: {fmt}')
     cur_db().add_model_record(task_type='train',
                           categories=list(objects),
                           model_address=model_path,
@@ -621,6 +621,9 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
         kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
         optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
+        if hparams.get('freeze_base', False):
+            printlog("Freeze base model")
+            model.layers[0].trainable = False
         model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
 
     # set up callbacks
@@ -870,7 +873,7 @@ class HyperParamGrid:
                 for ppp, s in pp.get(res[p], {}).items():
                     if ppp in res:
                         res[ppp] *= s
-        return key, [res], {}
+        return key, [key, res], {}
 
 
 def neighborhood_gen(c, shape, cat_axis, r, metric):
@@ -992,13 +995,22 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     best_point, best_score = None, None
     params_of_best = None
 
-    def fit_and_get_score(params):
-        scores, p = create_and_train_model(params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
-        val = nn_task.func(scores)
-        nonlocal params_of_best, best_score
-        if best_score is None or val > best_score:
-            params_of_best = params
-        return val
+    def fit_and_get_score(key, params):
+        key_str = '_'.join([str(x) if x is not None else 'n' for x in key])
+        cur_dir = os.path.join(exp_dir, key_str)
+        if os.path.exists(cur_dir):
+            warnings.warn(f'Experiment {key_str} already exists.')
+        os.makedirs(cur_dir, exist_ok=True)
+        try:
+            scores, p = create_and_train_model(params, nn_task.objects, data, cur_dir, history=history, stop_flag=stop_flag)
+            val = nn_task.func(scores)
+            nonlocal params_of_best, best_score
+            if best_score is None or val > best_score:
+                params_of_best = params
+            return val
+        except Exception as e:
+            printlog(f'Error in experiment {key_str}: {e}')
+            return -np.inf
 
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
                                                 grid, start_point, grid_metric, radius):
