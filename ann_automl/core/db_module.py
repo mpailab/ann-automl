@@ -931,7 +931,7 @@ class DBModule:
         None
         """
 
-        if file_prefix[-1] not in ['\\', '/']:
+        if file_prefix != '' and file_prefix[-1] not in ['\\', '/']:
             file_prefix += '/'
         if not os.path.isfile(file_prefix + images[0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
