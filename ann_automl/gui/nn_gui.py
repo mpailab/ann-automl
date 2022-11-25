@@ -48,7 +48,34 @@ scroll_css = '''
 }
 '''
 
-pn.extension(raw_css=[shadow_border_css, scroll_css])
+active_header_button_css = '''
+.bk.ann-active-head-btn button.bk.bk-btn.bk-btn-default {
+    color: white;
+    font-size: 16pt;
+    background-color: #f57c00;
+    border-color: #f57c00;
+    min-height: 64px;
+    max-width: max-content;
+    border-radius: 0px;
+}
+'''
+
+inactive_header_button_css = '''
+.bk.ann-inactive-head-btn button.bk.bk-btn.bk-btn-default {
+    color: #ffffffa3;
+    font-size: 16pt;
+    background-color: #f57c00;
+    border-color: #f57c00;
+    min-height: 64px;
+    max-width: max-content;
+    border-radius: 0px;
+}
+'''
+
+pn.extension(raw_css=[
+    shadow_border_css, scroll_css, 
+    active_header_button_css, inactive_header_button_css
+])
 pn.config.sizing_mode = 'stretch_width'
 
 
@@ -104,8 +131,12 @@ def Box(*args, **kwargs):
 
 
 def Button(label, on_click_func, *args, js=False, **kwargs):
-    button = bokeh.models.Button(*args, **kwargs, label=label,
-                                 button_type='primary', width=8*len(label) + 50)
+    assert 'label' not in kwargs
+    if 'button_type' not in kwargs:
+        kwargs['button_type'] = 'primary'
+    if 'width' not in kwargs:
+        kwargs['width'] = 8*len(label) + 50
+    button = bokeh.models.Button(*args, **kwargs, label=label)
     if js:
         button.js_on_click(on_click_func)
     else:
@@ -519,6 +550,7 @@ class NNGui(object):
                      for category in self.database[ds]['categories'][supercategory]
         })
         self.dataset_select_button.disabled = True
+        self.menu_task_button.css_classes=['ann-active-head-btn']
 
     def setup_dataset(self, dataset, update_params=True):
         self.dataset = dataset
@@ -664,6 +696,8 @@ class NNGui(object):
             self.task_maximize_info.text = f"<p><b>Оптимизировать:</b> {'Да' if self.task_maximize.value else 'Нет'}</p>"
             self.task_maximize_info.visible = True
             self.task_apply_button.disabled = True
+            self.menu_train_button.css_classes=['ann-active-head-btn']
+            self.menu_history_button.css_classes=['ann-active-head-btn']
 
     def init_task_interface(self):
         self.task_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
@@ -1040,18 +1074,72 @@ class NNGui(object):
         self.logs_interface = Row(margin=(-5, 5, 5, 5))
 
         self.interface = \
-            Column(self.menu_button,
-                   Row(self.datasets_info, self.task_type_info, self.task_objects_info, 
+            Column(Row(self.datasets_info, self.task_type_info, self.task_objects_info, 
                        self.task_func_info, self.task_value_info, self.task_maximize_info,
                        spacing=10, min_width=1200, sizing_mode='stretch_width', 
                        margin=(-10, 5, -5, 5)),
                    self.buttons_interface, self.window_interface, self.logs_interface, spacing=5)
+
+        self.menu_database_button = Button("База данных", self.on_click_database_menu,
+                                           button_type='default',
+                                           css_classes=['ann-active-head-btn'])
+        self.menu_task_button = Button("Задача", self.on_click_task_menu,
+                                       button_type='default',
+                                       css_classes=['ann-inactive-head-btn'])
+        self.menu_task_button.js_on_click(CustomJS(
+            args=dict(task=self._task, datasets=self._datasets),
+            code='''let msg = "создание задачи невозможно";
+                    if ( datasets.name == "" ) {
+                        alert("Датасеты не заданы, " + msg + "!");
+                    } '''))
+        self.menu_train_button = Button("Обучение", self.on_click_train_menu,
+                                        button_type='default',
+                                        css_classes=['ann-inactive-head-btn'])
+        self.menu_train_button.js_on_click(CustomJS(
+            args=dict(task=self._task, datasets=self._datasets),
+            code='''let msg = "запуск обучения невозможен";
+                    if ( datasets.name == "" ) {
+                        alert("Датасеты не заданы, " + msg + "!");
+                    } else if ( task.name == "" ) {
+                        alert("Задача не создана, " + msg + "!");
+                    }'''))
+        self.menu_history_button = Button("История", self.on_click_history_menu,
+                                          button_type='default',
+                                          css_classes=['ann-inactive-head-btn'])
+        self.menu_history_button.js_on_click(CustomJS(
+            args=dict(task=self._task, datasets=self._datasets),
+            code='''let msg = "просмотр истории обучений невозможен";
+                    if ( datasets.name == "" ) {
+                        alert("Датасеты не заданы, " + msg + "!");
+                    } else if ( task.name == "" ) {
+                        alert("Задача не создана, " + msg + "!");
+                    }'''))
+
+        self.menu_buttons = Row(self.menu_database_button, self.menu_task_button, 
+                                self.menu_train_button, self.menu_history_button)
+
+    def on_click_database_menu(self, event):
+        print("Goto database interface")
+        self.activate_database_interface()
+
+    def on_click_task_menu(self, event):
+        print("Goto task interface")
+        self.activate_task_interface()
+
+    def on_click_train_menu(self, event):
+        print("Goto train interface")
+        self.activate_train_interface()
+
+    def on_click_history_menu(self, event):
+        print("Goto history interface")
+        self.activate_history_interface()
     
 gui = NNGui()
 
-interface = pn.template.VanillaTemplate(
+interface = pn.template.MaterialTemplate(
     title="Ann Automl",
     # sidebar=[pn.pane.Markdown("## Settings")],
+    header=[gui.menu_buttons],
     main=[
         gui.interface
         # pipeline.stage, 
