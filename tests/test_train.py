@@ -1,4 +1,5 @@
-from ann_automl.core.nn_solver import recommend_hparams, NNTask
+from ann_automl.core.nn_recommend import recommend_hparams
+from ann_automl.core.nn_task import NNTask
 from ann_automl.core.nnfuncs import train, tune, set_emulation, multithreading_mode, params_from_history, set_db
 from ann_automl.core import nn_recommend
 import ann_automl.core.db_module as db

@@ -19,6 +19,8 @@ import glob
 import xml.etree.ElementTree as ET
 import time
 
+from tqdm import tqdm
+
 from ann_automl.utils.text_utils import print_progress_bar
 
 Base = declarative_base()
@@ -638,33 +640,42 @@ class DBModule:
             res[supercategory][category] = number
         return res
 
-    def _prepare_cropped_images(self, df, kwargs):
+    def _prepare_cropped_images(self, df, kwargs, skip_existing=True):
         """
         Helper for image cropping in case of multiple annotations on one picture.
         """
+        # print column names
+        print(df.columns)
         column_names = ["file_name", "category_id"]
         buf_df = pd.DataFrame(columns=column_names)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
         files_dir = kwargs.get('files_dir', '')
-        for index, row in df.iterrows():
+
+        # iterate with progress bar
+        new_images = 0
+        for index, row in tqdm(df.iterrows(), total=df.shape[0], desc='Cropping images', file=sys.stdout, delay=1):
             bbox = []
+            input_file = os.path.join(files_dir, row['file_name'])
             if row['bbox'] != '':
                 bbox = ast.literal_eval(row['bbox'])
             if len(bbox) != 4:
-                new_row = {'file_name': row['file_name'],
+                new_row = {'file_name': input_file,
                            'category_id': row['category_id']}
                 buf_df = buf_df.append(new_row, ignore_index=True)  # nothing to cut
                 continue
-            image = cv2.imread(files_dir + row['file_name'])
-            crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
-                         math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
             buf_name = row["file_name"].split('.')
             filename = (buf_name[-2]).split('/')[-1]
-            filepath = cropped_dir + filename + "-" + str(index) + "." + buf_name[-1]
-            cv2.imwrite(filepath, crop)
+            filepath = os.path.join(cropped_dir, f'{filename}-{row["ID"]}-{row["category_id"]}.{buf_name[-1]}')
+            if not skip_existing or not os.path.exists(filepath):
+                image = cv2.imread(input_file)
+                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
+                             math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                cv2.imwrite(filepath, crop)
+                new_images += 1
             new_row = pd.DataFrame([[filepath, row['category_id']]], columns=column_names)
             buf_df = buf_df.append(new_row)
+        print(f'Created {new_images} new image crops, used {df.shape[0] - new_images} existing image crops')
         return buf_df
 
     def _split_and_save(self, df, save_dir, split_points, headers_string):
@@ -696,6 +707,9 @@ class DBModule:
         av_height = df['height'].mean()
         if kwargs.get('crop_bbox', False):
             df = self._prepare_cropped_images(df, kwargs)
+        elif 'files_dir' in kwargs:
+            df['file_name'] = df['file_name'].apply(lambda x: os.path.join(kwargs['files_dir'], x))
+
         if with_segmentation is False:
             df_new = pd.DataFrame(columns=['images', 'target'], 
                                   data=df[['file_name', 'category_id']].values)
@@ -759,7 +773,8 @@ class DBModule:
         if self.ds_filter is not None:
             return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation, **kwargs)
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
-                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
+                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height,
+                                self.Annotation.ID
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         if with_segmentation:
             # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
@@ -787,7 +802,8 @@ class DBModule:
         """
         datasets_ids = [self.get_dataset_id(ds) for ds in datasets_ids]
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
-                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
+                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height,
+                                self.Annotation.ID
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
         if with_segmentation:
             # lengths 0 and 1 do not work since there are records with empty brackets

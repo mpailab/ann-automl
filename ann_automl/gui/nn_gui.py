@@ -22,7 +22,7 @@ from ..utils.process import process
 from .params import hyperparameters
 from ann_automl.gui.transition import Transition
 import ann_automl.gui.tensorboard as tb
-from ..core.nn_solver import loss_target, metric_target, NNTask
+from ..core.nn_task import loss_target, metric_target, NNTask
 from ..core.nnfuncs import cur_db, StopFlag, train, param_values, tensorboard_logdir, params_from_history
 from ..core.nn_recommend import recommend_hparams
 

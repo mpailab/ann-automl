@@ -10,26 +10,31 @@ import tensorflow as tf
 import os
 
 from .hw_devices import tf_devices_memory
-from .nnfuncs import nn_hparams, nnDB, _data_dir, params_from_history
+from .nnfuncs import nn_hparams, nnDB, _data_dir, params_from_history, pretrained_models
 from .solver import Rule, rule, Task, printlog, SolverState, Recommender, RecommendTask
-from .nn_solver import NNTask, metric_target
+from .nn_task import NNTask
 
 
 class SelectHParamsTask(RecommendTask):
-    def __init__(self, nn_task: NNTask):
+    def __init__(self, nn_task: NNTask, fixed_hparams=None):
         super().__init__(goals={})
         self.nn_task = nn_task
         self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
         self.hparams['pipeline'] = None
+        if fixed_hparams is not None:
+            self.hparams.update(fixed_hparams)
+            self.fixed = set(fixed_hparams.keys())
+        else:
+            self.fixed = ()
         self.recommendations = {}
 
     def set_selected_options(self, options):
         self.hparams.update(options)
 
 
-def recommend_hparams(task: NNTask, **kwargs) -> dict:
+def recommend_hparams(task: NNTask, fixed_params=None, **kwargs) -> dict:
     """ Рекомендует гиперпараметры для задачи """
-    htask = SelectHParamsTask(task)
+    htask = SelectHParamsTask(task, fixed_params)
     htask.solve(global_params=kwargs)
     return htask.hparams
 
@@ -60,9 +65,19 @@ class RecommendOptimizer(Recommender):
 class RecommendArch(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
-        prec['activation'] = 'relu'    # функция активации в базовой части. TODO: возможны ли другие рекомендации?
-        prec['pipeline'] = 'ResNet18'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+        # prec['activation'] = 'relu'    # функция активации в базовой части. TODO: возможны ли другие рекомендации?
+        if 'pipeline' not in task.fixed:
+            prec['pipeline'] = 'resnet50'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+        else:
+            prec['pipeline'] = task.hparams['pipeline']
         last_layers = []
+        if prec['pipeline'] in pretrained_models:
+            if 'input_shape' not in task.fixed:
+                prec['input_shape'] = (224, 224, 3)  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+            else:
+                prec['input_shape'] = task.hparams['input_shape']
+            last_layers.append({'type': 'GlobalAveragePooling2D'})
+            prec['transfer_learning'] = True
         if len(task.nn_task.objects) == 2:
             last_layers.append({'type': 'Dense', 'units': 1})
             last_layers.append({'type': 'Activation', 'activation': 'sigmoid'})
@@ -135,14 +150,14 @@ def get_history(task: NNTask, exact_category_match=False):
     return candidates
 
 
-@rule(SelectHParamsTask)
-class RecommendFromHistory(Recommender):
-    """ Предлагает параметры, которые были использованы в предыдущих
-        аналогичных запусках (может рекомендовать любые параметры)
-    """
-    def apply(self, task: SelectHParamsTask, state: SolverState):
-        prec = task.recommendations[self.key] = {}
-        candidates = params_from_history(task.nn_task)
-        if len(candidates) > 0:
-            prec.update(random.choice(candidates))
-
+# @rule(SelectHParamsTask)
+# class RecommendFromHistory(Recommender):
+#     """ Предлагает параметры, которые были использованы в предыдущих
+#         аналогичных запусках (может рекомендовать любые параметры)
+#     """
+#     def apply(self, task: SelectHParamsTask, state: SolverState):
+#         prec = task.recommendations[self.key] = {}
+#         candidates = params_from_history(task.nn_task)
+#         if len(candidates) > 0:
+#             prec.update(random.choice(candidates))
+#
