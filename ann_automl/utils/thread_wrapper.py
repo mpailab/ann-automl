@@ -67,4 +67,4 @@ class ObjectWrapper:
 
     def __del__(self):
         if self._thread is not None:
-            self.close()
+            self._thread.close()

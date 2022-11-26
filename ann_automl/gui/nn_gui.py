@@ -21,7 +21,7 @@ from random import randint, random, sample
 
 from ..utils.process import process
 from .params import hyperparameters, widget_type
-import ann_automl.gui.tensorboard as tb
+import ann_automl.gui.tensorboard as tensorboard
 from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
 from ..core.nnfuncs import cur_db, StopFlag, train, tune, param_values, tensorboard_logdir, params_from_history
 from ..core import nn_recommend
@@ -30,8 +30,11 @@ Callback = Callable[[Any, Any, Any], None]
 Params = Optional[Dict[str, Any]]
 
 # Launch TensorBoard
-#tb.start(f"--logdir {tensorboard_logdir()} --host 0.0.0.0 --port 6006")
-tb.start(f"--logdir {tensorboard_logdir()} --port 6006")
+tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
+                  logdir=tensorboard_logdir(),
+                  host="0.0.0.0", 
+                #   host="localhost", 
+                  port="6006"))
 
 shadow_border_css = '''
 .bk.ann-automl-shadow-border {
@@ -392,8 +395,7 @@ class ParamWidget(object):
 
 class NNGui(object):
 
-    def __init__(self, hparams: Dict[str, Any] = hyperparameters, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, hparams: Dict[str, Any] = hyperparameters):
 
         self.task = None
         self._task = Widget(name="")
