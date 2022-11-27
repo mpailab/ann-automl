@@ -45,6 +45,17 @@ def check_coco_images(anno_file, image_dir):
         print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
 
 
+def crop_image(input_file, output_file, x, y, w, h):
+    # the most efficient way to crop an image
+    image = cv2.imread(input_file)
+    image = image[math.floor(y):math.ceil(y + h), math.floor(x):math.ceil(x + w)]
+    cv2.imwrite(output_file, image)
+
+
+def crop_image_tuple(args):
+    return crop_image(*args)
+
+
 class DBModule:
 
     ############################################################
@@ -644,38 +655,55 @@ class DBModule:
         """
         Helper for image cropping in case of multiple annotations on one picture.
         """
-        # print column names
-        print(df.columns)
-        column_names = ["file_name", "category_id"]
-        buf_df = pd.DataFrame(columns=column_names)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
         files_dir = kwargs.get('files_dir', '')
 
         # iterate with progress bar
         new_images = 0
-        for index, row in tqdm(df.iterrows(), total=df.shape[0], desc='Cropping images', file=sys.stdout, delay=1):
+        new_rows = []
+        crop_tasks = []
+
+        for index, row in tqdm(df.iterrows(), total=df.shape[0], desc='Collecting images', file=sys.stdout,
+                               mininterval=0.5, maxinterval=0.6):
             bbox = []
             input_file = os.path.join(files_dir, row['file_name'])
             if row['bbox'] != '':
                 bbox = ast.literal_eval(row['bbox'])
             if len(bbox) != 4:
-                new_row = {'file_name': input_file,
-                           'category_id': row['category_id']}
-                buf_df = buf_df.append(new_row, ignore_index=True)  # nothing to cut
+                new_rows.append([input_file, row['category_id']])
                 continue
             buf_name = row["file_name"].split('.')
             filename = (buf_name[-2]).split('/')[-1]
             filepath = os.path.join(cropped_dir, f'{filename}-{row["ID"]}-{row["category_id"]}.{buf_name[-1]}')
             if not skip_existing or not os.path.exists(filepath):
-                image = cv2.imread(input_file)
-                crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
-                             math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
-                cv2.imwrite(filepath, crop)
+                crop_tasks.append((input_file, filepath, bbox[0], bbox[1], bbox[2], bbox[3]))
+                # rect = {'left': math.floor(bbox[0]), 'top': math.floor(bbox[1]),
+                #         'right': math.ceil(bbox[0] + bbox[2]), 'bottom': math.ceil(bbox[1] + bbox[3])}
+                # img = Image.open(input_file)
+                # img = img.crop((rect['left'], rect['top'], rect['right'], rect['bottom']))
+                # img.save(filepath)
+                # image = cv2.imread(input_file)
+                # crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
+                #              math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                #
+                # cv2.imwrite(filepath, crop)
                 new_images += 1
-            new_row = pd.DataFrame([[filepath, row['category_id']]], columns=column_names)
-            buf_df = buf_df.append(new_row)
+            new_rows.append([filepath, row['category_id']])
+
+        # create multiprocessing pool to speed up the process
+        import multiprocessing
+        num_processes = kwargs.get('num_processes', multiprocessing.cpu_count()-1)
+        pool = multiprocessing.Pool(processes=num_processes)
+        print(f'Cropping {new_images} with {num_processes} processes')
+        # run the pool with progress bar
+        for _ in tqdm(pool.imap_unordered(crop_image_tuple, crop_tasks), total=len(crop_tasks), desc='Cropping images',
+                      file=sys.stdout, mininterval=0.5, maxinterval=0.6):
+            pass
+        pool.close()
         print(f'Created {new_images} new image crops, used {df.shape[0] - new_images} existing image crops')
+        # convert list of dicts to dataframe
+        buf_df = pd.DataFrame(new_rows, columns=['file_name', 'category_id'])
         return buf_df
 
     def _split_and_save(self, df, save_dir, split_points, headers_string):
