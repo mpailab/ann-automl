@@ -1,6 +1,6 @@
-from ann_automl.core.nn_solver import recommend_hparams, NNTask, set_log_dir
+from ann_automl.core.nn_recommend import recommend_hparams, NNTask
 from ann_automl.core.nnfuncs import set_data_dir, train
-from ann_automl.core import nn_recommend
+from ann_automl.core.solver import set_log_dir
 
 
 def run_train():
