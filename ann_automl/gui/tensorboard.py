@@ -37,9 +37,9 @@ def start(args_string, timeout=datetime.timedelta(seconds=60)):
     global _started
 
     if _started:
-        print("Warning: TensorBoard is already launched")
+        return
 
-    print("Launching TensorBoard ...")
+    print("Launching TensorBoard ... ", end='', flush=True)
     _started = True
 
     parsed_args = shlex.split(args_string, comments=True, posix=True)
@@ -72,7 +72,7 @@ def start(args_string, timeout=datetime.timedelta(seconds=60)):
             )
         else:
             message = "ERROR: Failed to start %s: %s" % (the_tensorboard_binary, e)
-        print(textwrap.fill(message))
+        print('fail\n' + textwrap.fill(message))
 
     finally:
         os.close(stdout_fd)
@@ -100,7 +100,7 @@ def start(args_string, timeout=datetime.timedelta(seconds=60)):
                     format_stream("stdout", _maybe_read_file(stdout_path)),
                 )
             )
-            print(message)
+            print('fail\n' + message)
             break
 
         info = _find_matching_info(cache_key)
@@ -112,7 +112,9 @@ def start(args_string, timeout=datetime.timedelta(seconds=60)):
             "ERROR: Timed out waiting for TensorBoard to start. "
             "It may still be running as pid %d." % process.pid
         )
-        print(message)
+        print('fail\n' + message)
+
+    print('ok')
 
 def _get_info_dir(owner="ann-automl"):
     return os.path.join(tempfile.gettempdir(), f".{owner}-info")
@@ -127,26 +129,26 @@ def _dump_info(info, stdout_path, stderr_path):
         'stdout': stdout_path,
         'stderr': stderr_path
     })
-    if not os.path.isdir(_get_info_dir()):
-        os.mkdir(_get_info_dir())
+    os.makedirs(_get_info_dir(), exist_ok=True)
     with open(_get_info_file(info.pid), "w") as outfile:
         outfile.write("%s\n" % dump)
 
 def _clear_infos(cache_key):
     pids = set({})
     info_dir = _get_info_dir()
-    for filename in os.listdir(info_dir):
-        filepath = os.path.join(info_dir, filename)
-        with open(filepath) as infile:
-            values = json.loads(infile.read())
-        if values['cache_key'] == cache_key:
-            pids.add(values['pid'])
-            os.remove(values['stdout'])
-            os.remove(values['stderr'])
-            os.remove(filepath)
-            filepath = _get_info_file(values['pid'], owner="tensorboard")
-            if os.path.isfile(filepath):
+    if os.path.isdir(info_dir):
+        for filename in os.listdir(info_dir):
+            filepath = os.path.join(info_dir, filename)
+            with open(filepath) as infile:
+                values = json.loads(infile.read())
+            if values['cache_key'] == cache_key:
+                pids.add(values['pid'])
+                os.remove(values['stdout'])
+                os.remove(values['stderr'])
                 os.remove(filepath)
+                filepath = _get_info_file(values['pid'], owner="tensorboard")
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
     for proc in psutil.process_iter():
         if proc.name() == tb_prog_name and proc.pid in pids:
             proc.kill()

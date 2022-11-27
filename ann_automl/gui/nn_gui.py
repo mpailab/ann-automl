@@ -22,9 +22,9 @@ from random import randint, random, sample
 from ..utils.process import process
 from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tensorboard
-from ..core.nn_solver import loss_target, metric_target, NNTask, recommend_hparams
+from ..core.nn_task import loss_target, metric_target, NNTask
 from ..core.nnfuncs import cur_db, StopFlag, train, tune, param_values, tensorboard_logdir, params_from_history
-from ..core import nn_recommend
+from ..core.nn_recommend import recommend_hparams
 
 Callback = Callable[[Any, Any, Any], None]
 Params = Optional[Dict[str, Any]]
