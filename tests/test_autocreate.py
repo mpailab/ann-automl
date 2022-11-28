@@ -41,7 +41,7 @@ def test_create_model(db_dir):
 
     classes = ['cat', 'dog', 'elephant']
     target_accuracy = 0.9
-    create_classification_model(classes, target_accuracy, os.path.join(db_dir, 'output'), time_limit=60)
+    create_classification_model(classes, target_accuracy, os.path.join(db_dir, 'output'), time_limit=20)
 
 
 if __name__ == '__main__':

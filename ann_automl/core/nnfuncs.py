@@ -729,7 +729,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
         # run model fit again
         return fit_model(model, objects, new_hparams, generators, cur_subdir, history, stop_flag, need_recompile=True,
-                         timeout=timeout-time.time()+t0)
+                         timeout=None if timeout is None else timeout - (time.time() - t0))
 
     # save results to history
     if history is not None:
