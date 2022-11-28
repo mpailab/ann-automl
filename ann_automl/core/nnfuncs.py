@@ -408,7 +408,7 @@ class EmulateGen:
         self.filenames = [f'{i}.jpg' for i in range(len(data))]
 
 
-def create_generators(model, data, augmen_params, batch_size, num_classes):
+def create_generators(model, data, augmen_params, preprocessing_function, batch_size, num_classes):
     """
     Создание генераторов изображений по заданным в curStrategy параметрам аугментации
     В этот прием попадем как при первичном обучении, так и при смене параметров аугментации после обучения модели
@@ -422,7 +422,9 @@ def create_generators(model, data, augmen_params, batch_size, num_classes):
     if _emulation:
         return EmulateGen(df_train), EmulateGen(df_validate), EmulateGen(df_test)
 
-    data_gen = ImageDataGenerator(augmen_params)
+    if preprocessing_function is not None:
+        preprocessing_function = eval(preprocessing_function)
+    data_gen = ImageDataGenerator(**augmen_params, preprocessing_function=preprocessing_function)
 
     flow_args['class_mode'] = 'binary' if num_classes == 2 else 'categorical'
     flow_args['classes'] = list(map(str, range(num_classes)))
@@ -504,7 +506,7 @@ class ExperimentHistory:
                 'total_time': total_time,  # общее время обучения
                 'additional_params': [{}]})
 
-        self.history.append(row, ignore_index=True)
+        self.history = self.history.append(row, ignore_index=True)
         if save:
             self.save()
 
@@ -755,7 +757,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
         model (None or keras.models.Model or str): модель, которую нужно обучить.
             Если None, то создается новая модель. Если str, то загружается модель из файла.
         use_tensorboard (bool): сбраывать ли данные для tensorboard
-        timeout (int or None): таймаут в секундах. Если не None, то обучение прерывается по истечении этого времени.
+        timeout (float or None): таймаут в секундах. Если не None, то обучение прерывается по истечении этого времени.
     Returns:
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
@@ -772,7 +774,9 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
         printlog("Create generators")
         raise TypeError('model must be either path to weights or keras.models.Model or None')
 
-    generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'], len(objects))
+    generators = create_generators(model, data, hparams['augmen_params'],
+                                   hparams.get('preprocessing_function', None),
+                                   hparams['batch_size'], len(objects))
     return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag,
                      use_tensorboard=use_tensorboard, timeout=timeout)
 

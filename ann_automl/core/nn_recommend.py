@@ -78,6 +78,13 @@ class RecommendArch(Recommender):
                 prec['input_shape'] = task.hparams['input_shape']
             last_layers.append({'type': 'GlobalAveragePooling2D'})
             prec['transfer_learning'] = True
+
+        if prec['pipeline'].startswith('resnet'):
+            prec['preprocessing_function'] = 'keras.applications.resnet.preprocess_input'
+        elif prec['pipeline'].startswith('inception'):
+            prec['preprocessing_function'] = 'keras.applications.inception_v3.preprocess_input'
+        elif prec['pipeline'].startswith('xception'):
+            prec['preprocessing_function'] = 'keras.applications.xception.preprocess_input'
         if len(task.nn_task.objects) == 2:
             last_layers.append({'type': 'Dense', 'units': 1})
             last_layers.append({'type': 'Activation', 'activation': 'sigmoid'})
@@ -93,11 +100,10 @@ class RecommendAugmentation(Recommender):
         prec = task.recommendations[self.key] = {}
         aug = prec['augmen_params'] = {}
         if task.nn_task.input_type == 'image':
-            aug.update({'preprocessing_function': 'keras.applications.resnet.preprocess_input',
-                        'vertical_flip': None,
-                        'width_shift_range': 0.4,
-                        'height_shift_range': 0.4,
-                        'horizontal_flip': (task.nn_task.object_category != 'symbol') or None,
+            aug.update({'vertical_flip': False,
+                        'width_shift_range': 0.2,
+                        'height_shift_range': 0.2,
+                        'horizontal_flip': (task.nn_task.object_category != 'symbol'),
                         })
 
 

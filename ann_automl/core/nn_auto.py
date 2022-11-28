@@ -101,9 +101,9 @@ def create_classification_model(classes,
     model_info, val = train_classification_model(classes, target_accuracy, optimize_over_target,
                                                  stop_flag, verbosity, time_limit)
     if val < target_accuracy:
-        warnings.warn(f'Не удалось достичь требуемой точности. Полученная точность: {val}')
+        warnings.warn(f'Не удалось достичь требуемой точности. Полученная точность: {val:.3f}')
     elif verbosity > 0:
-        log(f'Модель готова. Полученная точность на тестовой выборке: {val}')
+        log(f'Модель готова. Полученная точность на тестовой выборке: {val:.3f}')
 
     model_path = model_info['model_file']  # directory with model
     save_dir = output_dir if not output_dir.endswith('.zip') else 'tmp/zip_out'
