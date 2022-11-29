@@ -401,9 +401,9 @@ class Database(Window):
 
     def get_dataset_category_info(self, ds, supercategory, category):
         n = int(self.params['db'][ds]['categories'][supercategory][category])
-        suf = "изображений" if n % 10 in {0, 5, 6, 7, 8, 9} or n in {11, 12, 13, 14} else \
-            "изображения" if n % 10 in {2, 3, 4} else \
-                "изображение"
+        suf = "изображений" if n % 10 in {0, 5, 6, 7, 8, 9} or n % 100 in {11, 12, 13, 14} else \
+              "изображения" if n % 10 in {2, 3, 4} else \
+              "изображение"
         return f"{str(n)} {suf}"
 
     def init_dataset_info_interface(self, ds):

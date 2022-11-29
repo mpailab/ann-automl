@@ -386,15 +386,16 @@ def create_data_subset(objects, cur_experiment_dir, crop_bbox=True, temp_dir='tm
 
     Args:
         objects (list): список объектов, которые должны быть включены в подвыборку
-        temp_dir (str): путь к временной папке
+        cur_experiment_dir (str): путь к директории, в которой будет производиться обучение
         crop_bbox (bool): если True, то изображения будут обрезаны по bounding box
+        temp_dir (str): путь к временной папке
         split_points (tuple of float): точки разбиения на train, val, test
     Returns:
         словарь путей к csv-файлам с разметкой для train, val, test
     """
     if _emulation:
         crop_bbox = False
-    if not os.path.exists(temp_dir):
+    if not os.path.exists(temp_dir) and crop_bbox:
         os.makedirs(temp_dir, exist_ok=True)
     return cur_db().load_specific_categories_annotations(list(objects), normalize_cats=True,
                                                          split_points=split_points,
@@ -637,6 +638,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     """ Обучение модели
     Args:
         model (keras.models.Model): модель, которую нужно обучить
+        objects (list): список категорий, которые нужно распознавать
         hparams (dict): словарь с гиперпараметрами обучения
         generators (tuple): кортеж из трех генераторов: train, val, test
         cur_subdir (str): папка, в которой хранятся результаты текущего обучения
