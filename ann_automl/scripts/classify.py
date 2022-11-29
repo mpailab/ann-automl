@@ -16,11 +16,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('image_path', type=str, help='path to image')
-    parser.add_argument('--ext', type=str, default='jpg;jpeg;png', help='image extensions to classify')
+    parser.add_argument('--ext', type=str, default='jpg;jpeg;png',
+                        help='image extensions to classify separated by `;` (default: jpg;jpeg;png)')
     parser.add_argument('--save', type=str, help='path to save results (json or yaml)')
     parser.add_argument('--out_dir', type=str, help='path to directory to copy classified images to')
     parser.add_argument('--clear_out_dir', action='store_true', help='clear output directory before copying')
-    parser.add_argument('--threshold', type=float, default=0.5, help='score threshold to copy images')
+    parser.add_argument('--threshold', type=float, default=0.5, help='score threshold to copy images (default: 0.5)')
     parser.add_argument('--model_config', type=str, default='model.json', help='path to model config in json format')
     args = parser.parse_args()
 
@@ -86,5 +87,5 @@ if __name__ == '__main__':
             # copy images to subdirectories by class
             for image, (object_name, score) in tqdm(results.items(), total=len(results), desc='Copying images'):
                 if score >= args.threshold:
-                    os.makedirs(os.path.join(args.image_path, object_name), exist_ok=True)
-                    shutil.copy(os.path.join(args.image_path, image), os.path.join(args.image_path, object_name, image))
+                    os.makedirs(os.path.join(args.out_dir, object_name), exist_ok=True)
+                    shutil.copy(os.path.join(args.image_path, image), os.path.join(args.out_dir, object_name, image))

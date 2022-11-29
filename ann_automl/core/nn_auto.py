@@ -35,7 +35,7 @@ def train_classification_model(classes,
     task = NNTask(category='train', type='classification', objects=classes, target=target_accuracy,
                   goals={'maximize': optimize_over_target}, time_limit=time_limit)
     hparams = recommend_hparams(task)
-    metrics, simple_params = train(task, hparams, stop_flag=stop_flag)
+    metrics, simple_params = train(task, hparams, stop_flag=stop_flag, use_tensorboard=False, timeout=time_limit)
     simple_val = task.func(metrics)
     simple_time = time.time() - start_time
     if simple_val >= task.target or time.time() - start_time > task.time_limit:
@@ -44,12 +44,12 @@ def train_classification_model(classes,
     best_params = simple_params
     best_val = simple_val
     first_run = True
-    while time.time() + simple_time - start_time < task.time_limit:
+    while time.time() - start_time < task.time_limit:
         start_time = time.time()
         hparams = recommend_hparams(task)
         p, score, params = tune(task, tuned_params='all', method='grid', hparams=hparams, stop_flag=stop_flag,
                                 verbosity=verbosity, timeout=task.time_limit - (time.time() - start_time),
-                                start='auto' if first_run else 'random')
+                                start='auto' if first_run else 'random', use_tensorboard=False)
         val = task.func(metrics)
         if val > best_val:
             best_params = params
@@ -101,18 +101,18 @@ def create_classification_model(classes,
     model_info, val = train_classification_model(classes, target_accuracy, optimize_over_target,
                                                  stop_flag, verbosity, time_limit)
     if val < target_accuracy:
-        warnings.warn(f'Не удалось достичь требуемой точности. Полученная точность: {val}')
+        warnings.warn(f'Не удалось достичь требуемой точности. Полученная точность: {val:.3f}')
     elif verbosity > 0:
-        log(f'Модель готова. Полученная точность на тестовой выборке: {val}')
+        log(f'Модель готова. Полученная точность на тестовой выборке: {val:.3f}')
 
-    model_path = model_info['model_path']  # directory with model
+    model_path = model_info['model_file']  # directory with model
     save_dir = output_dir if not output_dir.endswith('.zip') else 'tmp/zip_out'
     # clear save_dir if it exists or create it
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir, ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
     # copy model (best_weights.h5) to save_dir
-    shutil.copy(os.path.join(model_path, 'best_weights.h5'), os.path.join(save_dir, 'model.h5'))
+    shutil.copy(os.path.join(model_path), os.path.join(save_dir, 'model.h5'))
     info = dict(model_path='model.h5', classes=classes, test_accuracy=val)
     if script_type is not None:
         if script_type not in ('tf', 'torch'):

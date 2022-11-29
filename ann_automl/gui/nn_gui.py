@@ -32,8 +32,8 @@ Params = Optional[Dict[str, Any]]
 # Launch TensorBoard
 tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
                   logdir=tensorboard_logdir(),
-                  host="0.0.0.0", 
-                #   host="localhost", 
+                  host="0.0.0.0",
+                #   host="localhost",
                   port="6006"))
 
 shadow_border_css = '''
@@ -76,7 +76,7 @@ inactive_header_button_css = '''
 '''
 
 pn.extension(raw_css=[
-    shadow_border_css, scroll_css, 
+    shadow_border_css, scroll_css,
     active_header_button_css, inactive_header_button_css
 ])
 pn.config.sizing_mode = 'stretch_width'
@@ -87,11 +87,11 @@ task_params = {
               'values': ['classification', 'segmentation', 'detection'] },
     'objects': { 'title': 'Категории изображений', 'type': 'list',
                  'values': [], 'default': [] },
-    'func': { 'title': 'Целевой функционал', 'type': 'str', 
+    'func': { 'title': 'Целевой функционал', 'type': 'str',
               'values': ['Метрика'], 'default': 'Метрика' },
-    'value': { 'title': 'Значение целевого функционала', 'type': 
+    'value': { 'title': 'Значение целевого функционала', 'type':
                'float', 'range': [0, 1], 'step': 0.01, 'scale': 'lin', 'default': 0.9 },
-    'maximize': { 'title': 'Оптимизировать целевой функционал', 'type': 'bool', 
+    'maximize': { 'title': 'Оптимизировать целевой функционал', 'type': 'bool',
                   'default': True }
 }
 
@@ -111,15 +111,15 @@ general_params = {
 }
 
 gui_params = {
-    **{ 
-        k: {**v, 'gui': {'group': 'general', 'widget': widget_type(v)}} 
+    **{
+        k: {**v, 'gui': {'group': 'general', 'widget': widget_type(v)}}
         for k,v in general_params.items()
     },
-    **{ 
-        f'task_{k}': {**v, 'gui': {'group': 'task', 'widget': widget_type(v)}} 
+    **{
+        f'task_{k}': {**v, 'gui': {'group': 'task', 'widget': widget_type(v)}}
         for k,v in task_params.items()
     },
-    **{ 
+    **{
         f'dataset_{k}': {**v, 'gui': {'group': 'dataset', 'widget': widget_type(v)}}
         for k,v in dataset_params.items()
     },
@@ -129,7 +129,7 @@ gui_params = {
 
 def Box(*args, **kwargs):
     return Column(*args, **kwargs, spacing=10, height=700, height_policy='fixed',
-                  css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'], 
+                  css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
                   margin=(10, 10, 10, 10))
 
 
@@ -147,12 +147,12 @@ def Button(label, on_click_func, *args, js=False, **kwargs):
     return button
 
 def Delimiter(*args, **kwargs, ):
-    return Spacer(*args, **kwargs, height=3, background="#b8b8b8", 
+    return Spacer(*args, **kwargs, height=3, background="#b8b8b8",
                   margin=(10, 30, 10, 15))
 
 def Table(source, columns, *args, **kwargs):
-    return DataTable(*args, **kwargs, source=source, columns=columns, 
-                     index_position=None, autosize_mode='fit_columns', 
+    return DataTable(*args, **kwargs, source=source, columns=columns,
+                     index_position=None, autosize_mode='fit_columns',
                      sizing_mode='stretch_both',
                      css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
                      margin=(10, 10, 10, 10))
@@ -195,13 +195,13 @@ class ParamWidget(object):
 
         def default_setter(value):
             self._obj.value = value
-        
+
         def get_values():
             return self._obj.options
-            
+
         def set_values(values):
             self._obj.options = values
-        
+
         self._attr = 'value'
         self._title = title
         self._value = value
@@ -215,13 +215,13 @@ class ParamWidget(object):
         self._dependencies = []
 
         if desc['gui']['widget'] == 'Select':
-            self._obj = Select(title=title, value=value, 
+            self._obj = Select(title=title, value=value,
                                options=[x for x in desc['values']], **kwargs)
             self._values_getter = get_values
             self._values_setter = set_values
 
         elif desc['gui']['widget'] == 'MultiChoice':
-            self._obj = MultiChoice(title=title, value=value, 
+            self._obj = MultiChoice(title=title, value=value,
                                     options=[x for x in desc['values']], **kwargs)
             self._values_getter = get_values
             self._values_setter = set_values
@@ -240,8 +240,8 @@ class ParamWidget(object):
                 raise
 
             kwargs['min_height'] = 40
-            self._obj = Slider(title=title, value=cur_index, 
-                               start=0, end=len(self._values)-1, 
+            self._obj = Slider(title=title, value=cur_index,
+                               start=0, end=len(self._values)-1,
                                step=1, format=formatter, **kwargs)
 
             def slicer_getter():
@@ -255,7 +255,7 @@ class ParamWidget(object):
 
         elif desc['gui']['widget'] == 'Checkbox':
             kwargs['min_height'] = 20
-            self._obj = CheckboxGroup(labels=[title], 
+            self._obj = CheckboxGroup(labels=[title],
                                       active=[0] if value else [], **kwargs)
 
             def checkbox_getter() -> bool:
@@ -306,7 +306,7 @@ class ParamWidget(object):
                     widget.activate()
                 else:
                     widget.hide()
-        
+
         self._callbacks = [default_callback]
 
     def __hash__(self):
@@ -340,7 +340,7 @@ class ParamWidget(object):
     @value.setter
     def value(self, value):
         self._setter(value)
-    
+
     @property
     def values(self):
         assert self._values_getter is not None
@@ -387,7 +387,7 @@ class ParamWidget(object):
 
     def update(self):
         self._value = self.value
-    
+
     @property
     def interface(self):
         return self._obj
@@ -447,7 +447,7 @@ class NNGui(object):
 
     def get_dataset_category(self, ds, supercategory, category):
         n = int(self.database[ds]['categories'][supercategory][category])
-        suf = "изображений" if n % 10 in {0,5,6,7,8,9} or n in {11,12,13,14} else \
+        suf = "изображений" if n % 10 in {0,5,6,7,8,9} or n % 100 in {11,12,13,14} else \
               "изображения" if n % 10 in {2,3,4} else \
               "изображение"
         return f"{str(n)} {suf}"
@@ -546,7 +546,7 @@ class NNGui(object):
         self.datasets_info.text = \
             f"<p><b>Датасеты:</b> {', '.join(self.datasets)}</p>"
         self.datasets_info.visible = True
-        self.task_objects.values = list({ 
+        self.task_objects.values = list({
             category for ds in self.datasets
                      for supercategory in self.database[ds]['categories']
                      for category in self.database[ds]['categories'][supercategory]
@@ -581,7 +581,7 @@ class NNGui(object):
         def changeDataset(attr, old, new):
             self.setup_dataset(new[0])
             self.dataset_select_button.disabled = False
-        
+
         datasets = list(self.database.keys())
         self.dataset_selector = MultiSelect(
             value=datasets[:1] if len(datasets) > 0 else [], options=datasets,
@@ -608,32 +608,32 @@ class NNGui(object):
         self.dataset_categories_num = Div(align='center', min_width=150)
         self.dataset_categories = \
             Row(Div(text="<b>Категории изображений:</b>", min_width=160),
-                self.dataset_supercategory, self.dataset_category, 
+                self.dataset_supercategory, self.dataset_category,
                 self.dataset_categories_num)
 
-        self.dataset_add_button = Button('Добавить датасет', 
+        self.dataset_add_button = Button('Добавить датасет',
                                          self.on_click_dataset_add)
-        self.dataset_load_button = Button('Загрузить', self.on_click_dataset_load, 
+        self.dataset_load_button = Button('Загрузить', self.on_click_dataset_load,
                                           visible=False)
-        self.dataset_cancel_button = Button('Отменить', self.on_click_dataset_cancel, 
+        self.dataset_cancel_button = Button('Отменить', self.on_click_dataset_cancel,
                                             visible=False)
-        self.dataset_select_button = Button('Использовать выбранные датасеты', 
+        self.dataset_select_button = Button('Использовать выбранные датасеты',
                                             self.on_click_dataset_select,
                                             disabled=True)
-        
-        self.database_buttons = [self.dataset_select_button, self.dataset_add_button, 
-                                 self.dataset_cancel_button, self.dataset_load_button, 
+
+        self.database_buttons = [self.dataset_select_button, self.dataset_add_button,
+                                 self.dataset_cancel_button, self.dataset_load_button,
                                  self.dataset_error]
 
         self.database_interfaces = [
             Column(Div(text="<b>Доступные датасеты:</b>"),
                    self.dataset_selector, self.dataset_categories, margin=(0, 0, 0, 5)),
-            Column(self.dataset_description.interface, 
-                   self.dataset_url.interface, 
+            Column(self.dataset_description.interface,
+                   self.dataset_url.interface,
                    self.dataset_contributor.interface,
-                   self.dataset_date_created.interface, 
+                   self.dataset_date_created.interface,
                    self.dataset_version.interface,
-                   self.dataset_anno_file.interface, 
+                   self.dataset_anno_file.interface,
                    self.dataset_dir.interface,
                    sizing_mode='stretch_both') ]
 
@@ -704,7 +704,7 @@ class NNGui(object):
     def init_task_interface(self):
         self.task_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
         self.task_logs = Div(align="start", visible=False)
-        
+
         def changeTaskParam(attr, old, new):
             self.task_apply_button.disabled = False
 
@@ -726,7 +726,7 @@ class NNGui(object):
                                        self.task_value.interface,
                                        self.task_maximize.interface,
                                        sizing_mode='stretch_both')]
-        
+
         self.task_interface_init = True
 
     def activate_task_interface(self):
@@ -755,14 +755,14 @@ class NNGui(object):
         if len(epochs) > last_epoch+1:
             ll = len(epochs)-1
             # update self.loss_acc_plot
-            self.loss_acc_plot.line(list(epochs[last_epoch:]), 
+            self.loss_acc_plot.line(list(epochs[last_epoch:]),
                                     list(losses[last_epoch:]),
                                     legend_label='Loss', line_color='red')
-            self.loss_acc_plot.line(list(epochs[last_epoch:]), 
+            self.loss_acc_plot.line(list(epochs[last_epoch:]),
                                     list(accuracies[last_epoch:]),
                                     legend_label='Accuracy', line_color='green')
             if val_losses:
-                self.loss_acc_plot.line(list(epochs[last_epoch:]), 
+                self.loss_acc_plot.line(list(epochs[last_epoch:]),
                                         list(val_losses[last_epoch:]),
                                         legend_label='Val Loss', line_color='blue')
             if val_accuracies:
@@ -805,8 +805,8 @@ class NNGui(object):
             self.model = model
         if tp == 'epoch':
             self.msg(f'Эпоха {epoch}: {logs}')
-            self.add_plot_point(epoch, logs['loss'], logs['accuracy'], 
-                                logs.get('val_loss', None), 
+            self.add_plot_point(epoch, logs['loss'], logs['accuracy'],
+                                logs.get('val_loss', None),
                                 logs.get('val_accuracy', None))
             time.sleep(0.1)
         elif tp == 'finish':
@@ -835,12 +835,12 @@ class NNGui(object):
 
         self.stop = StopFlag()
         if self.tune.value:
-            self.process = process(tune)(nn_task=self.task, stop_flag=self.stop, 
+            self.process = process(tune)(nn_task=self.task, stop_flag=self.stop,
                                          tuned_params=['optimizer', 'batch_size', 'learning_rate'],
                                          method=self.tune_method.value,
                                          hparams=self.hparams(), start=False)
         else:
-            self.process = process(train)(nn_task=self.task, stop_flag=self.stop, 
+            self.process = process(train)(nn_task=self.task, stop_flag=self.stop,
                                           hparams=self.hparams(), start=False,
                                           model=self.model)
         self.process.set_handler(
@@ -872,27 +872,27 @@ class NNGui(object):
         self.train_params_box = Box(Spacer(height=10),
                                     *[w.interface for w in self.general_params],
                                     Delimiter(),
-                                    *[w.interface for w in self.train_params], 
+                                    *[w.interface for w in self.train_params],
                                     Delimiter(),
-                                    *[w.interface for w in self.optimizer_params], 
+                                    *[w.interface for w in self.optimizer_params],
                                     Delimiter(),
-                                    *[w.interface for w in self.tune_params], 
+                                    *[w.interface for w in self.tune_params],
                                     Spacer(height=10))
         print("ok")
 
         print("Create train_output_box ... ", end='', flush=True)
         self.train_output = TextAreaInput(value = self.train_logs,
-                                          min_width=500, 
-                                          sizing_mode='stretch_both', 
+                                          min_width=500,
+                                          sizing_mode='stretch_both',
                                           disabled=True)
         self.trining_output_box = Box(self.train_output, sizing_mode='stretch_width')
         print("ok")
 
         print("Create train_tools_box ... ", end='', flush=True)
         self.loss_acc_plot = Figure(title='Loss and Accuracy',
-                                    x_axis_label='Epoch', 
+                                    x_axis_label='Epoch',
                                     y_axis_label='Loss/Accuracy',
-                                    plot_width=500, plot_height=250, 
+                                    plot_width=500, plot_height=250,
                                     sizing_mode='stretch_both')
         self.loss_acc_plot_attr = dict(epochs = [], losses = [], accuracies = [],
                                        val_losses = [], val_accuracies = [],
@@ -917,14 +917,14 @@ class NNGui(object):
         self.continue_button = Button('Продолжить', self.on_click_continue, visible=False)
 
         self.train_buttons = [
-                self.train_box_button_group, self.tensorboard_button, 
+                self.train_box_button_group, self.tensorboard_button,
                 self.start_button, self.stop_button, self.continue_button
             ]
         self.train_interfaces = [
                 self.train_params_box, self.trining_output_box,
                 self.trining_tools_box
             ]
-        
+
         self.train_interface_init = True
 
     def activate_train_interface(self):
@@ -952,14 +952,14 @@ class NNGui(object):
         self.history_logs = Div(align="start", visible=False)
         try:
             self.history_hparams = []
-            source = ColumnDataSource({ 
+            source = ColumnDataSource({
                     x:[] for x in ['dates', 'funcs', 'values', 'times']
                 })
             self.history_table = Table(source, [
                     TableColumn(field="dates", title="Дата"),
                     TableColumn(field="funcs", title="Функционал"),
                     TableColumn(field="values", title="Значение"),
-                    TableColumn(field="times", title="Время обучения", 
+                    TableColumn(field="times", title="Время обучения",
                                 formatter=NumberFormatter(format='00:00:00')),
                 ])
 
@@ -987,10 +987,10 @@ class NNGui(object):
             traceback.print_exc()
             print(f'Exception occured during History.__init__: {e}')
 
-        self.history_params_box = Box(Spacer(height=10), 
+        self.history_params_box = Box(Spacer(height=10),
                                       *[w.interface for w in self.train_params],
                                       Delimiter(),
-                                      *[w.interface for w in self.optimizer_params], 
+                                      *[w.interface for w in self.optimizer_params],
                                       Spacer(height=10))
 
         self.history_download_button = Button('Скачать', self.on_click_history_download)
@@ -1013,7 +1013,7 @@ class NNGui(object):
         except Exception as e:
             traceback.print_exc()
             print(f'Exception occured during History.__init__: {e}')
-            
+
         self.history_table.source.data = data
 
     def activate_history_interface(self):
@@ -1033,13 +1033,13 @@ class NNGui(object):
 
         for field in ['datasets', 'task_type', 'task_objects', \
                       'task_func', 'task_value', 'task_maximize']:
-            widget = Div(align='start', visible=False, height=50, height_policy='fixed', 
+            widget = Div(align='start', visible=False, height=50, height_policy='fixed',
                          sizing_mode='stretch_width')
             setattr(self, f'{field}_info', widget)
 
         menu = [
             ("База данных", "database"),
-            ("Задача", "task"), 
+            ("Задача", "task"),
             ("Обучение", "train"),
             ("История", "history")
         ]
@@ -1076,9 +1076,9 @@ class NNGui(object):
         self.logs_interface = Row(margin=(-5, 5, 5, 5))
 
         self.interface = \
-            Column(Row(self.datasets_info, self.task_type_info, self.task_objects_info, 
+            Column(Row(self.datasets_info, self.task_type_info, self.task_objects_info,
                        self.task_func_info, self.task_value_info, self.task_maximize_info,
-                       spacing=10, min_width=1200, sizing_mode='stretch_width', 
+                       spacing=10, min_width=1200, sizing_mode='stretch_width',
                        margin=(-10, 5, -5, 5)),
                    self.buttons_interface, self.window_interface, self.logs_interface, spacing=5)
 
@@ -1117,7 +1117,7 @@ class NNGui(object):
                         alert("Задача не создана, " + msg + "!");
                     }'''))
 
-        self.menu_buttons = Row(self.menu_database_button, self.menu_task_button, 
+        self.menu_buttons = Row(self.menu_database_button, self.menu_task_button,
                                 self.menu_train_button, self.menu_history_button)
 
     def on_click_database_menu(self, event):
@@ -1135,7 +1135,7 @@ class NNGui(object):
     def on_click_history_menu(self, event):
         print("Goto history interface")
         self.activate_history_interface()
-    
+
 gui = NNGui()
 
 interface = pn.template.MaterialTemplate(
@@ -1144,7 +1144,7 @@ interface = pn.template.MaterialTemplate(
     header=[gui.menu_buttons],
     main=[
         gui.interface
-        # pipeline.stage, 
+        # pipeline.stage,
         # pn.layout.Divider(margin=(50, 0, 50, 0)), pn.Row(pipeline.network, pipeline.buttons)
     ],
     modal=[pn.pane.Markdown("## Modal")],
