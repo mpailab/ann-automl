@@ -772,11 +772,17 @@ class DBModule:
             # print(set(df_new['target']))
             # min_cat = df_new['target'].min()
             # df_new['target'] = df_new['target'] - min_cat
-        split_points = kwargs.get('split_points', [0.6, 0.8])
-        if not isinstance(kwargs['split_points'], (list, tuple)) or len(kwargs['split_points']) != 2:
+        kwargs['split_points'] = kwargs.get('split_points', [0.6, 0.8])
+        # split_points = kwargs.get('split_points', [0.6, 0.8])
+        # print('kwargs[split_points] = ', kwargs['split_points'])
+        # if not isinstance(kwargs['split_points'], (list, tuple)) or len(kwargs['split_points']) != 2:
+        #     raise ValueError('split_points must be a list of two elements')
+        if not isinstance(kwargs.get('split_points'), (list, tuple)) or len(kwargs['split_points']) != 2:
             raise ValueError('split_points must be a list of two elements')
+        # filename_dict = self._split_and_save(df_new, kwargs.get('cur_experiment_dir', '.') + '/',
+        #                                      split_points, headers_string)
         filename_dict = self._split_and_save(df_new, kwargs.get('cur_experiment_dir', '.') + '/',
-                                             split_points, headers_string)
+                                             kwargs['split_points'], headers_string)
         return df_new, filename_dict, av_width, av_height
 
     def load_specific_categories_annotations(self, cat_names, with_segmentation=False, **kwargs):
