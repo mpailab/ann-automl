@@ -177,7 +177,9 @@ class ParamWidget(object):
                'group' in desc['gui'] and 'widget' in desc['gui'] and \
                 name not in self._widgets
 
-        title = f"{desc['title']}:"
+        title = f"{desc['title']}"
+        if desc['gui']['widget'] != 'Checkbox':
+            title += ':'
         value = desc['default']
         kwargs = {
             'name': name,
@@ -833,15 +835,25 @@ class NNGui(object):
         self.bokeh_timer = bokeh.io.curdoc().add_periodic_callback(
             self.update_bokeh_server, 1000)
 
+        # get params
+        initial_params = self.hparams()
+        hparams = recommend_hparams(self.task, fixed_params=self.hparams(), trace_solution=True)
+        # print differece between initial and recommended params
+        changed_params = {k: f'{initial_params.get(k, None)} --> {v}' for k, v in hparams.items() if v != initial_params.get(k, None)}
+        if changed_params:
+            self.msg('Изменённые параметры:')
+            for k, v in changed_params.items():
+                self.msg(f'\t{k}: {v}')
+
         self.stop = StopFlag()
         if self.tune.value:
             self.process = process(tune)(nn_task=self.task, stop_flag=self.stop,
                                          tuned_params=['optimizer', 'batch_size', 'learning_rate'],
                                          method=self.tune_method.value,
-                                         hparams=self.hparams(), start=False)
+                                         hparams=hparams, start=False)
         else:
             self.process = process(train)(nn_task=self.task, stop_flag=self.stop,
-                                          hparams=self.hparams(), start=False,
+                                          hparams=hparams, start=False,
                                           model=self.model)
         self.process.set_handler(
             'print', lambda *args, **kwargs: self.msg(*args, **kwargs))
@@ -928,6 +940,7 @@ class NNGui(object):
         self.train_interface_init = True
 
     def activate_train_interface(self):
+        self.model = None
         if self.task is None:
             return
         self.menu_button.label = "Обучение"

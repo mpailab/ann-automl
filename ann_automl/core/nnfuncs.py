@@ -22,6 +22,7 @@ from . import db_module
 from .solver import printlog
 from ..utils.process import pcall
 from ..utils.thread_wrapper import ObjectWrapper
+import atexit
 
 
 _data_dir = 'data'
@@ -29,6 +30,17 @@ _db_file = 'tests.sqlite'  # TODO: уточнить путь к файлу ба�
 
 # nnDB = ObjectWrapper(db_module.DBModule, dbstring=f'sqlite:///{_db_file}')
 nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
+
+
+def close_db():
+    global nnDB
+    if nnDB is not None:
+        print('Close database')
+        nnDB.close()
+        nnDB = None
+
+
+atexit.register(close_db)
 
 
 _emulation = False  # флаг отладочного режима, когда не выполняются долгие операции
@@ -198,8 +210,14 @@ nn_hparams = {
         'title': "оптимизатор",
         'description': "Оптимизатор, используемый при обучении нейронной сети"
     },
+    'model_arch': {'type': 'str', 'values': list(pretrained_models.keys())+['ResNet18', 'ResNet34'],
+                   'default': 'resnet50', 'title': 'архитектура нейронной сети'},
+    'transfer_learning': {'type': 'bool', 'default': False,
+                          'title': 'дообучить предобученную нейронную сеть'},
     'learning_rate': {'type': 'float', 'range': [1e-5, 1e-1], 'default': 1e-3, 'step': 2, 'scale': 'log',
                       'title': "скорость обучения"},
+    'fine_tune_lr_div': {'type': 'float', 'range': [1.0, 1e3], 'default': 10, 'step': 10, 'scale': 'log',
+                         'title': "коэффициент для скорости fine-tune при дообучении"},
     'decay': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
               'title': 'декремент скорости обучения'},
     'activation': {'type': 'str', 'values': ['softmax', 'elu', 'selu', 'softplus', 'softsign', 'relu', 'tanh',
@@ -447,12 +465,15 @@ def create_layer(type, **kwargs):
     return getattr(keras.layers, type)(**kwargs)
 
 
-def create_model(base, last_layers, dropout=0.0, input_shape=None):
+def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_learning=True):
     if base.lower() in pretrained_models:
         # load pretrained model with weights without last layers
-        base_model = pretrained_models[base](include_top=False, weights='imagenet', input_shape=input_shape or (224, 224, 3))
+        base_model = pretrained_models[base](include_top=False, 
+                                             weights='imagenet' if transfer_learning else None, 
+                                             input_shape=input_shape or (224, 224, 3))
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
+
     # insert dropout layer if needed
     input_shape = base_model.input_shape[1:]
     x = keras.layers.Input(shape=input_shape)
@@ -474,7 +495,7 @@ class ExperimentHistory:
         self.task_type = task.type
         self.objects = task.objects
 
-        self.history = pd.DataFrame(columns=['Index', 'task_type', 'objects', 'exp_name', 'pipeline', 'last_layers',
+        self.history = pd.DataFrame(columns=['Index', 'task_type', 'objects', 'exp_name', 'model_arch', 'last_layers',
                                              'augmen_params', 'loss', 'metrics', 'epochs', 'stop_criterion', 'data',
                                              'optimizer', 'batch_size', 'learning_rate', 'metric_test_value',
                                              'train_subdir', 'time_stat', 'total_time', 'additional_params'])
@@ -488,7 +509,7 @@ class ExperimentHistory:
                 'objects': [self.objects],  # список объектов, на распознавание которых обучается модель
                 'exp_name': self.exp_name,  # название эксперимента
 
-                'pipeline': params['pipeline'],  # базовая часть модели
+                'model_arch': params['model_arch'],  # базовая часть модели
                 'last_layers': params['last_layers'],  # последние слои модели
                 'augmen_params': params['augmen_params'],  # параметры аугментации
                 'loss': params['loss'],  # функция потерь
@@ -633,6 +654,76 @@ def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=N
     return history
 
 
+def compile_model(model, hparams, measured_metrics, freeze_base=None):
+    optimizer, lr = hparams['optimizer'], hparams['learning_rate']
+    opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
+    kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
+    optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
+    if freeze_base is True:
+        printlog("Freeze base model layers")
+        print(model.layers[1])
+        model.layers[1].trainable = False
+    elif freeze_base is False:
+        printlog("Unfreeze base model layers (fine-tuning)")
+        model.layers[1].trainable = True
+    printlog("Compile model")
+    model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
+
+
+def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name):
+    if not _emulation:
+        c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
+        c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + f'/{weights_name}.h5', monitor=check_metric, verbose=1,
+                                               save_best_only=True, save_weights_only=False, mode='auto')
+        c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
+        # clear tensorboard logs
+        if os.path.exists(tensorboard_logdir()):
+            shutil.rmtree(tensorboard_logdir(), ignore_errors=True)
+        os.makedirs(tensorboard_logdir(), exist_ok=True)
+
+        callbacks = [c_log, c_ch, c_es]
+        if use_tensorboard:
+            c_tb = keras.callbacks.TensorBoard(
+                log_dir=tensorboard_logdir(),  # , datetime.now().strftime("%Y%m%d-%H%M%S")),
+                histogram_freq=1
+            )
+            callbacks.append(c_tb)
+    else:
+        callbacks = []
+
+    c_t = TimeHistory()
+    callbacks += [c_t, NotifyCallback()]
+    if stop_flag is not None or timeout is not None:
+        callbacks.append(CheckStopCallback(stop_flag, timeout))
+    return callbacks, c_t
+
+
+def fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name):
+    callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name=weights_name)
+
+    if _emulation:
+        scores = emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
+                             hparams['epochs'], callbacks, generators[1])
+    else:
+        printlog("Fit model")
+        printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
+        # fit model
+        model.fit(x=generators[0],
+                  steps_per_epoch=max(1, len(generators[0].filenames) // hparams['batch_size']),
+                  epochs=hparams['epochs'],
+                  validation_data=generators[1],
+                  callbacks=callbacks,
+                  validation_steps=max(1, len(generators[1].filenames) // hparams['batch_size']))
+
+        # load best weights
+        printlog("Load best weights")
+        model.load_weights(cur_subdir + f'/{weights_name}.h5')
+
+        # evaluate model
+        scores = model.evaluate(generators[2], steps=None, verbose=1)
+    return scores, c_t
+
+
 def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None, need_recompile=False,
               use_tensorboard=False, timeout=None) -> Tuple[List[float], dict]:
     """ Обучение модели
@@ -658,80 +749,32 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
 
     transfer_learning = hparams.get('transfer_learning', False)
 
-    # if model is not compiled, compile it
-    if not model.optimizer or transfer_learning or need_recompile:
-        printlog("Compile model")
-        optimizer, lr = hparams['optimizer'], hparams['learning_rate']
-        opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
-        kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
-        optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
-        if transfer_learning:
-            printlog("Freeze base model layers")
-            print(model.layers[1])
-            model.layers[1].trainable = False
-        model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
-
     # set up callbacks
     check_metric = 'val_' + measured_metrics[0]
     date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
 
-    if not _emulation:
-        c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
-        c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/best_weights.h5', monitor=check_metric, verbose=1,
-                                               save_best_only=True, save_weights_only=False, mode='auto')
-        c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
-        # clear tensorboard logs
-        if os.path.exists(tensorboard_logdir()):
-            shutil.rmtree(tensorboard_logdir(), ignore_errors=True)
-        os.makedirs(tensorboard_logdir(), exist_ok=True)
+    if not transfer_learning:
+        # if model is not compiled, compile it
+        if not model.optimizer or transfer_learning or need_recompile:
+            compile_model(model, hparams, measured_metrics, freeze_base=transfer_learning)
 
-        callbacks = [c_log, c_ch, c_es]
-        if use_tensorboard:
-            c_tb = keras.callbacks.TensorBoard(
-                log_dir=tensorboard_logdir(),  # , datetime.now().strftime("%Y%m%d-%H%M%S")),
-                histogram_freq=1
-            )
-            callbacks.append(c_tb)
-    else:
-        callbacks = []
-
-    c_t = TimeHistory()
-    callbacks += [c_t, NotifyCallback()]
-    if stop_flag is not None or timeout is not None:
-        callbacks.append(CheckStopCallback(stop_flag, timeout))
-
-    if _emulation:
-        scores = emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
-                             hparams['epochs'], callbacks, generators[1])
-    else:
-        printlog("Fit model")
-        printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
         # fit model
-        model.fit(x=generators[0],
-                  steps_per_epoch=max(1, len(generators[0].filenames) // hparams['batch_size']),
-                  epochs=hparams['epochs'],
-                  validation_data=generators[1],
-                  callbacks=callbacks,
-                  validation_steps=max(1, len(generators[1].filenames) // hparams['batch_size']))
+        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
+    else:
+        compile_model(model, hparams, measured_metrics, freeze_base=True)
+        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
 
-        # load best weights
-        printlog("Load best weights")
-        model.load_weights(cur_subdir + '/best_weights.h5')
-
-        # evaluate model
-        scores = model.evaluate(generators[2], steps=None, verbose=1)
-
-    if transfer_learning:
-        printlog("Fine-tune model")
-        printlog("Unfreeze base model layers")
-        model.layers[1].trainable = True
-        # get best weights
         new_hparams = hparams.copy()
-        new_hparams['transfer_learning'] = False
         new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
-        # run model fit again
-        return fit_model(model, objects, new_hparams, generators, cur_subdir, history, stop_flag, need_recompile=True,
-                         timeout=None if timeout is None else timeout - (time.time() - t0))
+        compile_model(model, new_hparams, measured_metrics, freeze_base=False)
+        tune_scores, tune_c_t = fit(model, generators, new_hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights')
+
+        if tune_scores[1] > scores[1]:
+            scores = tune_scores
+            shutil.copyfile(cur_subdir + '/tune_best_weights.h5', cur_subdir + '/best_weights.h5')
+        os.remove(cur_subdir + '/tune_best_weights.h5')
+        c_t.total_time += tune_c_t.total_time
+        c_t.times += tune_c_t.times
 
     # save results to history
     if history is not None:
@@ -765,10 +808,14 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
     """
     if model is None:
         printlog("Create model")
-        model = create_model(hparams['pipeline'], hparams['last_layers'], hparams.get('dropout', 0.0),
-                             input_shape=hparams.get('input_shape', None))
+        model = create_model(hparams['model_arch'], hparams['last_layers'], hparams.get('dropout', 0.0),
+                             input_shape=hparams.get('input_shape', None), 
+                             transfer_learning=hparams.get('transfer_learning', True))
         model.save(cur_subdir + '/initial_model.h5')
-        tf.keras.utils.plot_model(model, to_file=cur_subdir + '/model_plot.png', rankdir='TB', show_shapes=True)
+        try:
+            tf.keras.utils.plot_model(model, to_file=cur_subdir + '/model_plot.png', rankdir='TB', show_shapes=True)
+        except ImportError as e:
+            warnings.warn(f"Can't plot model: {e}")
     elif isinstance(model, str):  # model is path to weights
         printlog("Load model")
         model = keras.models.load_model(model)

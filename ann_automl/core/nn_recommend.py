@@ -20,12 +20,12 @@ class SelectHParamsTask(RecommendTask):
         super().__init__(goals={})
         self.nn_task = nn_task
         self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
-        self.hparams['pipeline'] = None
+        self.hparams['model_arch'] = None
         if fixed_hparams is not None:
             self.hparams.update(fixed_hparams)
             self.fixed = set(fixed_hparams.keys())
         else:
-            self.fixed = ()
+            self.fixed = set()
         self.recommendations = {}
 
     def set_selected_options(self, options):
@@ -42,6 +42,9 @@ def recommend_hparams(task: NNTask, fixed_params=None, **kwargs) -> dict:
 # Базовые приёмы для начальной рекомендации гиперпараметров
 @rule(SelectHParamsTask)
 class RecommendLoss(Recommender):
+    def can_recommend(self, task) -> bool:
+        return 'loss' not in task.fixed
+
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         # TODO: проверить и добавить рекомендации для разных типов задач
@@ -53,11 +56,17 @@ class RecommendLoss(Recommender):
 
 @rule(SelectHParamsTask)
 class RecommendOptimizer(Recommender):
+    def can_recommend(self, task) -> bool:
+        return not ({'optimizer', 'learning_rate'} <= task.fixed)
+
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         # TODO: проверить и добавить рекомендации для разных типов задач
-        prec['optimizer'] = 'Adam'
-        prec['learning_rate'] = 0.001
+        if 'optimizer' not in task.fixed:
+            prec['optimizer'] = 'Adam'
+            prec['learning_rate'] = 0.001
+        elif 'learning_rate' not in task.fixed:
+            prec['learning_rate'] = 0.01 if task.hparams['optimizer'] == 'SGD' else 0.001
         # prec['nesterov'] = True
 
 
@@ -65,25 +74,28 @@ class RecommendOptimizer(Recommender):
 class RecommendArch(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
-        # prec['activation'] = 'relu'    # функция активации в базовой части. TODO: возможны ли другие рекомендации?
-        if 'pipeline' not in task.fixed:
-            prec['pipeline'] = 'resnet50'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+        if 'model_arch' not in task.fixed:
+            prec['model_arch'] = 'resnet50'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
         else:
-            prec['pipeline'] = task.hparams['pipeline']
+            prec['model_arch'] = task.hparams['model_arch']
         last_layers = []
-        if prec['pipeline'] in pretrained_models:
+        if prec['model_arch'] in pretrained_models:
             if 'input_shape' not in task.fixed:
                 prec['input_shape'] = (224, 224, 3)  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
             else:
                 prec['input_shape'] = task.hparams['input_shape']
             last_layers.append({'type': 'GlobalAveragePooling2D'})
-            prec['transfer_learning'] = True
+            if 'transfer_learning' not in task.fixed:
+                prec['transfer_learning'] = True
+        else:
+            if 'transfer_learning' not in task.fixed:
+                prec['transfer_learning'] = False
 
-        if prec['pipeline'].startswith('resnet'):
+        if prec['model_arch'].startswith('resnet'):
             prec['preprocessing_function'] = 'keras.applications.resnet.preprocess_input'
-        elif prec['pipeline'].startswith('inception'):
+        elif prec['model_arch'].startswith('inception'):
             prec['preprocessing_function'] = 'keras.applications.inception_v3.preprocess_input'
-        elif prec['pipeline'].startswith('xception'):
+        elif prec['model_arch'].startswith('xception'):
             prec['preprocessing_function'] = 'keras.applications.xception.preprocess_input'
         if len(task.nn_task.objects) == 2:
             last_layers.append({'type': 'Dense', 'units': 1})
@@ -96,6 +108,9 @@ class RecommendArch(Recommender):
 
 @rule(SelectHParamsTask)
 class RecommendAugmentation(Recommender):
+    def can_recommend(self, task) -> bool:
+        return 'augmen_params' not in task.fixed
+
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         aug = prec['augmen_params'] = {}
@@ -135,6 +150,8 @@ class RecommendBatchSize(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         prec['batch_size'] = estimate_batch_size(task.nn_task.model)  # recommends max possible batch size
+        if 'batch_size' in task.fixed:
+            prec['batch_size'] = min(task.hparams['batch_size'], prec['batch_size'])
 
 
 def get_history(task: NNTask, exact_category_match=False):

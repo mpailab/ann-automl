@@ -46,13 +46,14 @@ all_hparams = {
 
 
 param_groups = {
-    'train': ['train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
-                 'train.decay', 'train.activation',
-                 'train.loss', 'train.metrics', 'train.dropout',
-                 # 'train.kernel_initializer', 'train.bias_initializer',
-                 # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
-                 # 'train.kernel_constraint', 'train.bias_constraint'
-                 ],
+    'train': ['train.model_arch', 'train.transfer_learning',
+              'train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
+              'train.decay', 'train.activation',
+              'train.loss', 'train.metrics', 'train.dropout',
+              # 'train.kernel_initializer', 'train.bias_initializer',
+              # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
+              # 'train.kernel_constraint', 'train.bias_constraint'
+             ],
     'optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
                   'train.beta_1', 'train.beta_2'],
