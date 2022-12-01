@@ -19,9 +19,41 @@ import glob
 import xml.etree.ElementTree as ET
 import time
 
+from tqdm import tqdm
+
 from ann_automl.utils.text_utils import print_progress_bar
 
 Base = declarative_base()
+
+
+def check_coco_images(anno_file, image_dir):
+    if os.path.exists(image_dir):
+        return
+    print(f'Downloading COCO images for test (annotations = {anno_file})')
+    from pycocotools.coco import COCO
+    import requests
+    coco = COCO(anno_file)
+    img_ids = coco.getImgIds()
+    if not os.path.exists(image_dir):
+        os.makedirs(image_dir, exist_ok=True)
+    print_progress_bar(0, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
+    for i, img_id in enumerate(img_ids):
+        img = coco.loadImgs([img_id])[0]
+        img_data = requests.get(img['coco_url']).content
+        with open(image_dir + '/' + img['file_name'], 'wb') as handler:
+            handler.write(img_data)
+        print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
+
+
+def crop_image(input_file, output_file, x, y, w, h):
+    # the most efficient way to crop an image
+    image = cv2.imread(input_file)
+    image = image[math.floor(y):math.ceil(y + h), math.floor(x):math.ceil(x + w)]
+    cv2.imwrite(output_file, image)
+
+
+def crop_image_tuple(args):
+    return crop_image(*args)
 
 
 class DBModule:
@@ -211,24 +243,20 @@ class DBModule:
         """
         Base.metadata.create_all(self.engine)
 
-    def fill_all_default(self, anno_file_name='./datasets/coco/annotations/instances_train2017.json'):
+    def fill_all_default(self):
         """
         Method to fill all at once, supposing datasets are at default locations (CatsDogs, COCO, ImageNet)
-
-        Parameters
-        ----------
-        anno_file_name : str
-            shows path to the default COCO2017 annotations (train subset as default)
         """
         if os.path.exists(self.dbstring_.split('/')[-1]):  # If file exists we suppose it is filled
             return
         self.create_sqlite_file()
-        self.fill_coco(anno_file_name=anno_file_name, first_time=True)
+        self.fill_coco(first_time=True)
         self.fill_kaggle_cats_vs_dogs()
         self.fill_imagenet(first_time=True)
         return
 
-    def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', file_prefix='./datasets/Kaggle/'):
+    def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', 
+                                 file_prefix='./datasets/Kaggle/'):
         """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
         
         Parameters
@@ -276,12 +304,12 @@ class DBModule:
             image = self.Image(file_prefix + im_data['file_name'].split('.')[0] + 's/' + im_data['file_name'], im_data['width'], im_data['height'],
                                im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
                                im_data['license'])
-            if im_counter % 10 == 0 or im_counter == len(data['images']) - 2:
-                print_progress_bar(im_counter, len(data['images']), 
-                    prefix='Adding images:', suffix='Complete', length=50)
-            im_counter += 1
             im_objects[im_data['id']] = image
             self.sess.add(image)
+            im_counter += 1
+            if im_counter % 10 == 0 or im_counter == len(data['images']):
+                print_progress_bar(im_counter, len(data['images']),
+                                   prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
         ###################################
 
@@ -297,15 +325,17 @@ class DBModule:
                                          segmentation=';'.join(an_data['segmentation']),
                                          is_crowd=an_data['iscrowd'],
                                          area=an_data['area'])
-            if an_counter % 10 == 0 or an_counter == len(data['annotations']) - 2:
+            self.sess.add(annotation)
+            an_counter += 1
+            if an_counter % 10 == 0 or an_counter == len(data['annotations']):
                 print_progress_bar(an_counter, len(data['annotations']),
                     prefix='Adding annotations:', suffix='Complete', length=50)
-            an_counter += 1
-            self.sess.add(annotation)
         self.sess.commit()  # adding annotations
         print('Finished with Kaggle CatsVsDogs')
 
-    def fill_coco(self, anno_file_name, file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
+    def fill_coco(self, 
+                  anno_file_name='./datasets/COCO2017/annotations/instances_train2017.json', 
+                  file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
         """Method to fill COCOdataset into db. It is supposed to be called once.
 
         To create custom COCO annotations use some aux tools like https://github.com/jsbroks/coco-annotator
@@ -313,7 +343,7 @@ class DBModule:
         Parameters
         ----------
         anno_file_name : str
-            file with json annotation in COCO format for cats and dogs
+            file with json annotation in COCO format
         file_prefix : str
             prefix added to the file names in annotation file
         first_time : bool
@@ -362,6 +392,41 @@ class DBModule:
         print(f'Adding {len(anns)} annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
         return
+
+    def fill_in_coco_format(self, anno_file_name, file_prefix, ds_info, auto_download=False):
+        """Method to add new dataset in COCO format into db. It is supposed to be called for each new dataset.
+
+        Args:
+            anno_file_name (str): file with json annotation in COCO format
+            file_prefix (str): prefix added to the file names in annotation file
+            ds_info (dict): dictionary with info about dataset. Necessary keys:
+                description, url, version, year, contributor, date_created
+            auto_download (bool): if True and directory file_prefix doesn`t exist,
+                                  then download images from url in annotation file
+        """
+        if auto_download:
+            check_coco_images(anno_file_name, file_prefix)
+        if not os.path.isfile(anno_file_name):
+            raise FileNotFoundError(f'No file {anno_file_name} found, stop filling dataset')
+        if not os.path.isdir(file_prefix):
+            raise FileNotFoundError(f'No directory {file_prefix} found, stop filling dataset')
+        coco = COCO(anno_file_name)
+        cats = coco.loadCats(coco.getCatIds())
+        cat_names = [cat['name'] for cat in cats]
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
+        add_cats = [cat for cat, cat_id in zip(cats, cat_ids) if cat_id < 0]
+        if len(add_cats) > 0:
+            # preserve ids if there are no such ids in DB
+            respect_ids = not any(x for x in self.get_cat_names_by_IDs(cat_ids))
+            self.add_categories(add_cats, respect_ids=respect_ids)
+        img_ids = coco.getImgIds()
+        imgs = coco.loadImgs(img_ids)
+        ann_ids = coco.getAnnIds()
+        anns = coco.loadAnns(ann_ids)
+        print(f'Dataset description: {ds_info["description"]}')
+        print(f'Adding {len(anns)} annotations in COCO format to DB')
+        ds_id = self.add_dataset_info(ds_info)
+        self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
 
     def fill_imagenet(self, annotations_dir='./datasets/imagenet/annotations',
                       file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
@@ -547,8 +612,9 @@ class DBModule:
         if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:
             df_new = pd.DataFrame(columns=['images', 'target'], data=df[[
                                   'file_name', 'category_id']].values)
-            min_cat = df_new['target'].min()
-            df_new['target'] = df_new['target'] - min_cat
+            df_new['target'] = df_new['target'].astype('category').cat.codes
+            # min_cat = df_new['target'].min()
+            # df_new['target'] = df_new['target'] - min_cat
             return df_new
         return df
 
@@ -583,33 +649,59 @@ class DBModule:
             res[supercategory][category] = number
         return res
 
-    def _prepare_cropped_images(self, df, kwargs):
+    def _prepare_cropped_images(self, df, kwargs, skip_existing=True):
         """
         Helper for image cropping in case of multiple annotations on one picture.
         """
-        column_names = ["file_name", "category_id"]
-        buf_df = pd.DataFrame(columns=column_names)
         cropped_dir = kwargs.get('cropped_dir', '') or 'buf_crops/'
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
         files_dir = kwargs.get('files_dir', '')
-        for index, row in df.iterrows():
+
+        # iterate with progress bar
+        new_images = 0
+        new_rows = []
+        crop_tasks = []
+
+        for index, row in tqdm(df.iterrows(), total=df.shape[0], desc='Collecting images', file=sys.stdout,
+                               mininterval=0.5, maxinterval=0.6):
             bbox = []
+            input_file = os.path.join(files_dir, row['file_name'])
             if row['bbox'] != '':
                 bbox = ast.literal_eval(row['bbox'])
             if len(bbox) != 4:
-                new_row = {'file_name': row['file_name'],
-                           'category_id': row['category_id']}
-                buf_df = buf_df.append(new_row, ignore_index=True)  # nothing to cut
+                new_rows.append([input_file, row['category_id']])
                 continue
-            image = cv2.imread(files_dir + row['file_name'])
-            crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
-                         math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
             buf_name = row["file_name"].split('.')
             filename = (buf_name[-2]).split('/')[-1]
-            filepath = cropped_dir + filename + "-" + str(index) + "." + buf_name[-1]
-            cv2.imwrite(filepath, crop)
-            new_row = pd.DataFrame([[filepath, row['category_id']]], columns=column_names)
-            buf_df = buf_df.append(new_row)
+            filepath = os.path.join(cropped_dir, f'{filename}-{row["ID"]}-{row["category_id"]}.{buf_name[-1]}')
+            if not skip_existing or not os.path.exists(filepath):
+                crop_tasks.append((input_file, filepath, bbox[0], bbox[1], bbox[2], bbox[3]))
+                # rect = {'left': math.floor(bbox[0]), 'top': math.floor(bbox[1]),
+                #         'right': math.ceil(bbox[0] + bbox[2]), 'bottom': math.ceil(bbox[1] + bbox[3])}
+                # img = Image.open(input_file)
+                # img = img.crop((rect['left'], rect['top'], rect['right'], rect['bottom']))
+                # img.save(filepath)
+                # image = cv2.imread(input_file)
+                # crop = image[math.floor(bbox[1]):math.ceil(bbox[1] + bbox[3]),
+                #              math.floor(bbox[0]):math.ceil(bbox[0] + bbox[2])]
+                #
+                # cv2.imwrite(filepath, crop)
+                new_images += 1
+            new_rows.append([filepath, row['category_id']])
+
+        # create multiprocessing pool to speed up the process
+        import multiprocessing
+        num_processes = kwargs.get('num_processes', multiprocessing.cpu_count()-1)
+        pool = multiprocessing.Pool(processes=num_processes)
+        print(f'Cropping {new_images} with {num_processes} processes')
+        # run the pool with progress bar
+        for _ in tqdm(pool.imap_unordered(crop_image_tuple, crop_tasks), total=len(crop_tasks), desc='Cropping images',
+                      file=sys.stdout, mininterval=0.5, maxinterval=0.6):
+            pass
+        pool.close()
+        print(f'Created {new_images} new image crops, used {df.shape[0] - new_images} existing image crops')
+        # convert list of dicts to dataframe
+        buf_df = pd.DataFrame(new_rows, columns=['file_name', 'category_id'])
         return buf_df
 
     def _split_and_save(self, df, save_dir, split_points, headers_string):
@@ -624,7 +716,7 @@ class DBModule:
         np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
         return {'train': f'{save_dir}train.csv', 'test': f'{save_dir}test.csv', 'validate': f'{save_dir}val.csv'}
 
-    def _process_query(self, query, with_segmentation, kwargs):
+    def _process_query(self, query, cat_names, with_segmentation, kwargs):
         """
         Helper to process SQL query for Annotations
             - query -> sqlalchemy query object
@@ -641,6 +733,9 @@ class DBModule:
         av_height = df['height'].mean()
         if kwargs.get('crop_bbox', False):
             df = self._prepare_cropped_images(df, kwargs)
+        elif 'files_dir' in kwargs:
+            df['file_name'] = df['file_name'].apply(lambda x: os.path.join(kwargs['files_dir'], x))
+
         if with_segmentation is False:
             df_new = pd.DataFrame(columns=['images', 'target'], 
                                   data=df[['file_name', 'category_id']].values)
@@ -654,9 +749,9 @@ class DBModule:
             g = df_new.groupby('target', group_keys=False)
             # balance-out too large categories with random selection:
             df_new = g.apply(lambda x: x.sample(g.size().min()).reset_index(drop=True))
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
         if kwargs.get('balance_by_categories', False):
             cat_names = [el for el in kwargs['balance_by_categories']]
-            cat_ids = self.get_cat_IDs_by_names(cat_names)
             cat_ids_dict = {}
             for i in range(len(cat_ids)):
                 if cat_ids[i] != -1:
@@ -667,8 +762,13 @@ class DBModule:
             df_new = g.apply(lambda x: x.sample(cat_ids_dict[x['target'].iloc[0]]).reset_index(drop=True))
         # A fancy patch for keras to start numbers from 0
         if kwargs.get('normalize_cats', False):
-            # change category ids to form range(0, num_cats)
-            df_new['target'] = df_new['target'].astype('category').cat.codes
+            # change category ids to form range(0, num_cats) according to order in cat_names
+            cat_ids_dict = {}
+            for i in range(len(cat_ids)):
+                if cat_ids[i] != -1:
+                    cat_ids_dict[cat_ids[i]] = i
+            df_new['target'] = df_new['target'].map(cat_ids_dict)
+            # df_new['target'] = df_new['target'].astype('category').cat.codes
             # print(set(df_new['target']))
             # min_cat = df_new['target'].min()
             # df_new['target'] = df_new['target'] - min_cat
@@ -699,12 +799,13 @@ class DBModule:
         if self.ds_filter is not None:
             return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation, **kwargs)
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
-                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
+                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height,
+                                self.Annotation.ID
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         if with_segmentation:
             # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
             query = query.filter(func.length(self.Annotation.segmentation) > 2)
-        return self._process_query(query, with_segmentation, kwargs)
+        return self._process_query(query, cat_names, with_segmentation, kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
         """Method to load annotations from specific categories, given their IDs.
@@ -725,13 +826,15 @@ class DBModule:
             dictionary with train, test, val files
             average width, height of images
         """
+        datasets_ids = [self.get_dataset_id(ds) for ds in datasets_ids]
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
-                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height
+                                self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height,
+                                self.Annotation.ID
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
         if with_segmentation:
             # lengths 0 and 1 do not work since there are records with empty brackets
             query = query.filter(func.length(self.Annotation.segmentation) > 2)
-        return self._process_query(query, with_segmentation, kwargs)
+        return self._process_query(query, cat_names, with_segmentation, kwargs)
 
     def load_specific_categories_from_specific_datasets_annotations(self, dataset_categories_dict, **kwargs):
         """Method to load annotations from specific datasets filtered by specific categories (different from load_categories_datasets_annotations).
@@ -794,12 +897,10 @@ class DBModule:
                                 self.Annotation.bbox, self.Annotation.segmentation
                                 ).join(self.Annotation).filter(self.Image.file_name.in_(image_names))
         df = pd.read_sql(query.statement, query.session.bind)
-        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:  # TODO: This is an awful patch for keras
+        if 'normalize_cats' in kwargs and kwargs['normalize_cats'] is True:
             df_new = pd.DataFrame(columns=['images', 'target'],
                                   data=df[['file_name', 'category_id']].values)
             df_new['target'] = df_new['target'].astype('category').cat.codes
-            # min_cat = df_new['target'].min()
-            # df_new['target'] = df_new['target'] - min_cat
             return df_new
         return df
 
@@ -854,7 +955,8 @@ class DBModule:
         self.sess.commit()  # adding dataset
         return dataset.ID
 
-    def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='', respect_ids=False):
+    def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='',
+                                   respect_ids=False):
         """Method to add a chunk of images and their annotations to DB.
 
         Parameters
@@ -876,7 +978,8 @@ class DBModule:
         -------
         None
         """
-        if file_prefix[-1] not in ['\\', '/']:
+
+        if file_prefix != '' and file_prefix[-1] not in ['\\', '/']:
             file_prefix += '/'
         if not os.path.isfile(file_prefix + images[0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
@@ -905,7 +1008,7 @@ class DBModule:
             im_counter += 1
             if im_counter % 10 == 0 or im_counter == len(images) - 2:
                 print_progress_bar(im_counter, len(images),
-                    prefix='Adding images:', suffix='Complete', length=50)
+                                   prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
         print('Done adding images, adding annotations')
         counter = 0
@@ -930,7 +1033,7 @@ class DBModule:
                                          ID=anno_id)
             self.sess.add(annotation)
             an_counter += 1
-            if an_counter % 10 == 0 or an_counter == len(annotations) - 2:
+            if an_counter % 10 == 0 or an_counter == len(annotations):
                 print_progress_bar(an_counter, len(annotations),
                     prefix='Adding annotations:', suffix='Complete', length=50)
         self.sess.commit()  # adding annotations
@@ -984,8 +1087,7 @@ class DBModule:
                                                 model_id=model_from_db.ID,
                                                 history_address=abs_history_address)
             self.sess.add(new_train_result)
-            self.sess.commit()
-        return
+        self.sess.commit()
 
     def update_train_result_record(self, model_address, metric_name, metric_value, history_address=''):
         """
@@ -1110,8 +1212,7 @@ class DBModule:
         In case of bad input empty list is returned.
         """
         if not isinstance(cat_names, list):
-            print('ERROR: Bad input for cat_names, must be a list')
-            return []
+            raise ValueError('Bad input for cat_names, must be a list')
         result = []
         for cat_name in cat_names:
             query = self.sess.query(self.Category.ID).filter(self.Category.name == cat_name).first()
@@ -1128,8 +1229,7 @@ class DBModule:
         In case of bad input empty list is returned.
         """
         if not isinstance(cat_IDs, list):
-            print('ERROR: Bad input for cat_names, must be a list')
-            return []
+            raise ValueError('Bad input for cat_names, must be a list')
         result = []
         for cat_ID in cat_IDs:
             query = self.sess.query(self.Category.name).filter(self.Category.ID == cat_ID).first()
@@ -1138,6 +1238,18 @@ class DBModule:
             else:
                 result.append(query[0])
         return result
+
+    def get_dataset_id(self, dataset_id_or_name):
+        """
+        Returns ID of dataset with given name or ID. If not found, returns -1. 
+        If dataset_id_or_name is int, then it is assumed that it is ID, otherwise it is assumed that it is name.
+        """
+        if not isinstance(dataset_id_or_name, str):
+            return int(dataset_id_or_name)
+        query = self.sess.query(self.Dataset.ID).filter(self.Dataset.description == dataset_id_or_name).first()
+        if query is None:
+            return -1
+        return query[0]
 
     def get_full_dataset_info(self, ds_id):
         """

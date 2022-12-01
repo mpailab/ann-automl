@@ -1,36 +1,42 @@
 import abc
 import itertools
 import math
-import sys
-import time
-from collections import defaultdict
-from functools import reduce
 import random
-from copy import copy
-from typing import Any
 
 import pandas as pd
 import keras
 import numpy as np
 import tensorflow as tf
 import os
-from . import db_module
-from datetime import datetime
-from pytz import timezone
 
 from .hw_devices import tf_devices_memory
-from .nnfuncs import nn_hparams, nnDB, _data_dir, create_model, create_generators, fit_model, create_data_subset
-from .solver import Rule, rule, Task, printlog, SolverState, Recommender
-from ..utils.process import request, NoHandlerError
-from .nn_solver import NNTask, SelectHParamsTask, metric_target
+from .nnfuncs import nn_hparams, nnDB, _data_dir, params_from_history, pretrained_models
+from .solver import Rule, rule, Task, printlog, SolverState, Recommender, RecommendTask
+from .nn_task import NNTask
 
 
-def find_zero_neighbor(center, table, radius=1):
-    ranges = [range(max(0, center[i] - radius), min(szi, center[i] + radius + 1)) for i, szi in enumerate(table.shape)]
-    for i in itertools.product(*ranges):
-        if abs(table[i]) <= 1e-6:
-            return list(i)
-    return None
+class SelectHParamsTask(RecommendTask):
+    def __init__(self, nn_task: NNTask, fixed_hparams=None):
+        super().__init__(goals={})
+        self.nn_task = nn_task
+        self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
+        self.hparams['pipeline'] = None
+        if fixed_hparams is not None:
+            self.hparams.update(fixed_hparams)
+            self.fixed = set(fixed_hparams.keys())
+        else:
+            self.fixed = ()
+        self.recommendations = {}
+
+    def set_selected_options(self, options):
+        self.hparams.update(options)
+
+
+def recommend_hparams(task: NNTask, fixed_params=None, **kwargs) -> dict:
+    """ Рекомендует гиперпараметры для задачи """
+    htask = SelectHParamsTask(task, fixed_params)
+    htask.solve(global_params=kwargs)
+    return htask.hparams
 
 
 # Базовые приёмы для начальной рекомендации гиперпараметров
@@ -59,9 +65,19 @@ class RecommendOptimizer(Recommender):
 class RecommendArch(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
-        prec['activation'] = 'relu'    # функция активации в базовой части. TODO: возможны ли другие рекомендации?
-        prec['pipeline'] = 'ResNet18'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+        # prec['activation'] = 'relu'    # функция активации в базовой части. TODO: возможны ли другие рекомендации?
+        if 'pipeline' not in task.fixed:
+            prec['pipeline'] = 'resnet50'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+        else:
+            prec['pipeline'] = task.hparams['pipeline']
         last_layers = []
+        if prec['pipeline'] in pretrained_models:
+            if 'input_shape' not in task.fixed:
+                prec['input_shape'] = (224, 224, 3)  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+            else:
+                prec['input_shape'] = task.hparams['input_shape']
+            last_layers.append({'type': 'GlobalAveragePooling2D'})
+            prec['transfer_learning'] = True
         if len(task.nn_task.objects) == 2:
             last_layers.append({'type': 'Dense', 'units': 1})
             last_layers.append({'type': 'Activation', 'activation': 'sigmoid'})
@@ -100,6 +116,11 @@ def estimate_batch_size(model: keras.Model, precision: int = 4) -> int:
     return int(2 ** math.floor(math.log(max_size, 2)))
 
 
+def estimate_time_per_batch(model: keras.Model, batch_size: int, precision: int = 4):
+    """ Оценка времени обучения одного батча """
+    model.predict_on_batch(np.zeros((batch_size, *model.input_shape[1:]), dtype=np.float32 if precision == 4 else np.float16))
+
+
 @rule(SelectHParamsTask)
 class RecommendBatchSize(Recommender):
     def can_recommend(self, task: SelectHParamsTask):
@@ -129,14 +150,14 @@ def get_history(task: NNTask, exact_category_match=False):
     return candidates
 
 
-@rule(SelectHParamsTask)
-class RecommendFromHistory(Recommender):
-    """ Предлагает параметры, которые были использованы в предыдущих
-        аналогичных запусках (может рекомендовать любые параметры)
-    """
-    def apply(self, task: SelectHParamsTask, state: SolverState):
-        prec = task.recommendations[self.key] = {}
-        candidates = get_history(task.nn_task)
-        if len(candidates) > 0:
-            prec.update(random.choice(candidates))
-
+# @rule(SelectHParamsTask)
+# class RecommendFromHistory(Recommender):
+#     """ Предлагает параметры, которые были использованы в предыдущих
+#         аналогичных запусках (может рекомендовать любые параметры)
+#     """
+#     def apply(self, task: SelectHParamsTask, state: SolverState):
+#         prec = task.recommendations[self.key] = {}
+#         candidates = params_from_history(task.nn_task)
+#         if len(candidates) > 0:
+#             prec.update(random.choice(candidates))
+#

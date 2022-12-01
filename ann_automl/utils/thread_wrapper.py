@@ -50,6 +50,15 @@ class ObjectWrapper:
             return wrapper
         return attr
 
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            super().__setattr__(name, value)
+        else:
+            def request():
+                setattr(self._obj, name, value)
+            self._request_queue.put(request)
+            self._response_queue.get()
+
     def join_thread(self):
         self._obj = None
         self._request_queue.put(None)
@@ -58,4 +67,4 @@ class ObjectWrapper:
 
     def __del__(self):
         if self._thread is not None:
-            self.close()
+            self._thread.close()

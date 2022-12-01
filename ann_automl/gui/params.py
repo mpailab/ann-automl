@@ -46,22 +46,25 @@ all_hparams = {
 
 
 param_groups = {
-    'Learning': ['train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
+    'train': ['train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
                  'train.decay', 'train.activation',
-                 'train.loss', 'train.metrics', 'train.dropout', 'train.kernel_initializer',
-                 'train.bias_initializer',
-                 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
-                 'train.kernel_constraint', 'train.bias_constraint'],
-    'Optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
+                 'train.loss', 'train.metrics', 'train.dropout',
+                 # 'train.kernel_initializer', 'train.bias_initializer',
+                 # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
+                 # 'train.kernel_constraint', 'train.bias_constraint'
+                 ],
+    'optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
                   'train.beta_1', 'train.beta_2'],
-    'Tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point']
+    'tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point', 'tune.exact_category_match']
 }
 
 
 def widget_type(param_description):
     if 'widget' in param_description.get('gui',{}):
         return param_description['gui']['widget']
+    if param_description['type'] == 'list':
+        return 'MultiChoice'
     if 'values' in param_description:
         return 'Select'
     if 'range' in param_description:
@@ -70,6 +73,8 @@ def widget_type(param_description):
         return 'Checkbox'
     if param_description['type'] == 'str':
         return 'Text'
+    if param_description['type'] == 'date':
+        return 'Date'
     raise ValueError(f'Unknown widget type for {param_description}')
 
 
@@ -79,12 +84,16 @@ def create_params_dict(params):
         for param in params_list:
             pfrom, pname = param.split('.')
             pvalue = copy(all_hparams[pfrom][pname])
-            pvalue['gui'] = {'group': group, 'widget': widget_type(pvalue)}
+            pvalue['gui'] = {
+                'group': group, 
+                'widget': widget_type(pvalue),
+                'info': True
+            }
             pvalue['param_from'] = pfrom
             pvalue['param_key'] = pname
-            result[param] = pvalue
+            result[f'{pfrom}_{pname}'] = pvalue
             if 'cond' in pvalue:
-                pvalue['cond'] = [(f"{pfrom}.{p}", v) for p, v in pvalue['cond']]
+                pvalue['cond'] = [(f"{pfrom}_{p}", v) for p, v in pvalue['cond']]
     return result
 
 

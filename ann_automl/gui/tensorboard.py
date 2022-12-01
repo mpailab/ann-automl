@@ -8,14 +8,18 @@ import shlex
 import textwrap
 import time
 import IPython
+import subprocess
+import tempfile
+import psutil
 
 from tensorboard import manager
 
-_is_started = False
-_port = None
-_pid = None
+explicit_tb = os.environ.get("TENSORBOARD_BINARY", None)
+tb_prog_name = "tensorboard" if explicit_tb is None else explicit_tb
 
-def start(args_string):
+_started = False
+
+def start(args_string, timeout=datetime.timedelta(seconds=60)):
     """Launch a TensorBoard instance as if at the command line.
 
     Args:
@@ -23,199 +27,157 @@ def start(args_string):
         interpreted by `shlex.split`: e.g., "--logdir ./logs --port 0".
         Shell metacharacters are not supported: e.g., "--logdir 2>&1" will
         point the logdir at the literal directory named "2>&1".
+      timeout: `datetime.timedelta` object describing how long to wait for
+        the subprocess to initialize a TensorBoard server and write its
+        `TensorBoardInfo` file. If the info file is not written within
+        this time period, `start` will assume that the subprocess is stuck
+        in a bad state, and will give up on waiting for it. Note that in such 
+        a case the subprocess will not be killed. Default value is 60 seconds.
     """
-    global _is_started, _port, _pid
+    global _started
 
-    if _is_started:
-        print("Warning: TensorBoard is already launched")
+    if _started:
+        return
 
-    print("Launching TensorBoard ...")
-    _is_started = True
+    print("Launching TensorBoard ... ", end='', flush=True)
+    _started = True
 
     parsed_args = shlex.split(args_string, comments=True, posix=True)
-    start_result = manager.start(parsed_args)
+    cache_key = manager.cache_key(
+        working_directory=os.getcwd(),
+        arguments=parsed_args,
+        configure_kwargs={},
+    )
+    _clear_infos(cache_key)
 
-    if isinstance(start_result, manager.StartLaunched):
-        _port = start_result.info.port
-        _pid = start_result.info.pid
-
-    elif isinstance(start_result, manager.StartReused):
-        template = (
-            "Reusing TensorBoard on port {port} (pid {pid}), started {delta} ago. "
-            "(Use '!kill {pid}' to kill it.)"
+    (stdout_fd, stdout_path) = tempfile.mkstemp(prefix=".tensorboard-stdout-")
+    (stderr_fd, stderr_path) = tempfile.mkstemp(prefix=".tensorboard-stderr-")
+    start_time_seconds = time.time()
+    try:
+        process = subprocess.Popen(
+            [tb_prog_name] + parsed_args,
+            stdout=stdout_fd,
+            stderr=stderr_fd,
         )
-        message = template.format(
-            port=start_result.info.port,
-            pid=start_result.info.pid,
-            delta=_time_delta_from_info(start_result.info),
-        )
-        print(message)
-        _port = start_result.info.port
-        _pid = start_result.info.pid
-
-    elif isinstance(start_result, manager.StartFailed):
-
-        def format_stream(name, value):
-            if value == "":
-                return ""
-            elif value is None:
-                return "\n<could not read %s>" % name
-            else:
-                return "\nContents of %s:\n%s" % (name, value.strip())
-
-        message = (
-            "ERROR: Failed to launch TensorBoard (exited with %d).%s%s"
-            % (
-                start_result.exit_code,
-                format_stream("stderr", start_result.stderr),
-                format_stream("stdout", start_result.stdout),
-            )
-        )
-        print(message)
-
-    elif isinstance(start_result, manager.StartExecFailed):
+    except OSError as e:
         the_tensorboard_binary = (
-            "%r (set by the `TENSORBOARD_BINARY` environment variable)"
-            % (start_result.explicit_binary,)
-            if start_result.explicit_binary is not None
-            else "`tensorboard`"
+            "%r (set by the `TENSORBOARD_BINARY` environment variable)" % tb_prog_name
         )
-        if start_result.os_error.errno == errno.ENOENT:
+        if e.errno == errno.ENOENT:
             message = (
                 "ERROR: Could not find %s. Please ensure that your PATH contains "
                 "an executable `tensorboard` program, or explicitly specify the path "
                 "to a TensorBoard binary by setting the `TENSORBOARD_BINARY` "
-                "environment variable." % (the_tensorboard_binary,)
+                "environment variable." % the_tensorboard_binary
             )
         else:
-            message = "ERROR: Failed to start %s: %s" % (
-                the_tensorboard_binary,
-                start_result.os_error,
-            )
-        print(textwrap.fill(message))
+            message = "ERROR: Failed to start %s: %s" % (the_tensorboard_binary, e)
+        print('fail\n' + textwrap.fill(message))
 
-    elif isinstance(start_result, manager.StartTimedOut):
+    finally:
+        os.close(stdout_fd)
+        os.close(stderr_fd)
+
+    poll_interval_seconds = 0.5
+    end_time_seconds = start_time_seconds + timeout.total_seconds()
+    while time.time() < end_time_seconds:
+        time.sleep(poll_interval_seconds)
+        subprocess_result = process.poll()
+        if subprocess_result is not None:
+            def format_stream(name, value):
+                if value == "":
+                    return ""
+                elif value is None:
+                    return "\n<could not read %s>" % name
+                else:
+                    return "\nContents of %s:\n%s" % (name, value.strip())
+
+            message = (
+                "ERROR: Failed to launch TensorBoard (exited with %d).%s%s"
+                % (
+                    subprocess_result,
+                    format_stream("stderr", _maybe_read_file(stderr_path)),
+                    format_stream("stdout", _maybe_read_file(stdout_path)),
+                )
+            )
+            print('fail\n' + message)
+            break
+
+        info = _find_matching_info(cache_key)
+        if info is not None:
+            _dump_info(info, stdout_path, stderr_path)
+            break
+    else:
         message = (
             "ERROR: Timed out waiting for TensorBoard to start. "
-            "It may still be running as pid %d." % start_result.pid
+            "It may still be running as pid %d." % process.pid
         )
-        print(message)
+        print('fail\n' + message)
 
-    else:
-        raise TypeError(
-            "Unexpected result from `manager.start`: %r.\n"
-            "This is a TensorBoard bug; please report it." % start_result
-        )
+    print('ok')
 
-def _time_delta_from_info(info):
-    """Format the elapsed time for the given TensorBoardInfo.
+def _get_info_dir(owner="ann-automl"):
+    return os.path.join(tempfile.gettempdir(), f".{owner}-info")
 
-    Args:
-      info: A TensorBoardInfo value.
+def _get_info_file(pid, owner="ann-automl"):
+    return os.path.join(tempfile.gettempdir(), f".{owner}-info/pid-{pid}.info")
+
+def _dump_info(info, stdout_path, stderr_path):
+    dump = json.dumps({
+        'pid': info.pid,
+        'cache_key': info.cache_key,
+        'stdout': stdout_path,
+        'stderr': stderr_path
+    })
+    os.makedirs(_get_info_dir(), exist_ok=True)
+    with open(_get_info_file(info.pid), "w") as outfile:
+        outfile.write("%s\n" % dump)
+
+def _clear_infos(cache_key):
+    pids = set({})
+    info_dir = _get_info_dir()
+    if os.path.isdir(info_dir):
+        for filename in os.listdir(info_dir):
+            filepath = os.path.join(info_dir, filename)
+            with open(filepath) as infile:
+                values = json.loads(infile.read())
+            if values['cache_key'] == cache_key:
+                pids.add(values['pid'])
+                os.remove(values['stdout'])
+                os.remove(values['stderr'])
+                os.remove(filepath)
+                filepath = _get_info_file(values['pid'], owner="tensorboard")
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
+    for proc in psutil.process_iter():
+        if proc.name() == tb_prog_name and proc.pid in pids:
+            proc.kill()
+
+
+def _find_matching_info(cache_key):
+    """Find a running TensorBoard instance compatible with the cache key.
 
     Returns:
-      A human-readable string describing the time since the server
-      described by `info` started: e.g., "2 days, 0:48:58".
+      A `TensorBoardInfo` object, or `None` if none matches the cache key.
     """
-    delta_seconds = int(time.time()) - info.start_time
-    return str(datetime.timedelta(seconds=delta_seconds))
+    infos = [i for i in manager.get_all() if i.cache_key == cache_key]
+    info = max(infos, key=lambda x: x.start_time) if infos else None
+    return info
 
 
-def interface(port=None, height=None, print_message=False):
-    """Interface to display a TensorBoard instance already running on this machine.
+def _maybe_read_file(filename):
+    """Read the given file, if it exists.
 
     Args:
-      port: The port on which the TensorBoard server is listening, as an
-        `int`, or `None` to automatically select the most recently
-        launched TensorBoard.
-      height: The height of the frame into which to render the TensorBoard
-        UI, as an `int` number of pixels, or `None` to use a default value
-        (currently 800).
-      print_message: True to print which TensorBoard instance was selected
-        for display (if applicable), or False otherwise.
+      filename: A path to a file.
+
+    Returns:
+      A string containing the file contents, or `None` if the file does
+      not exist.
     """
-    port = port or _port
-    if height is None:
-        height = 800
-
-    if port is None:
-        infos = manager.get_all()
-        if not infos:
-            raise ValueError(
-                "Can't display TensorBoard: no known instances running."
-            )
-        else:
-            info = max(manager.get_all(), key=lambda x: x.start_time)
-            port = info.port
-    else:
-        infos = [i for i in manager.get_all() if i.port == port]
-        info = max(infos, key=lambda x: x.start_time) if infos else None
-
-    if print_message:
-        if info is not None:
-            message = (
-                "Selecting TensorBoard with {data_source} "
-                "(started {delta} ago; port {port}, pid {pid})."
-            ).format(
-                data_source=manager.data_source_from_info(info),
-                delta=_time_delta_from_info(info),
-                port=info.port,
-                pid=info.pid,
-            )
-            print(message)
-        else:
-            # The user explicitly provided a port, and we don't have any
-            # additional information. There's nothing useful to say.
-            pass
-
-    return _interface(port=port, height=height)
-
-
-def _interface(port, height):
-    """Internal version of `interface`.
-
-    Args:
-      port: As with `interface`.
-      height: As with `interface`.
-    """
-    import IPython.display
-
-    frame_id = "tensorboard-frame-{:08x}".format(random.getrandbits(64))
-    shell = """
-      <iframe id="%HTML_ID%" width="100%" height="%HEIGHT%" frameborder="0">
-      </iframe>
-      <script>
-        (function() {
-          const frame = document.getElementById(%JSON_ID%);
-          const url = new URL(%URL%, window.location);
-          const port = %PORT%;
-          if (port) {
-            url.port = port;
-          }
-          frame.src = url;
-        })();
-      </script>
-    """
-    proxy_url = os.environ.get("TENSORBOARD_PROXY_URL")
-    if proxy_url is not None:
-        # Allow %PORT% in $TENSORBOARD_PROXY_URL
-        proxy_url = proxy_url.replace("%PORT%", "%d" % port)
-        replacements = [
-            ("%HTML_ID%", html.escape(frame_id, quote=True)),
-            ("%JSON_ID%", json.dumps(frame_id)),
-            ("%HEIGHT%", "%d" % height),
-            ("%PORT%", "0"),
-            ("%URL%", json.dumps(proxy_url)),
-        ]
-    else:
-        replacements = [
-            ("%HTML_ID%", html.escape(frame_id, quote=True)),
-            ("%JSON_ID%", json.dumps(frame_id)),
-            ("%HEIGHT%", "%d" % height),
-            ("%PORT%", "%d" % port),
-            ("%URL%", json.dumps("/")),
-        ]
-
-    for (k, v) in replacements:
-        shell = shell.replace(k, v)
-    return IPython.display.HTML(shell)
+    try:
+        with open(filename) as infile:
+            return infile.read()
+    except IOError as e:
+        if e.errno == errno.ENOENT:
+            return None

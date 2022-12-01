@@ -2,6 +2,7 @@ import inspect
 import json
 import pickle
 import random
+import shutil
 from datetime import datetime
 import itertools
 import math
@@ -22,6 +23,7 @@ from .solver import printlog
 from ..utils.process import pcall
 from ..utils.thread_wrapper import ObjectWrapper
 
+
 _data_dir = 'data'
 _db_file = 'tests.sqlite'  # TODO: уточнить путь к файлу базы данных
 
@@ -37,16 +39,29 @@ def set_emulation(emulation=True):
     _emulation = emulation
 
 
+def set_db(db):
+    global nnDB
+    nnDB = db
+
+
+def cur_db():
+    """ Возвращает текущий объект базы данных """
+    global nnDB
+    return nnDB
+
+
 def set_multithreading_mode(mode=True):
     """ Set the multithreading mode """
     global nnDB
     if mode and not isinstance(nnDB, ObjectWrapper):
         nnDB.close()
         nnDB = ObjectWrapper(db_module.DBModule, dbstring=f'sqlite:///{_db_file}')
+        print('Enter multithreading mode')
     elif not mode and isinstance(nnDB, ObjectWrapper):
         nnDB.close()
         nnDB.join_thread()
         nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
+        print('Exit multithreading mode')
 
 
 class multithreading_mode:
@@ -69,10 +84,38 @@ def set_data_dir(data_dir):
     _data_dir = data_dir
 
 
+def tensorboard_logdir():
+    """ Returns the directory for tensorboard logs """
+    return f'{_data_dir}/tensorboard_logs'
+
+
 def set_db_file(db_file):
     """ Set the database file name """
     global _db_file
     _db_file = db_file
+
+
+pretrained_models = {
+    'vgg16': tf.keras.applications.vgg16.VGG16,  # model for image classification
+    'vgg19': tf.keras.applications.vgg19.VGG19,  # model for image classification
+    'resnet50': tf.keras.applications.resnet50.ResNet50,  # model for image classification
+    'resnet101': tf.keras.applications.resnet.ResNet101,  # model for image classification
+    'resnet152': tf.keras.applications.resnet.ResNet152,  # model for image classification
+    'resnet50v2': tf.keras.applications.resnet_v2.ResNet50V2,  # model for image classification
+    'resnet101v2': tf.keras.applications.resnet_v2.ResNet101V2,  # model for image classification
+    'resnet152v2': tf.keras.applications.resnet_v2.ResNet152V2,  # model for image classification
+    'inceptionv3': tf.keras.applications.inception_v3.InceptionV3,  # model for image classification
+    'inceptionresnetv2': tf.keras.applications.inception_resnet_v2.InceptionResNetV2,  # model for image classification
+    'mobilenet': tf.keras.applications.mobilenet.MobileNet,  # model for image classification
+    'densenet121': tf.keras.applications.densenet.DenseNet121,  # model for image classification
+    'densenet169': tf.keras.applications.densenet.DenseNet169,  # model for image classification
+    'densenet201': tf.keras.applications.densenet.DenseNet201,  # model for image classification
+    'nasnetlarge': tf.keras.applications.nasnet.NASNetLarge,  # model for image classification
+    'nasnetmobile': tf.keras.applications.nasnet.NASNetMobile,  # model for image classification
+    'xception': tf.keras.applications.xception.Xception,  # model for image classification
+    'mobilenetv2': tf.keras.applications.mobilenet_v2.MobileNetV2,  # model for image classification
+
+}
 
 
 # !!! гиперпараметры и их значения сгенерированы автоматически !!!
@@ -286,7 +329,10 @@ nn_hparams = {
 
 tune_hparams = {
     'method': {'type': 'str',
-               'values': {'grid': {'params': ['radius', 'grid_metric', 'start_point']}},
+               'values': {
+                   'grid': {'params': ['radius', 'grid_metric', 'start_point']},
+                   'history': {'params': ['exact_category_match']}
+               },
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
@@ -295,6 +341,8 @@ tune_hparams = {
                     'title': 'Метрика на сетке', 'cond': True},
     'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
                     'title': 'Начальная точка', 'cond': True},
+    'exact_category_match': {'type': 'bool', 'default': False,
+                             'title': 'Точное совпадение списка категорий', 'cond': True},
 }
 
 
@@ -348,11 +396,11 @@ def create_data_subset(objects, cur_experiment_dir, crop_bbox=True, temp_dir='tm
         crop_bbox = False
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir, exist_ok=True)
-    return nnDB.load_specific_categories_annotations(list(objects), normalize_cats=True,
-                                                     split_points=split_points,
-                                                     cur_experiment_dir=cur_experiment_dir,
-                                                     crop_bbox=crop_bbox,
-                                                     cropped_dir=temp_dir + '/crops/')[1]
+    return cur_db().load_specific_categories_annotations(list(objects), normalize_cats=True,
+                                                         split_points=split_points,
+                                                         cur_experiment_dir=cur_experiment_dir,
+                                                         crop_bbox=crop_bbox,
+                                                         cropped_dir=temp_dir + '/crops/')[1]
 
 
 class EmulateGen:
@@ -360,7 +408,7 @@ class EmulateGen:
         self.filenames = [f'{i}.jpg' for i in range(len(data))]
 
 
-def create_generators(model, data, augmen_params, batch_size):
+def create_generators(model, data, augmen_params, batch_size, num_classes):
     """
     Создание генераторов изображений по заданным в curStrategy параметрам аугментации
     В этот прием попадем как при первичном обучении, так и при смене параметров аугментации после обучения модели
@@ -376,6 +424,12 @@ def create_generators(model, data, augmen_params, batch_size):
 
     data_gen = ImageDataGenerator(augmen_params)
 
+    flow_args['class_mode'] = 'binary' if num_classes == 2 else 'categorical'
+    flow_args['classes'] = list(map(str, range(num_classes)))
+    df_train['target'] = df_train['target'].apply(str)
+    df_validate['target'] = df_validate['target'].apply(str)
+    df_test['target'] = df_test['target'].apply(str)
+
     train_generator = data_gen.flow_from_dataframe(df_train, x_col=list(df_train.columns)[0],
                                                    y_col=list(df_train.columns)[1], **flow_args)
     val_generator = data_gen.flow_from_dataframe(df_validate, x_col=list(df_validate.columns)[0],
@@ -390,14 +444,18 @@ def create_layer(type, **kwargs):
     return getattr(keras.layers, type)(**kwargs)
 
 
-def create_model(base, last_layers, dropout=0.0):
-    y = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
+def create_model(base, last_layers, dropout=0.0, input_shape=None):
+    if base.lower() in pretrained_models:
+        # load pretrained model with weights without last layers
+        base_model = pretrained_models[base](include_top=False, weights='imagenet', input_shape=input_shape or (224, 224, 3))
+    else:
+        base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
     # insert dropout layer if needed
-    if dropout > 0:
-        y = keras.layers.Dropout(dropout)(y.output)
-    input_shape = y.input_shape[1:]
+    input_shape = base_model.input_shape[1:]
     x = keras.layers.Input(shape=input_shape)
-    y = y(x)
+    y = base_model(x)
+    if dropout > 0:
+        y = keras.layers.Dropout(dropout)(y)
     for layer in last_layers:
         y = create_layer(**layer)(y)
 
@@ -535,35 +593,39 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
     return [best_loss, best_acc]
 
 
-def save_history(filepath, objects, run_type, model_path, metric_name, metric_value, params, format=None):
+def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=None):
     history = {'run_type': run_type,
                **params,
                'result_path': model_path,
-               'metric_name': metric_name,
-               'metric_value': metric_value}
-    if format is None:
-        format = filepath.split('.')[-1]
-    if format == 'json':
+               'metric_name': 'accuracy',
+               'metric_value': metrics['accuracy'],
+               'metrics': metrics,
+               'objects': objects}
+    if fmt is None:
+        fmt = filepath.split('.')[-1]
+    if fmt == 'json':
         with open(filepath, 'w') as f:
             json.dump(history, f)
-    elif format in ('pkl', 'pickle'):
+    elif fmt in ('pkl', 'pickle'):
         with open(filepath, 'wb') as f:
             pickle.dump(history, f)
-    elif format == 'yaml':
+    elif fmt == 'yaml':
         import yaml
         with open(filepath, 'w') as f:
             yaml.dump(history, f)
     else:
-        raise ValueError(f'Unknown format: {format}')
-    nnDB.add_model_record(task_type='train',
-                          categories=list(objects),
-                          model_address=model_path,
-                          metrics={metric_name: metric_value},
-                          history_address=filepath)
+        raise ValueError(f'Unknown format: {fmt}')
+    cur_db().add_model_record(task_type='train',
+                              categories=list(objects),
+                              model_address=model_path,
+                              metrics=metrics,
+                              history_address=filepath)
+    pcall('append_history', history)
     return history
 
 
-def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None) -> Tuple[List[float], dict]:
+def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None, need_recompile=False,
+              use_tensorboard=False) -> Tuple[List[float], dict]:
     """ Обучение модели
     Args:
         model (keras.models.Model): модель, которую нужно обучить
@@ -576,65 +638,108 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         Достигнутые значения метрик на тестовой выборке во время обучения, а также
         словарь со значениями гиперпараметров, метрик и путей к модели и истории
     """
+    measured_metrics = hparams['metrics']
+    if not isinstance(measured_metrics, list):
+        measured_metrics = [measured_metrics]
 
-    printlog("Compile model")
-    optimizer, lr = hparams['optimizer'], hparams['learning_rate']
-    opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
-    kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
-    optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
-    model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=[hparams['metrics']])
+    transfer_learning = hparams.get('transfer_learning', False)
+
+    # if model is not compiled, compile it
+    if not model.optimizer or transfer_learning or need_recompile:
+        printlog("Compile model")
+        optimizer, lr = hparams['optimizer'], hparams['learning_rate']
+        opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
+        kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
+        optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
+        if transfer_learning:
+            printlog("Freeze base model layers")
+            print(model.layers[1])
+            model.layers[1].trainable = False
+        model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
 
     # set up callbacks
-    check_metric = 'val_' + hparams['metrics']
+    check_metric = 'val_' + measured_metrics[0]
     date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
-    c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
-    c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/best_weights.h5', monitor=check_metric, verbose=1,
-                                           save_best_only=True, save_weights_only=False, mode='auto')
-    c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
+
+    if not _emulation:
+        c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
+        c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + '/best_weights.h5', monitor=check_metric, verbose=1,
+                                               save_best_only=True, save_weights_only=False, mode='auto')
+        c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
+        # clear tensorboard logs
+        if os.path.exists(tensorboard_logdir()):
+            shutil.rmtree(tensorboard_logdir(), ignore_errors=True)
+        os.makedirs(tensorboard_logdir(), exist_ok=True)
+
+        callbacks = [c_log, c_ch, c_es]
+        if use_tensorboard:
+            c_tb = keras.callbacks.TensorBoard(
+                log_dir=tensorboard_logdir(),  # , datetime.now().strftime("%Y%m%d-%H%M%S")),
+                histogram_freq=1
+            )
+            callbacks.append(c_tb)
+    else:
+        callbacks = []
+
     c_t = TimeHistory()
-    c_tb = keras.callbacks.TensorBoard(
-        log_dir=os.path.join(f"{_data_dir}/logs", datetime.now().strftime("%Y%m%d-%H%M%S")),
-        histogram_freq=1
-    )
-    callbacks = [c_log, c_ch, c_es, c_t, c_tb, NotifyCallback()]
+    callbacks += [c_t, NotifyCallback()]
     if stop_flag is not None:
         callbacks.append(CheckStopCallback(stop_flag))
 
     if _emulation:
-        scores = emulate_fit(model, generators[0], len(generators[0].filenames) // hparams['batch_size'],
-                             hparams['epochs'], callbacks[3:], generators[1])
+        scores = emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
+                             hparams['epochs'], callbacks, generators[1])
     else:
-        # fit model
         printlog("Fit model")
+        printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
+        # fit model
         model.fit(x=generators[0],
-                  steps_per_epoch=len(generators[0].filenames) // hparams['batch_size'],
+                  steps_per_epoch=max(1, len(generators[0].filenames) // hparams['batch_size']),
                   epochs=hparams['epochs'],
                   validation_data=generators[1],
                   callbacks=callbacks,
-                  validation_steps=len(generators[1].filenames) // hparams['batch_size'])
+                  validation_steps=max(1, len(generators[1].filenames) // hparams['batch_size']))
+
+        # load best weights
+        printlog("Load best weights")
+        model.load_weights(cur_subdir + '/best_weights.h5')
 
         # evaluate model
         scores = model.evaluate(generators[2], steps=None, verbose=1)
 
+    if transfer_learning:
+        printlog("Fine-tune model")
+        printlog("Unfreeze base model layers")
+        model.layers[1].trainable = True
+        # get best weights
+        new_hparams = hparams.copy()
+        new_hparams['transfer_learning'] = False
+        new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
+        # run model fit again
+        return fit_model(model, objects, new_hparams, generators, cur_subdir, history, stop_flag, need_recompile=True)
+
     # save results to history
     if history is not None:
-        printlog("Append history")
         history.add_row(hparams, scores[1], cur_subdir, c_t.times, c_t.total_time, save=True)
 
+    printlog("Save history")
+    metrics = {'accuracy': scores[1]}
+    for i, metric in enumerate(measured_metrics):
+        metrics[metric] = scores[i + 1]
     record = save_history(cur_subdir + '/history.json', objects, 'train', cur_subdir + '/best_weights.h5',
-                          hparams['metrics'],
-                          scores[1], dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
+                          metrics, dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
     return scores, record
 
 
-def create_and_train_model(hparams, objects, data, cur_subdir, history=None, stop_flag=None, model=None):
+def create_and_train_model(hparams, objects, data, cur_subdir, history=None, stop_flag=None,
+                           model=None, use_tensorboard=True):
     """
     Args:
         hparams (dict): словарь с гиперпараметрами обучения
         data (tuple): кортеж из трех генераторов: train, val, test
         cur_subdir (str):  папка, в которой хранятся результаты текущего обучения
         history (ExperimentHistory):  история экспериментов
-        stop_flag (StopFlag): флаг, с помощью которого можно остановить обучение из другого потока
+        stop_flag (StopFlag or None): флаг, с помощью которого можно остановить обучение из другого потока
         model (None or keras.models.Model or str): модель, которую нужно обучить.
             Если None, то создается новая модель. Если str, то загружается модель из файла.
     Returns:
@@ -642,43 +747,51 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
     """
     if model is None:
         printlog("Create model")
-        model = create_model(hparams['pipeline'], hparams['last_layers'], hparams.get('dropout', 0.0))
+        model = create_model(hparams['pipeline'], hparams['last_layers'], hparams.get('dropout', 0.0),
+                             input_shape=hparams.get('input_shape', None))
+        model.save(cur_subdir + '/initial_model.h5')
+        tf.keras.utils.plot_model(model, to_file=cur_subdir + '/model_plot.png', rankdir='TB', show_shapes=True)
     elif isinstance(model, str):  # model is path to weights
         printlog("Load model")
         model = keras.models.load_model(model)
     elif not isinstance(model, keras.models.Model):
+        printlog("Create generators")
         raise TypeError('model must be either path to weights or keras.models.Model or None')
 
-    printlog("Create generators")
-    generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'])
-    return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag)
+    generators = create_generators(model, data, hparams['augmen_params'], hparams['batch_size'], len(objects))
+    return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag,
+                     use_tensorboard=use_tensorboard)
 
 
-def train(nn_task, hparams, stop_flag=None, model=None) -> Tuple[List[float], dict]:
+def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True) -> Tuple[List[float], dict]:
     """
     Args:
         nn_task (NNTask): задача обучения нейросети
-        hparams (dict): словарь с гиперпараметрами обучения
+        hparams (dict or str): словарь с гиперпараметрами обучения или "auto" для выбора по умолчанию
         stop_flag (StopFlag): флаг, с помощью которого можно остановить обучение из другого потока
         model (None or keras.models.Model or str): модель, которую нужно обучить.
             Если None, то создается новая модель. Если str, то загружается модель из файла.
+        use_tensorboard (bool): сбрасывать ли данные для tensorboard во время обучения (по умолчанию True)
     Returns:
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
+    if hparams == 'auto':
+        from .nn_recommend import recommend_hparams
+        hparams = recommend_hparams(nn_task)
     # first, check that all nn_task.objects are available in nnDB
-    unavail = [str(nm) for cid, nm in zip(nnDB.get_cat_IDs_by_names(nn_task.objects), nn_task.objects) if cid < 0]
+    unavail = [str(nm) for cid, nm in zip(cur_db().get_cat_IDs_by_names(nn_task.objects), nn_task.objects) if cid < 0]
     if len(unavail) > 0:
         raise ValueError(f'`{"`, `".join(unavail)}` not available in the training dataset')
     test_ratio = hparams.get('test_frac', 0.15)
     val_ratio = hparams.get('val_frac', 0.15)
     exp_name, exp_dir = create_exp_dir('train', nn_task)
-    printlog("Create data")
+    printlog("Prepare data subset for training")
     data = create_data_subset(nn_task.objects, exp_dir,
-                              crop_bbox=hparams.get('crop_bbox', True),
+                              crop_bbox=hparams.get('crop_bbox', not _emulation),
                               split_points=(1 - val_ratio - test_ratio, 1 - test_ratio))
-    printlog("Make history")
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
-    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag, model=model)
+    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history,
+                                  stop_flag=stop_flag, model=model, use_tensorboard=use_tensorboard)
 
 
 grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
@@ -689,7 +802,7 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
         'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
     }},
     # для каждого оптимизатора указывается, как другие гиперпараметры должны масштабироваться при смене оптимизатора
-    'batch_size': {'range': [1, 1024], 'default': 1024, 'step': 2, 'scale': 'log', 'type': 'int'},
+    'batch_size': {'range': [1, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
     'learning_rate': {'range': [0.000125, 0.064], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     'lr/batch_size': {'range': [0.00000125, 0.00128], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     # только один из двух параметров может быть задан: learning_rate или lr/batch_size
@@ -708,7 +821,8 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
 }
 
 
-def param_values(default=None, values=None, step=None, scale=None, zero_point=None, type=None, return_str=False, **kwargs):
+def param_values(default=None, values=None, step=None, scale=None,
+                 zero_point=None, type=None, return_str=False, **kwargs):
     pos = None
     if 'range' in kwargs:
         mn, mx = kwargs['range']
@@ -815,7 +929,7 @@ class HyperParamGrid:
                 for ppp, s in pp.get(res[p], {}).items():
                     if ppp in res:
                         res[ppp] *= s
-        return key, [res], {}
+        return key, [key, res], {}
 
 
 def neighborhood_gen(c, shape, cat_axis, r, metric):
@@ -907,7 +1021,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
         cur_value = best_value
 
 
-def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None,
+def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=1e10,
                       start_point='random', grid_metric='l1', radius=1):
     """
     Оптимизирует параметры нейронной сети на сетке.
@@ -924,30 +1038,95 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
     Returns:
-        Пара (best_params, best_score), где
+        Пара (best_params, best_score, params_of_best), где
             best_params -- лучшие найденные гиперпараметры,
-            best_score -- значение метрики на лучших гиперпараметрах.
+            best_score -- значение метрики на лучших гиперпараметрах,
+            params_of_best -- список с параметрами лучшей обученной модели.
     """
+    t0 = time.time()
     grid = HyperParamGrid(hparams, tuned_params)
     grid_size = list(map(len, grid.axis))
     cat_axis = ['values' in grid_hparams_space[p] for p in tuned_params]
 
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
-
-    def fit_and_get_score(params):
-        scores, _ = create_and_train_model(params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
-        return nn_task.func(scores)
-
     best_point, best_score = None, None
+    params_of_best = None
+
+    def fit_and_get_score(key, params):
+        key_str = '_'.join([str(x) if x is not None else 'n' for x in key])
+        cur_dir = os.path.join(exp_dir, key_str)
+        if os.path.exists(cur_dir):
+            warnings.warn(f'Experiment {key_str} already exists.')
+        os.makedirs(cur_dir, exist_ok=True)
+        try:
+            scores, p = create_and_train_model(params, nn_task.objects, data, cur_dir, history=history, stop_flag=stop_flag)
+            val = nn_task.func(scores)
+            nonlocal params_of_best, best_score, best_point
+            if best_score is None or val > best_score:
+                params_of_best = params
+                best_point, best_score = p, val
+            return val
+        except Exception as e:
+            printlog(f'Error in experiment {key_str}: {e}')
+            return -np.inf
+
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
                                                 grid, start_point, grid_metric, radius):
-        if stop_flag is not None and stop_flag.stop:
+        if stop_flag is not None and stop_flag.flag:
             break
         printlog(f"Evaluated point: {point}, value: {value}")
         pcall('tune_step', point, value)
-        if is_max:
-            best_point, best_score = point, value
-            if not nn_task.goals.get('maximize', True) and best_score >= nn_task.target:
+        # if is_max:
+            # best_point, best_score = point, value
+        if not nn_task.goals.get('maximize', True) and best_score >= nn_task.target:
+            break
+        if time.time() - t0 > timeout:
+            break
+
+    printlog(f"Best point: {best_point}, value: {best_score}")
+    if best_score is not None and best_score >= nn_task.target:
+        printlog("achieved target score")
+    else:
+        printlog("did not achieve target score")
+
+    return best_point, best_score, params_of_best
+
+
+def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=1e10,
+                         exact_category_match=False):
+    """
+    Оптимизирует параметры нейронной сети по истории экспериментов.
+    Ищутся эксперименты, где текущая задача уже решалась, и находятся лучшие гиперпараметры.
+    Args:
+        nn_task (NNTask): Задача, для которой оптимизируются параметры.
+        data (tuple): Кортеж, с генераторами для обучения, валидации и тестирования.
+        exp_name (str): Имя эксперимента.
+        exp_dir (str): Путь к директории, в которой сохраняются результаты оптимизации.
+        hparams (dict): Исходные гиперпараметры, часть из них будет оптимизироваться.
+        tuned_params (list): Параметры, которые будут оптимизироваться.
+        stop_flag (StopFlag or None): Флаг, который можно использовать для остановки оптимизации.
+        exact_category_match (bool): Если True, то при поиске по истории считается, что категориальные
+            параметры должны совпадать точно.
+    Returns:
+        Пара (best_params, best_score), где
+            best_params -- лучшие найденные гиперпараметры,
+            best_score -- значение метрики на лучших гиперпараметрах.
+    """
+    history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
+    best_point, best_score = None, None
+    candidates = params_from_history(nn_task)
+    candidates.sort(key=lambda x: x[nn_task.metric], reverse=True)
+    for params in candidates:
+        if stop_flag is not None and stop_flag.flag:
+            break
+        cur_params = {**hparams, **params}
+        scores, _ = create_and_train_model(cur_params, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag)
+        score = nn_task.func(scores)
+        printlog(f"Evaluated point: {params}, value: {score}")
+        pcall('tune_step', params, score)
+        if best_score is None or score >= best_score:
+            best_point, best_score = params, score
+            if score >= nn_task.target:
                 break
 
     printlog(f"Best point: {best_point}, value: {best_score}")
@@ -959,21 +1138,28 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     return best_point, best_score
 
 
-def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, **kwargs):
+def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=None, **kwargs):
     """
     Оптимизирует гиперпараметры обучения нейронной сети.
+
     Args:
         nn_task (NNTask): Задача, для которой оптимизируются параметры.
-        tuned_params (list): Параметры, которые будут оптимизироваться.
+        tuned_params (list or str): Параметры, которые будут оптимизироваться (если 'all',
+            то будут оптимизироваться все гиперпараметры, для которых предусмотрена оптимизация).
         method (str): Метод оптимизации (пока поддерживается только 'grid').
         hparams (dict): Исходные гиперпараметры, часть из них будет оптимизироваться.
         stop_flag (StopFlag, optional): Флаг, который можно использовать для остановки оптимизации.
         **kwargs: Дополнительные параметры для метода оптимизации.
+
     Returns:
         Пара (best_params, best_score), где
             best_params -- лучшие найденные гиперпараметры,
             best_score -- значение метрики на лучших гиперпараметрах.
     """
+    if timeout is None:
+        timeout = 1e10
+    if tuned_params == 'all':
+        tuned_params = list(grid_hparams_space)
     exp_name, exp_path = create_exp_dir(f'tune_{method}', nn_task)
     if not os.path.exists(exp_path):
         os.makedirs(exp_path, exist_ok=True)
@@ -985,6 +1171,8 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, **kwargs):
     data = create_data_subset(nn_task.objects, exp_path)
     if method == 'grid':
         tune_func = hparams_grid_tune
+    elif method == 'history':
+        tune_func = hparams_history_tune
     else:
         raise ValueError(f'Unknown tuning method: {method}')
     # check kwargs of tune_func (if some key is not in kwargs, warn)
@@ -994,7 +1182,8 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, **kwargs):
             warnings.warn(f'Unknown argument {k} for tune function {tune_func.__name__}')
     kwargs = {k: v for k, v in kwargs.items() if k in tune_kwargs}
 
-    return tune_func(nn_task, data, exp_name, exp_path, hparams, tuned_params, stop_flag=stop_flag, **kwargs)
+    return tune_func(nn_task, data, exp_name, exp_path, hparams, tuned_params,
+                     stop_flag=stop_flag, timeout=timeout, **kwargs)
 
 
 def create_exp_dir(prefix, nn_task):
@@ -1007,7 +1196,7 @@ def create_exp_dir(prefix, nn_task):
             exp_name -- имя директории,
             exp_path -- путь к директории.
     """
-    obj_set = sorted(nnDB.get_cat_IDs_by_names(list(nn_task.objects)))
+    obj_set = sorted(cur_db().get_cat_IDs_by_names(list(nn_task.objects)))
     if len(obj_set) > 10:
         obj_set = obj_set[:10] + ['etc']
     obj_str = '_'.join(map(str, obj_set))
@@ -1048,22 +1237,29 @@ def load_history(history_file) -> dict:
 
 
 def params_from_history(nn_task):
-    history = nnDB.get_models_by_filter({
+    req = {
         'min_metrics': {nn_task.metric: nn_task.target},
         'categories': list(nn_task.objects),
-    })
+    }
+    history = cur_db().get_models_by_filter(req)  # history is a pandas DataFrame
+    print(f'History request: {req}')
+    print(f'Found {len(history)} models')
     if len(history) == 0:
         return []
     results = []
-    for model in history:
+    for i, model in history.iterrows():
         hist_file = model['history_address']
         model_file = model['model_address']
+
         if hist_file is None:
             continue
         if not os.path.exists(hist_file):
             warnings.warn(f'History file {hist_file} does not exist')
             continue
-        params = load_history(hist_file)
-        params['model_file'] = model_file
-        results.append(params)
+        try:
+            params = load_history(hist_file)
+            params['model_file'] = model_file
+            results.append(params)
+        except Exception as e:
+            warnings.warn(f'Error while loading history file {hist_file}: {e}')
     return results

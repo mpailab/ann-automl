@@ -1,33 +1,31 @@
-import os
-import sys
-import traceback
-from copy import copy
-from datetime import datetime
-from pytz import timezone
 from typing import Any, Callable, Dict, List
 
-from .nnfuncs import nn_hparams, tune_hparams, get_hparams
 from .solver import Task, set_log_dir, printlog, _log_dir, RecommendTask
-from ..utils.process import pcall
 
 TargetFunc = Callable[[List[float]], float]
 
-def loss_target(scores : List[float]) -> float:
+
+def loss_target(scores: List[float]) -> float:
     return -scores[0]
 
-def metric_target(scores : List[float]) -> float:
+
+def metric_target(scores: List[float]) -> float:
     return scores[1]
+
 
 class NNTask(Task):
     """ Класс, задающий задачу на обучение нейронной сети """
 
-    def __init__(self, 
-        category : str = 'train', 
-        objects : List[str] = [], 
-        type : str = 'classification', 
-        func : TargetFunc = metric_target, 
-        target : float = 0.9, 
-        goals : Dict[str, Any] = {}):
+    def __init__(self,
+                 category: str = 'train',
+                 objects: List[str] = (),
+                 type: str = 'classification',
+                 func: TargetFunc = metric_target,
+                 # TODO: кажется, надо вернуть как было -- либо accuracy,
+                 #       либо конкретный вид accuracy (categorial, binary, sparse_categorical, etc.)
+                 target: float = 0.9,
+                 goals: Dict[str, Any] = None,
+                 time_limit: int = 60 * 60 * 24):
         """
         Инициализация задачи.
 
@@ -49,17 +47,18 @@ class NNTask(Task):
         goal: dict[str, Any]
             Словарь целей задачи (например {"метрика" : желаемое значение метрики})
         """
-        super().__init__(goals=goals)
+        super().__init__(goals=goals or {})
         self._category = category  # str
 
         # Необязательные входные параметры задачи, нужны при категориях "train" и "test"
         self._type = type  # str - тип задачи {classification, detection, segmentation}
-        self._objects = objects      # set of strings - набор категорий объектов интереса
-        self.input_type = 'image'    # тип объектов задачи (image, video, audio, text)
+        self._objects = objects or []  # set of strings - набор категорий объектов интереса
+        self.input_type = 'image'  # тип объектов задачи (image, video, audio, text)
         self.object_category = 'object'  # категория объектов задачи (object, symbol)
         self.func = func
         self.target = target
         self.log_name = ''
+        self.time_limit = time_limit
 
     @property
     def category(self):
@@ -79,23 +78,6 @@ class NNTask(Task):
     @property
     def metric(self):
         """ Возвращает название целевого функционала """
-        return self.func.__name__
+        return 'accuracy' if self.func.__name__ == 'metric_target' else self.func.__name__
+        # TODO: это пока костыль для поиска по истории (не хорошо передавать имя функции в качестве метрики)
 
-
-class SelectHParamsTask(RecommendTask):
-    def __init__(self, nn_task: NNTask):
-        super().__init__(goals={})
-        self.nn_task = nn_task
-        self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
-        self.hparams['pipeline'] = None
-        self.recommendations = {}
-
-    def set_selected_options(self, options):
-        self.hparams.update(options)
-
-
-def recommend_hparams(task: NNTask, **kwargs) -> dict:
-    """ Рекомендует гиперпараметры для задачи """
-    htask = SelectHParamsTask(task)
-    htask.solve(global_params=kwargs)
-    return htask.hparams
