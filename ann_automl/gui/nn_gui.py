@@ -962,6 +962,7 @@ class NNGui(object):
         self.history_apply_button.disabled = True
 
     def init_history_interface(self):
+        self.history_model = dict(url="", fileName="")
         self.history_logs = Div(align="start", visible=False)
         try:
             self.history_hparams = []
@@ -991,6 +992,9 @@ class NNGui(object):
                             self.history_params.append(widget)
                             widget.value = v
                             widget.activate()
+                    self.history_model["url"] = self.history_models[i]
+                    # TODO: Надо согласовать название сохраняемого файла с моделью
+                    self.history_model["fileName"] = os.path.basename(self.history_models[i])
                     self.history_download_button.disabled = False
                     self.history_apply_button.disabled = False
                 except IndexError:
@@ -1007,9 +1011,68 @@ class NNGui(object):
                                       Spacer(height=10))
 
         self.history_download_button = Button('Скачать', self.on_click_history_download)
+        self.history_download_button.js_on_click(CustomJS(
+            args=dict(model=self.history_model),
+            code='''let url = model.url;
+                    let fileName = model.fileName;
+
+                    const elStatus = document.getElementById('model_status');
+                    function status(text) {
+                        elStatus.innerHTML = text;
+                    }
+
+                    const elProgress = document.getElementById('model_progress');
+                    function progress({loaded, total}) {
+                        elProgress.innerHTML = Math.round(loaded/total*100)+'%';
+                    }
+
+                    function clear() {
+                        elStatus.innerHTML = "";
+                        elProgress.innerHTML = "";
+                    }
+
+                    async function main() {
+                        status('downloading ...');
+                        const response = await fetch(url);
+                        const contentLength = response.headers.get('content-length');
+                        const total = parseInt(contentLength, 10);
+                        let loaded = 0;
+
+                        const res = new Response(new ReadableStream({
+                            async start(controller) {
+                            const reader = response.body.getReader();
+                            for (;;) {
+                                const {done, value} = await reader.read();
+                                if (done) break;
+                                loaded += value.byteLength;
+                                progress({loaded, total})
+                                controller.enqueue(value);
+                            }
+                            controller.close();
+                            },
+                        }));
+                        const blob = await res.blob();
+                        status('download completed')
+                        const aElement = document.createElement('a');
+                        aElement.setAttribute('download', fileName);
+                        const href = URL.createObjectURL(blob);
+                        aElement.href = href;
+                        aElement.setAttribute('target', '_blank');
+                        aElement.click();
+                        URL.revokeObjectURL(href);
+                        clear()
+                    }
+
+                    if ( url != "" )
+                    {
+                        main();
+                    }'''))
+
         self.history_apply_button = Button('Использовать', self.on_click_history_apply)
 
-        self.history_buttons = [self.history_download_button, self.history_apply_button]
+        self.history_buttons = [self.history_apply_button, self.history_download_button,
+                                Div(text='<span id="model_status"></span> <span id="model_progress"></span>',
+                                    align='center', width=300)]
 
         self.history_interfaces = [self.history_table, self.history_params_box]
 
@@ -1017,12 +1080,14 @@ class NNGui(object):
         try:
             data = { x:[] for x in ['dates', 'funcs', 'values', 'times'] }
             self.history_hparams = []
+            self.history_models = []
             for h in histories:
                 data['dates'].append(h['date'])
                 data['funcs'].append(h['metric_name'])
                 data['values'].append(str(h['metric_value']))
                 data['times'].append(str(h.get('total_time', -1.0)))
                 self.history_hparams.append(h['hparams'])
+                self.history_models.append(h['model_file'])
         except Exception as e:
             traceback.print_exc()
             print(f'Exception occured during History.__init__: {e}')
