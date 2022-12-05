@@ -372,8 +372,10 @@ class DBModule:
         coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
         # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
+        self.add_categories(cats, True)
+
         if first_time:
-            self.add_categories(cats, True)
+            # self.add_categories(cats, True)
             self.add_default_licences()
         #######################################################################
         if ds_info is None:
@@ -428,8 +430,8 @@ class DBModule:
         ds_id = self.add_dataset_info(ds_info)
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
 
-    def fill_imagenet(self, annotations_dir='./datasets/imagenet/annotations',
-                      file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
+    def fill_imagenet(self, annotations_dir='./datasets/test_imagenet/annotations',
+                      file_prefix='./datasets/test_imagenet/ILSVRC2012_img_train',
                       assoc_file='imageNetToCOCOClasses.txt', first_time=False,
                       ds_info=None):
         """Method to fill ImageNet dataset into db. It is supposed to be called once.
@@ -516,8 +518,8 @@ class DBModule:
         annotations = []
         licence_id = 1  # default value
         im_id = 0
-        print_progress_bar(0, len(img_files), prefix='Processing ImageNet XML files:',
-                           suffix='Complete', length=50)
+        # print_progress_bar(0, len(img_files), prefix='Processing ImageNet XML files:',
+        #                    suffix='Complete', length=50)
         for img_file in img_files:
             im = Image.open(img_file)
             width, height = im.size

@@ -6,6 +6,11 @@ import tempfile
 import os
 import shutil
 import pytest
+import requests
+import xmltodict
+import json
+
+IMAGENET_API_WNID = 'http://www.image-net.org/api/imagenet.synset.geturls?wnid='
 
 
 def check_coco_images(anno_file, image_dir):
@@ -13,7 +18,7 @@ def check_coco_images(anno_file, image_dir):
         return
     print(f'Downloading COCO images for test (annotations = {anno_file})')
     from pycocotools.coco import COCO
-    import requests
+
     coco = COCO(anno_file)
     img_ids = coco.getImgIds()
     if not os.path.exists(image_dir):
@@ -26,10 +31,75 @@ def check_coco_images(anno_file, image_dir):
             handler.write(img_data)
         # print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
 
+def check_imagenet_images(anno_dir, image_dir):
+    if os.path.exists(image_dir):
+        return
+    os.makedirs(image_dir, exist_ok=True)
+    for dirs in os.listdir(anno_dir):
+        os.makedirs(image_dir + '/' + dirs, exist_ok=True)
+        response = requests.get(IMAGENET_API_WNID + dirs).content.decode('utf8')
+        urls = [url for url in response.splitlines()]
+        count = len(os.listdir(anno_dir + dirs))
+        i = 1
+        for url in urls:
+            if i > count:
+                break
+            try:
+                img_data = requests.get(url)
+            except Exception:
+                continue
+            if img_data.status_code != 200 or img_data.encoding:
+                continue
+            with open(anno_dir + dirs + '/' + dirs + '_' + str(i) + '.xml') as file:
+                xml_data = xmltodict.parse(file.read())
+                with open(image_dir + '/' + dirs + '/' + xml_data['annotation']['filename'] + '.jpg', 'wb') as handler:
+                    handler.write(img_data.content)
+                    i+=1
+
+def download_cat_images(cat_name, anno_dir, image_dir):
+    with open(anno_dir + 'annotations1.json') as f:
+        d = json.load(f)
+        img_names = []
+        for img in d['images']:
+            if img['file_name'].split('.')[0] == cat_name:
+                img_names.append(img['file_name'])
+        with open(anno_dir + cat_name + 's_urls.txt') as urls:
+            img_num = 0
+            for url in urls:
+                if url[-1:] == '\n':
+                    url = url[:-1]
+                try:
+                    img_data = requests.get(url)
+                except Exception:
+                    continue
+                if img_data.status_code != 200 or img_data.encoding:
+                    continue
+                with open(image_dir + '/' + img_names[img_num], 'wb') as handler:
+                    handler.write(img_data.content)
+                img_num+=1
+        print(d)
+def check_cats_vs_dogs_images(anno_dir, image_dir_1, image_dir_2):
+    if os.path.exists(image_dir_1) and os.path.exists(image_dir_2):
+        return
+    elif os.path.exists(image_dir_1) and not os.path.exists(image_dir_2):
+        os.makedirs(image_dir_2, exist_ok=True)
+        download_cat_images(image_dir_2[-4:-1], anno_dir, image_dir_2)
+    elif not os.path.exists(image_dir_1) and os.path.exists(image_dir_2):
+        os.makedirs(image_dir_1, exist_ok=True)
+        download_cat_images(image_dir_1[-4:-1], anno_dir, image_dir_1)
+    else:
+        os.makedirs(image_dir_1, exist_ok=True)
+        download_cat_images(image_dir_1[-4:-1], anno_dir, image_dir_1)
+        os.makedirs(image_dir_2, exist_ok=True)
+        download_cat_images(image_dir_2[-4:-1], anno_dir, image_dir_2)
+
+
 
 # At first run download images from coco dataset
 check_coco_images('datasets/test1/annotations/annotations1.json', 'datasets/test1/images')
 check_coco_images('datasets/test2/annotations/train.json', 'datasets/test2/images')
+check_imagenet_images('datasets/test_imagenet/annotations/', 'datasets/test_imagenet/images')
+check_cats_vs_dogs_images('datasets/test3/annotations/', 'datasets/test3/images/cats', 'datasets/test3/images/dogs')
 
 
 @pytest.fixture(scope='function')
@@ -91,12 +161,12 @@ def test_fill_imagenet(db_dir):
     mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
-    mydb.fill_imagenet('datasets/imagenet/annotations', file_prefix='datasets/imagenet/image_train/',
-                       assoc_file='datasets/imagenet/imageNetToCOCOClasses.txt', first_time=True)
+    mydb.fill_imagenet('datasets/test_imagenet/annotations', file_prefix='datasets/test_imagenet/images/',
+                       assoc_file='datasets/test_imagenet/imageNetToCOCOClasses.txt', first_time=True)
     assert len(mydb.get_all_datasets()) == 1
     first_cat = list(mydb.get_all_categories()['name'])
-    mydb.fill_imagenet('datasets/imagenet/annotations', file_prefix='datasets/imagenet/image_train/',
-                       assoc_file='datasets/imagenet/imageNetToCOCOClasses.txt', first_time=False)
+    mydb.fill_imagenet('datasets/test_imagenet/annotations', file_prefix='datasets/test_imagenet/images/',
+                       assoc_file='datasets/test_imagenet/imageNetToCOCOClasses.txt', first_time=False)
     second_cat = list(mydb.get_all_categories()['name'])
     assert first_cat == second_cat
     # assert len(mydb.get_all_datasets()) == 2
