@@ -1,0 +1,75 @@
+Library functions:
+def gen_model(classes,output,target_accuracy=1,script_type='tf',time_limit=...,for_mobile=...):
+    """ Creates a model and a script for image classification
+
+    Args:
+        classes: list of classes
+        output: where to save the model and script:
+          if it has the .zip extension, then an archive is created;
+          if it has the .mlmodel extension, then a CoreML model is created to be used in iOS;
+          if it has the .tflite extension, then a TensorFlow Lite model is created to be used on mobile devices;
+          otherwise, the output is interpreted as a directory and the model and script are saved there
+        target_accuracy: target accuracy (if not specified, the model will be optimized until the time limit is reached)
+        script_type: script type (tf, torch or None). If None, the script is not created
+        time_limit: time limit for training the model (in seconds)
+        for_mobile: if True, the model is optimized for mobile devices. By default, it is true if the output_dir has the .mlmodel extension
+    """
+    ...
+
+def get_classes(*supercategories):
+    """Returns: dict where keys are supercategories and values are lists of classes"""
+    ...
+def get_subclasses(*categories):
+    """Returns: list of subclasses belonging to the specified categories"""
+    ...
+def today(hour=23,minute=59,second=59): ...
+def tomorrow(hour=0,minute=0,second=0): ...
+def this_week(day=6,hour=23,minute=59,second=59): ...
+def next_week(day=6,hour=23,minute=59,second=59): ...
+def this_month(day=31,hour=23,minute=59,second=59): ...
+def next_month(day=31,hour=23,minute=59,second=59): ...
+def until(t: datetime.datetime): ...
+---
+Translate requests in natural language to the corresponding API calls
+Examples:
+##
+Request: {Please, create a model for pet classification and save the model and script to Downloads. You can optimize the model until tomorrow 12 pm.}
+Code:{
+accuracy=None
+time_limit=until(tomorrow(hour=12))
+download_path = os.path.join(os.path.expanduser('~'), 'Downloads', 'cat_dog_classifier')
+gen_model(classes=get_subclasses('pet'),output=download_path,time_limit=time_limit,for_mobile=False,target_accuracy=accuracy)
+}
+##
+Request: {Train classifier for vehicle classification for iOS app. Accuracy 0.8 is enough. I want to get the result as fast as possible, deadline is today midnight.}
+Code:{
+accuracy=0.8
+time_limit=until(today(hour=23,minute=59,second=59))
+download_path = 'vehicle_classifier.mlmodel'
+gen_model(classes=get_subclasses('vehicle'),target_accuracy=accuracy,output=download_path,optimize_over_target=False,time_limit=finsih_at-datetime.time(),for_mobile=True)
+}
+##
+Request: {I want to create plant classifier to recognize plants and animals from iPhone camera with high accuracy. I want to get result until the end of the next week}
+Code:{
+accuracy=None
+time_limit=until(next_week())
+download_path = 'plant_classifier.mlmodel'
+gen_model(classes=get_subclasses('plant','animal'),output=download_path,time_limit=time_limit,for_mobile=True,target_accuracy=accuracy)
+}
+##
+Request: {I want to classify images by groups: plants, animals and people on my Samsung.}
+Code:{
+accuracy=None
+time_limit=None
+download_path = 'plant_animal_people_classifier.tflite'
+gen_model(classes=get_classes('plant','animal','person'),output=download_path,time_limit=time_limit,for_mobile=True,target_accuracy=accuracy)
+}
+##
+Request:{We need a classifier for wild animals. You can spend 1 week for it. Save as cl_animals.zip}
+Code:{
+accuracy=None
+time_limit = 60*60*24*7
+download_path = os.path.join(os.path.expanduser('~'), 'Downloads', 'cl_animals.zip')
+gen_model(classes=get_subclasses('wild animal'),output=download_path,time_limit=time_limit,for_mobile=False,target_accuracy=accuracy)
+}
+##

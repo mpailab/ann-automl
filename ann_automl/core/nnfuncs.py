@@ -468,8 +468,8 @@ def create_layer(type, **kwargs):
 def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_learning=True):
     if base.lower() in pretrained_models:
         # load pretrained model with weights without last layers
-        base_model = pretrained_models[base](include_top=False, 
-                                             weights='imagenet' if transfer_learning else None, 
+        base_model = pretrained_models[base](include_top=False,
+                                             weights='imagenet' if transfer_learning else None,
                                              input_shape=input_shape or (224, 224, 3))
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
@@ -626,7 +626,7 @@ def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=N
     history = {'run_type': run_type,
                **params,
                'model_file': model_path,
-               'results_path': os.path.dirname(model_path),
+               'result_path': os.path.dirname(model_path),
                'metric_name': 'accuracy',
                'metric_value': metrics['accuracy'],
                'metrics': metrics,
@@ -762,12 +762,14 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
     else:
         compile_model(model, hparams, measured_metrics, freeze_base=True)
-        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
+        scores, c_t = fit(model, generators, hparams, stop_flag, timeout,
+                          cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
 
         new_hparams = hparams.copy()
         new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
         compile_model(model, new_hparams, measured_metrics, freeze_base=False)
-        tune_scores, tune_c_t = fit(model, generators, new_hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights')
+        tune_scores, tune_c_t = fit(model, generators, new_hparams, stop_flag, timeout - (time.time() - t0),
+                                    cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights')
 
         if tune_scores[1] > scores[1]:
             scores = tune_scores
@@ -809,7 +811,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
     if model is None:
         printlog("Create model")
         model = create_model(hparams['model_arch'], hparams['last_layers'], hparams.get('dropout', 0.0),
-                             input_shape=hparams.get('input_shape', None), 
+                             input_shape=hparams.get('input_shape', None),
                              transfer_learning=hparams.get('transfer_learning', True))
         model.save(cur_subdir + '/initial_model.h5')
         try:

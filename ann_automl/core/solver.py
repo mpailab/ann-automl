@@ -29,7 +29,7 @@ def printlog(*args, **kwargs):
 
     global _first_print, _first_error
     if kwargs.get('file', None) is None:
-        with open('log.txt', 'a' if not _first_print else 'w') as f:
+        with open('log.txt', 'a' if not _first_print else 'w', encoding='utf-8') as f:
             print(*args, **kwargs, file=f)
             _first_print = False
     elif kwargs.get('file') is sys.stderr:

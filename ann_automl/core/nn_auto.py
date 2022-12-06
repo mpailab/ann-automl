@@ -36,9 +36,10 @@ def train_classification_model(classes,
                   goals={'maximize': optimize_over_target}, time_limit=time_limit)
     hparams = recommend_hparams(task)
     metrics, simple_params = train(task, hparams, stop_flag=stop_flag, use_tensorboard=False, timeout=time_limit)
+    printlog(f'Начальный запуск: accuracy = {metrics[1]}')
     simple_val = task.func(metrics)
     simple_time = time.time() - start_time
-    if simple_val >= task.target or time.time() - start_time > task.time_limit:
+    if simple_val >= task.target and not optimize_over_target or time.time() - start_time > task.time_limit:
         return simple_params, simple_val
 
     best_params = simple_params
@@ -77,6 +78,7 @@ def create_classification_model(classes,
                                 stop_flag=None,
                                 script_type='tf',
                                 verbosity=1,
+                                for_mobile=False,
                                 time_limit=60 * 60 * 24):
     """
     Создает модель и скрипт для классификации изображений
@@ -93,7 +95,7 @@ def create_classification_model(classes,
     """
     def log(*args, level=1, **kwargs):
         if verbosity >= level:
-            print(*args, **kwargs)
+            printlog(*args, **kwargs)
     log(f'Запускаем создание модели, это может занять длительное время.\n'
         f'Установленный лимит времени на обучение модели: {time_limit} секунд.\n'
         f'Это ориентировочный лимит, в действительности процесс может занять больше или меньше времени.\n'
@@ -106,13 +108,35 @@ def create_classification_model(classes,
         log(f'Модель готова. Полученная точность на тестовой выборке: {val:.3f}')
 
     model_path = model_info['model_file']  # directory with model
-    save_dir = output_dir if not output_dir.endswith('.zip') else 'tmp/zip_out'
+    is_zip = output_dir.endswith('.zip')
+    is_mlmodel = output_dir.endswith('.mlmodel')
+    is_dir = not is_zip and not is_mlmodel
+    save_dir = output_dir if is_dir else 'tmp/zip_out'
     # clear save_dir if it exists or create it
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir, ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
     # copy model (best_weights.h5) to save_dir
     shutil.copy(os.path.join(model_path), os.path.join(save_dir, 'model.h5'))
+    if is_mlmodel:
+        # convert h5 to mlmodel with coremltools
+        try:
+            import coremltools
+        except ImportError:
+            printlog('Не удалось импортировать coremltools. Установка coremltools через pip ...')
+            os.system('pip install coremltools')
+            try:
+                import coremltools
+            except ImportError:
+                is_mlmodel = False
+                output_dir = output_dir[:-7] + '.zip'
+                printlog(f'Не удалось установить coremltools. Создадим zip-архив {output_dir} вместо mlmodel.')
+                is_zip = True
+        if is_mlmodel:
+            coreml_model = coremltools.converters.keras.convert(os.path.join(save_dir, 'model.h5'), class_labels=classes)
+            coreml_model.save(output_dir)
+            return
+
     info = dict(model_path='model.h5', classes=classes, test_accuracy=val)
     if script_type is not None:
         if script_type not in ('tf', 'torch'):
@@ -125,7 +149,7 @@ def create_classification_model(classes,
     with open(os.path.join(save_dir, 'model.json'), 'w') as f:
         json.dump(info, f)
 
-    if output_dir.endswith('.zip'):
+    if is_zip:
         log(f'Создаём архив {output_dir} ...')
         # check whether path to zip file exists
         out_dir = os.path.dirname(output_dir)
@@ -134,3 +158,4 @@ def create_classification_model(classes,
         shutil.make_archive(output_dir[:-4], 'zip', save_dir)
         shutil.rmtree(save_dir, ignore_errors=True)
         log(f'Архив {output_dir} создан')
+

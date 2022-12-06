@@ -1295,3 +1295,14 @@ class DBModule:
     def close(self):
         self.sess.close()
         self.engine.dispose()
+
+    def get_all_category_names(self):
+        """
+        Returns
+        -------
+        list of strings
+            all category names in database
+        """
+        query = self.sess.query(self.Category.name)
+        df = pd.read_sql(query.statement, query.session.bind)
+        return df['name'].tolist()
