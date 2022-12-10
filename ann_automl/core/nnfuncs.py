@@ -465,12 +465,26 @@ def create_layer(type, **kwargs):
     return getattr(keras.layers, type)(**kwargs)
 
 
-def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_learning=True):
+def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_learning=True,
+                 include_top=False, class_numbers_in_imagenet=None):
+    if class_numbers_in_imagenet is None:  # If we don't know the number of classes in imagenet, we can't use dense layer of pretrained model
+        include_top = False
+
     if base.lower() in pretrained_models:
         # load pretrained model with weights without last layers
-        base_model = pretrained_models[base](include_top=False, 
-                                             weights='imagenet' if transfer_learning else None, 
-                                             input_shape=input_shape or (224, 224, 3))
+        base_model = pretrained_models[base](include_top=include_top,
+                                             weights='imagenet' if transfer_learning else None,
+                                             input_shape=input_shape)
+        if include_top:  # class_numbers_in_imagenet is a list of class ids in imagenet
+            # get type of activation function of last layer
+            activation = base_model.layers[-1].activation.__name__
+            # remove activation layer
+            base_model.layers.pop()
+            # now last layer is dense; add new activation layer with correct number of classes
+            dense_outputs = base_model.layers[-1].output[:, class_numbers_in_imagenet]
+            # add new activation layer
+            activation_layer = getattr(keras.layers, activation)(dense_outputs)
+            return keras.Model(inputs=base_model.input, outputs=activation_layer)
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
 
@@ -654,7 +668,7 @@ def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=N
     return history
 
 
-def compile_model(model, hparams, measured_metrics, freeze_base=None):
+def compile_model(model: keras.Model, hparams, measured_metrics, freeze_base=None):
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
     opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
     kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
@@ -809,7 +823,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
     if model is None:
         printlog("Create model")
         model = create_model(hparams['model_arch'], hparams['last_layers'], hparams.get('dropout', 0.0),
-                             input_shape=hparams.get('input_shape', None), 
+                             input_shape=hparams.get('input_shape', None),
                              transfer_learning=hparams.get('transfer_learning', True))
         model.save(cur_subdir + '/initial_model.h5')
         try:

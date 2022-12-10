@@ -80,9 +80,7 @@ class RecommendArch(Recommender):
             prec['model_arch'] = task.hparams['model_arch']
         last_layers = []
         if prec['model_arch'] in pretrained_models:
-            if 'input_shape' not in task.fixed:
-                prec['input_shape'] = (224, 224, 3)  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
-            else:
+            if 'input_shape' in task.fixed:
                 prec['input_shape'] = task.hparams['input_shape']
             last_layers.append({'type': 'GlobalAveragePooling2D'})
             if 'transfer_learning' not in task.fixed:
