@@ -372,7 +372,15 @@ class DBModule:
         coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
         # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
-        self.add_categories(cats, True)
+
+        all_cats = self.get_all_categories()['name']
+        ness_cats = []
+        for cat in cats:
+            if not cat['name'] in all_cats:
+                ness_cats.append(cat)
+
+        self.add_categories(ness_cats, True)
+        # self.add_categories(cats, True)
 
         if first_time:
             # self.add_categories(cats, True)

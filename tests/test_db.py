@@ -52,7 +52,7 @@ def check_imagenet_images(anno_dir, image_dir):
                 continue
             with open(anno_dir + dirs + '/' + dirs + '_' + str(i) + '.xml') as file:
                 xml_data = xmltodict.parse(file.read())
-                with open(image_dir + '/' + dirs + '/' + xml_data['annotation']['filename'] + '.jpg', 'wb') as handler:
+                with open(image_dir + '/' + dirs + '/' + xml_data['annotation']['filename'] + '.JPEG', 'wb') as handler:
                     handler.write(img_data.content)
                     i+=1
 
