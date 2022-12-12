@@ -12,7 +12,9 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../ann_automl'))
+sys.path.insert(0, os.path.abspath('..'))
+sys.path.append(os.path.abspath('../ann-automl'))
+
 
 
 # -- Project information -----------------------------------------------------
@@ -31,11 +33,11 @@ release = '0.1.0'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    #'sphinx.ext.duration',
-    #'sphinx.ext.doctest',
+    'sphinx.ext.duration',
+    'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
     'sphinx.ext.autodoc',
-    'sphinx.ext.autosummary',
+    #'sphinx.ext.autosummary',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
     #'sphinxcontrib.httpdomain',
@@ -75,3 +77,17 @@ html_theme_options = {
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+
+def skip(app, what, name, obj, skip, options):
+    if name == "__init__":
+        return False
+    # This don't work
+    #bad_modules = ["gui", "jupyter", "nnplot", "scripts", "utils"]
+    #if what == "module" and name in ['ann-automl.gui', 'ann-automl.utils']:
+        #return True
+    
+    return skip
+
+def setup(app):
+    app.connect("autodoc-skip-member", skip)
