@@ -75,7 +75,10 @@ class RecommendArch(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         if 'model_arch' not in task.fixed:
-            prec['model_arch'] = 'resnet50'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
+            if task.nn_task.for_mobile:
+                prec['model_arch'] = 'mobilenetv2'
+            else:
+                prec['model_arch'] = 'resnet50'  # TODO: давать рекоммендации в зависимости от типа задачи и размера входных данных
         else:
             prec['model_arch'] = task.hparams['model_arch']
         last_layers = []
@@ -97,6 +100,8 @@ class RecommendArch(Recommender):
             prec['preprocessing_function'] = 'keras.applications.inception_v3.preprocess_input'
         elif prec['model_arch'].startswith('xception'):
             prec['preprocessing_function'] = 'keras.applications.xception.preprocess_input'
+        elif prec['model_arch'].startswith('mobilenet'):
+            prec['preprocessing_function'] = 'keras.applications.mobilenet.preprocess_input'
         if len(task.nn_task.objects) == 2:
             last_layers.append({'type': 'Dense', 'units': 1})
             last_layers.append({'type': 'Activation', 'activation': 'sigmoid'})
@@ -114,12 +119,12 @@ class RecommendAugmentation(Recommender):
     def apply(self, task: SelectHParamsTask, state: SolverState):
         prec = task.recommendations[self.key] = {}
         aug = prec['augmen_params'] = {}
-        if task.nn_task.input_type == 'image':
-            aug.update({'vertical_flip': False,
-                        'width_shift_range': 0.2,
-                        'height_shift_range': 0.2,
-                        'horizontal_flip': (task.nn_task.object_category != 'symbol'),
-                        })
+        # if task.nn_task.input_type == 'image':
+        #     aug.update({'vertical_flip': False,
+        #                 'width_shift_range': 0.2,
+        #                 'height_shift_range': 0.2,
+        #                 'horizontal_flip': (task.nn_task.object_category != 'symbol'),
+        #                 })
 
 
 # Могут добавляться или подгружаться извне и другие приёмы для рекомендации гиперпараметров.

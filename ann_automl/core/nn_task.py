@@ -25,7 +25,9 @@ class NNTask(Task):
                  #       либо конкретный вид accuracy (categorial, binary, sparse_categorical, etc.)
                  target: float = 0.9,
                  goals: Dict[str, Any] = None,
-                 time_limit: int = 60 * 60 * 24):
+                 time_limit: int = 60 * 60 * 24,
+                 for_mobile: bool = False,
+                 ):
         """
         Инициализация задачи.
 
@@ -46,6 +48,10 @@ class NNTask(Task):
             Значение целевого функционала {float from [0,1]}
         goal: dict[str, Any]
             Словарь целей задачи (например {"метрика" : желаемое значение метрики})
+        time_limit: int
+            Время на выполнение задачи в секундах
+        for_mobile: bool
+            Флаг, указывающий, что предполагается использование модели на мобильных устройствах
         """
         super().__init__(goals=goals or {})
         self._category = category  # str
@@ -59,6 +65,7 @@ class NNTask(Task):
         self.target = target
         self.log_name = ''
         self.time_limit = time_limit
+        self.for_mobile = for_mobile
 
     @property
     def category(self):

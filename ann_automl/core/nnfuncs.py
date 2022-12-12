@@ -349,7 +349,7 @@ tune_hparams = {
     'method': {'type': 'str',
                'values': {
                    'grid': {'params': ['radius', 'grid_metric', 'start_point']},
-                   'history': {'params': ['exact_category_match']}
+                   #'history': {'params': ['exact_category_match']}
                },
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
@@ -470,7 +470,7 @@ def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_lear
         # load pretrained model with weights without last layers
         base_model = pretrained_models[base](include_top=False,
                                              weights='imagenet' if transfer_learning else None,
-                                             input_shape=input_shape or (224, 224, 3))
+                                             input_shape=input_shape)
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
 
@@ -484,6 +484,69 @@ def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_lear
         y = create_layer(**layer)(y)
 
     return keras.models.Model(inputs=x, outputs=y)
+
+
+class FitLog:
+    def __init__(self, task, hparams):
+        self.task = task
+        self.hparams = hparams
+        self.loss = []
+        self.val_loss = []
+        self.acc = []
+        self.val_acc = []
+        self.test_acc = []
+        self.train_ends = []
+        self.best_val_acc = 0
+        self.start_time = time.time()
+        self.best_epoch = None
+
+    def add_epoch(self, epoch, loss, accuracy, val_loss=None, val_accuracy=None, **kwargs):
+        self.loss.append(loss)
+        self.val_loss.append(val_loss)
+        self.acc.append(accuracy)
+        self.val_acc.append(val_accuracy)
+        if val_accuracy > self.best_val_acc:
+            self.best_val_acc = val_accuracy
+            self.best_epoch = (len(self.train_ends), epoch)
+
+    def add_train_end(self, **kwargs):
+        self.train_ends.append((len(self.loss), time.time() - self.start_time))
+
+    def add_test(self, accuracy):
+        self.test_acc.append(accuracy)
+
+    @property
+    def best_acc(self):
+        return max(self.test_acc) if self.test_acc else 0
+
+
+class ExperimentLog:
+    def __init__(self, task=None):
+        self.task = task
+        self.fit_runs = []
+        self.best_run = None
+        self.current_run = None
+
+    def new_experiment(self, hparams):
+        self.current_run = FitLog(self.task, hparams)
+        if self.best_run is None:
+            self.best_run = self.current_run
+        self.fit_runs.append(self.current_run)
+        return self.current_run
+
+    def update_best(self):
+        if self.current_run is not None and self.current_run.best_acc > self.best_run.best_acc:
+            self.best_run = self.current_run
+
+    @property
+    def best_acc(self):
+        self.update_best()
+        return self.best_run.best_acc
+
+    @property
+    def best_val_acc(self):
+        self.update_best()
+        return self.best_run.best_val_acc
 
 
 class ExperimentHistory:
@@ -570,17 +633,25 @@ class CheckStopCallback(keras.callbacks.Callback):
             self.model.stop_training = True
         elif time.time() - self.t0 > self.timeout:
             self.model.stop_training = True
-            printlog(f'Training stopped by timeout ({self.timeout} sec)')
+            printlog(f'\nTraining stopped by timeout ({self.timeout} sec)')
 
 
 class NotifyCallback(keras.callbacks.Callback):
+    def __init__(self, fit_log):
+        super().__init__()
+        self.fit_log = fit_log
+
     def on_batch_end(self, batch, logs=None):
         pcall('train_callback', 'batch', batch=batch, logs=logs, model=self.model)
 
     def on_epoch_end(self, epoch, logs=None):
+        if self.fit_log:
+            self.fit_log.add_epoch(epoch, **logs)
         pcall('train_callback', 'epoch', epoch=epoch, logs=logs, model=self.model)
 
     def on_train_end(self, logs=None):
+        if self.fit_log:
+            self.fit_log.add_train_end(**logs)
         pcall('train_callback', 'finish', logs=logs, model=self.model)
 
     def on_train_begin(self, logs=None):
@@ -670,7 +741,7 @@ def compile_model(model, hparams, measured_metrics, freeze_base=None):
     model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
 
 
-def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name):
+def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
     if not _emulation:
         c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
         c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + f'/{weights_name}.h5', monitor=check_metric, verbose=1,
@@ -692,14 +763,15 @@ def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorbo
         callbacks = []
 
     c_t = TimeHistory()
-    callbacks += [c_t, NotifyCallback()]
+    callbacks += [c_t, NotifyCallback(fit_log)]
     if stop_flag is not None or timeout is not None:
         callbacks.append(CheckStopCallback(stop_flag, timeout))
     return callbacks, c_t
 
 
-def fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name):
-    callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name=weights_name)
+def fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
+    callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard,
+                                       weights_name=weights_name, fit_log=fit_log)
 
     if _emulation:
         scores = emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
@@ -721,11 +793,13 @@ def fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric
 
         # evaluate model
         scores = model.evaluate(generators[2], steps=None, verbose=1)
+        if fit_log:
+            fit_log.add_test(scores[1])
     return scores, c_t
 
 
 def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None, need_recompile=False,
-              use_tensorboard=False, timeout=None) -> Tuple[List[float], dict]:
+              use_tensorboard=False, timeout=None, exp_log: ExperimentLog = None) -> Tuple[List[float], dict]:
     """ Обучение модели
     Args:
         model (keras.models.Model): модель, которую нужно обучить
@@ -738,6 +812,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         need_recompile (bool): обязательно ли перекомпилировать модель
         use_tensorboard (bool): нужно ли использовать tensorboard
         timeout (float): таймаут обучения в секундах
+        exp_log (FitLog): лог эксперимента
     Returns:
         Достигнутые значения метрик на тестовой выборке во время обучения, а также
         словарь со значениями гиперпараметров, метрик и путей к модели и истории
@@ -752,6 +827,10 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     # set up callbacks
     check_metric = 'val_' + measured_metrics[0]
     date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
+    if exp_log is None:
+        fit_log = None
+    else:
+        fit_log = exp_log.new_experiment(hparams)
 
     if not transfer_learning:
         # if model is not compiled, compile it
@@ -759,17 +838,17 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
             compile_model(model, hparams, measured_metrics, freeze_base=transfer_learning)
 
         # fit model
-        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
+        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights', fit_log=fit_log)
     else:
         compile_model(model, hparams, measured_metrics, freeze_base=True)
-        scores, c_t = fit(model, generators, hparams, stop_flag, timeout,
-                          cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
+        scores, c_t = fit(model, generators, hparams, stop_flag, timeout/2,
+                          cur_subdir, check_metric, use_tensorboard, weights_name='best_weights', fit_log=fit_log)
 
         new_hparams = hparams.copy()
         new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
         compile_model(model, new_hparams, measured_metrics, freeze_base=False)
         tune_scores, tune_c_t = fit(model, generators, new_hparams, stop_flag, timeout - (time.time() - t0),
-                                    cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights')
+                                    cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights', fit_log=fit_log)
 
         if tune_scores[1] > scores[1]:
             scores = tune_scores
@@ -792,7 +871,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
 
 
 def create_and_train_model(hparams, objects, data, cur_subdir, history=None, stop_flag=None,
-                           model=None, use_tensorboard=True, timeout=None):
+                           model=None, use_tensorboard=True, timeout=None, exp_log=None):
     """
     Args:
         hparams (dict): словарь с гиперпараметрами обучения
@@ -805,6 +884,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
             Если None, то создается новая модель. Если str, то загружается модель из файла.
         use_tensorboard (bool): сбраывать ли данные для tensorboard
         timeout (float or None): таймаут в секундах. Если не None, то обучение прерывается по истечении этого времени.
+        exp_log (ExperimentLog or None): лог экспериментов
     Returns:
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
@@ -829,10 +909,10 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
                                    hparams.get('preprocessing_function', None),
                                    hparams['batch_size'], len(objects))
     return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag,
-                     use_tensorboard=use_tensorboard, timeout=timeout)
+                     use_tensorboard=use_tensorboard, timeout=timeout, exp_log=exp_log)
 
 
-def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, timeout=None) -> Tuple[List[float], dict]:
+def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, timeout=None, exp_log=None) -> Tuple[List[float], dict]:
     """
     Args:
         nn_task (NNTask): задача обучения нейросети
@@ -842,6 +922,7 @@ def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, ti
             Если None, то создается новая модель. Если str, то загружается модель из файла.
         use_tensorboard (bool): сбрасывать ли данные для tensorboard во время обучения (по умолчанию True)
         timeout (int or None): таймаут в секундах. Если не None, то обучение прерывается по истечении этого времени.
+        exp_log (ExperimentLog or None): лог экспериментов
     Returns:
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
@@ -860,19 +941,21 @@ def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, ti
                               crop_bbox=hparams.get('crop_bbox', not _emulation),
                               split_points=(1 - val_ratio - test_ratio, 1 - test_ratio))
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
-    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history,
-                                  stop_flag=stop_flag, model=model, use_tensorboard=use_tensorboard, timeout=timeout)
+    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag,
+                                  model=model, use_tensorboard=use_tensorboard, timeout=timeout, exp_log=exp_log)
 
 
 grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
     # TODO: объединить как-то с hyperparameters
+    'model_arch': {'values': list(pretrained_models.keys()) + ['ResNet18', 'ResNet34']},
+    'transfer_learning': {'values': [True, False], 'default': True},
     'optimizer': {'values': {
         'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
         'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
         'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
     }},
     # для каждого оптимизатора указывается, как другие гиперпараметры должны масштабироваться при смене оптимизатора
-    'batch_size': {'range': [1, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
+    'batch_size': {'range': [8, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
     'learning_rate': {'range': [0.000125, 0.064], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     'lr/batch_size': {'range': [0.00000125, 0.00128], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     # только один из двух параметров может быть задан: learning_rate или lr/batch_size
@@ -1099,7 +1182,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
 
 
 def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=1e10,
-                      use_tensorboard=True,
+                      use_tensorboard=True, exp_log=None,
                       start_point='random', grid_metric='l1', radius=1):
     """
     Оптимизирует параметры нейронной сети на сетке.
@@ -1113,6 +1196,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         stop_flag (StopFlag, optional): Флаг, который можно использовать для остановки оптимизации.
         timeout (float, optional): Максимальное время работы оптимизации.
         use_tensorboard (bool, optional): Сбрасывать ли данные для TensorBoard.
+        exp_log (ExperimentHistory, optional): Объект для логирования результатов оптимизации.
 
         start_point (str): Начальная точка. Если 'random', то начальная точка выбирается случайно.
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
@@ -1141,7 +1225,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         try:
             scores, p = create_and_train_model(params, nn_task.objects, data, cur_dir, history=history,
                                                stop_flag=stop_flag, use_tensorboard=use_tensorboard,
-                                               timeout=timeout - (time.time() - t0))
+                                               timeout=timeout - (time.time() - t0), exp_log=exp_log)
             val = nn_task.func(scores)
             nonlocal params_of_best, best_score, best_point
             if best_score is None or val > best_score:
@@ -1158,8 +1242,6 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
             break
         printlog(f"Evaluated point: {point}, value: {value}")
         pcall('tune_step', point, value)
-        # if is_max:
-            # best_point, best_score = point, value
         if not nn_task.goals.get('maximize', True) and best_score >= nn_task.target:
             break
         if time.time() - t0 > timeout:
@@ -1175,7 +1257,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
 
 
 def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=1e10,
-                         use_tensorboard=True,
+                         use_tensorboard=True, exp_log=None,
                          exact_category_match=False):
     """
     Оптимизирует параметры нейронной сети по истории экспериментов.
@@ -1206,7 +1288,8 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
             break
         cur_params = {**hparams, **params}
         scores, _ = create_and_train_model(cur_params, nn_task.objects, data, exp_dir, history=history,
-                                           stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard)
+                                           stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard,
+                                           exp_log=exp_log)
         score = nn_task.func(scores)
         printlog(f"Evaluated point: {params}, value: {score}")
         pcall('tune_step', params, score)
@@ -1225,7 +1308,7 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
 
 
 def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=None,
-         use_tensorboard=True, **kwargs):
+         use_tensorboard=True, exp_log=None, **kwargs):
     """
     Оптимизирует гиперпараметры обучения нейронной сети.
 
@@ -1271,7 +1354,7 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=No
     kwargs = {k: v for k, v in kwargs.items() if k in tune_kwargs}
 
     return tune_func(nn_task, data, exp_name, exp_path, hparams, tuned_params,
-                     stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard,
+                     stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard, exp_log=exp_log,
                      **kwargs)
 
 
