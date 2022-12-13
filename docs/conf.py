@@ -58,7 +58,7 @@ language = 'ru'
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', '_pre_source', 'Thumbs.db', '.DS_Store']
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -78,16 +78,10 @@ html_theme_options = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
-
+# Add __init__ methods in describtions of classes
 def skip(app, what, name, obj, skip, options):
     if name == "__init__":
         return False
-    # This don't work
-    #bad_modules = ["gui", "jupyter", "nnplot", "scripts", "utils"]
-    #if what == "module" and name in ['ann-automl.gui', 'ann-automl.utils']:
-        #return True
-    
     return skip
-
 def setup(app):
     app.connect("autodoc-skip-member", skip)
