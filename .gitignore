@@ -151,6 +151,8 @@ data/trainedNN/
 data/architectures/
 data/datasets/
 *.sqlite
+*.h5
+*.hdf5
 log.txt
 err.txt
 DBModule_log.txt
