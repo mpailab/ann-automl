@@ -50,6 +50,7 @@ param_groups = {
               'train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
               'train.decay', 'train.activation',
               'train.loss', 'train.metrics', 'train.dropout',
+              'train.min_delta', 'train.patience', 'train.early_stopping',
               # 'train.kernel_initializer', 'train.bias_initializer',
               # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
               # 'train.kernel_constraint', 'train.bias_constraint'

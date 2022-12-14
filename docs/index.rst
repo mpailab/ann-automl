@@ -9,7 +9,9 @@ Welcome to ann-automl's documentation!
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-
+   
+   source/README
+   source/ann_automl
 
 
 Indices and tables

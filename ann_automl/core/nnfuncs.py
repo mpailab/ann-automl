@@ -33,6 +33,7 @@ nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
 
 
 def close_db():
+    """ Закрывает соединение с базой данных """
     global nnDB
     if nnDB is not None:
         print('Close database')
@@ -47,17 +48,20 @@ _emulation = False  # флаг отладочного режима, когда �
 
 
 def set_emulation(emulation=True):
+    """ Устанавливает или сбрасывает флаг эмуляции выполнения долгих операций """
     global _emulation
     _emulation = emulation
 
 
 def set_db(db):
+    """ Устанавливает объект базы данных (DBModule или ObjectWrapper над DBModule,
+    если планируется использовать базу данных в многопоточном режиме) """
     global nnDB
     nnDB = db
 
 
 def cur_db():
-    """ Возвращает текущий объект базы данных """
+    """ Возвращает текущий объект базы данных (DBModule) """
     global nnDB
     return nnDB
 
@@ -77,6 +81,7 @@ def set_multithreading_mode(mode=True):
 
 
 class multithreading_mode:
+    """ Context manager for multithreading mode """
     def __enter__(self):
         set_multithreading_mode(True)
 
@@ -87,10 +92,9 @@ class multithreading_mode:
 def set_data_dir(data_dir):
     """
     Set the data directory. Data directory contains the following subdirectories:
-    - architecures: contains the neural network architectures
-    - datasets: contains the datasets
-    - trainedNN: contains the trained neural networks
-    - history: contains the training history of the neural networks
+        - architecures: contains the neural network architectures
+        - datasets: contains the datasets
+        - trainedNN: contains the trained neural networks
     """
     global _data_dir
     _data_dir = data_dir
@@ -126,9 +130,15 @@ pretrained_models = {
     'nasnetmobile': tf.keras.applications.nasnet.NASNetMobile,  # model for image classification
     'xception': tf.keras.applications.xception.Xception,  # model for image classification
     'mobilenetv2': tf.keras.applications.mobilenet_v2.MobileNetV2,  # model for image classification
-
+    'efficientnetb0': tf.keras.applications.efficientnet.EfficientNetB0,  # model for image classification
+    'efficientnetb1': tf.keras.applications.efficientnet.EfficientNetB1,  # model for image classification
+    'efficientnetb2': tf.keras.applications.efficientnet.EfficientNetB2,  # model for image classification
+    'efficientnetb3': tf.keras.applications.efficientnet.EfficientNetB3,  # model for image classification
+    'efficientnetb4': tf.keras.applications.efficientnet.EfficientNetB4,  # model for image classification
+    'efficientnetb5': tf.keras.applications.efficientnet.EfficientNetB5,  # model for image classification
+    'efficientnetb6': tf.keras.applications.efficientnet.EfficientNetB6,  # model for image classification
+    'efficientnetb7': tf.keras.applications.efficientnet.EfficientNetB7,  # model for image classification
 }
-
 
 # !!! гиперпараметры и их значения сгенерированы автоматически !!!
 # TODO: проверить их на корректность
@@ -324,6 +334,18 @@ nn_hparams = {
                       'title': 'параметры аугментации',
                       'description': 'Параметры аугментации изображений.'},
 
+    # early stopping
+    'early_stopping': {'type': 'bool', 'default': True, 'title': 'Ранняя остановка',
+                       'description': 'Если в течение определенного количества эпох не происходит улучшения '
+                                      'метрики, то обучение прекращается.'},
+    'patience': {'type': 'int', 'range': [1, 100], 'step': 1, 'scale': 'lin', 'default': 5,
+                 'title': 'Сколько эпох ждать',
+                 'description': 'Количество эпох, в течение которых метрика не улучшается, '
+                                'после чего обучение прекращается.'},
+    'min_delta': {'type': 'float', 'range': [0, 0.1], 'step': 0.001, 'scale': 'lin', 'default': 0.001,
+                  'title': 'Минимальное улучшение',
+                  'description': 'Минимальное изменение метрики, которое считается улучшением.'},
+
     # dataset params
     **db_hparams,
 
@@ -349,7 +371,7 @@ tune_hparams = {
     'method': {'type': 'str',
                'values': {
                    'grid': {'params': ['radius', 'grid_metric', 'start_point']},
-                   'history': {'params': ['exact_category_match']}
+                   #'history': {'params': ['exact_category_match']}
                },
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
@@ -364,7 +386,16 @@ tune_hparams = {
 }
 
 
-def get_hparams(params_table, **kwargs):
+def get_hparams(params_table, **kwargs) -> dict:
+    """
+    Функция для дополнения значений гиперпараметров из таблицы по умолчанию новыми значениями.
+
+    Args:
+        params_table (dict): таблица гиперпараметров (например, nn_hparams)
+        **kwargs: новые значения гиперпараметров
+    Returns:
+        таблица гиперпараметров с новыми значениями
+    """
     res = {key: value['default'] for key, value in params_table.items()}
     res.update(kwargs)
     cond_active = set()
@@ -384,7 +415,7 @@ def get_hparams(params_table, **kwargs):
     return res
 
 
-class TimeHistory(keras.callbacks.Callback):
+class _TimeHistory(keras.callbacks.Callback):
     def on_train_begin(self, logs=None):
         self.times = []
         self.start_of_train = time.time()
@@ -422,15 +453,26 @@ def create_data_subset(objects, cur_experiment_dir, crop_bbox=True, temp_dir='tm
                                                          cropped_dir=temp_dir + '/crops/')[1]
 
 
-class EmulateGen:
+class _EmulateGen:
     def __init__(self, data):
         self.filenames = [f'{i}.jpg' for i in range(len(data))]
 
 
 def create_generators(model, data, augmen_params, preprocessing_function, batch_size, num_classes):
     """
-    Создание генераторов изображений по заданным в curStrategy параметрам аугментации
-    В этот прием попадем как при первичном обучении, так и при смене параметров аугментации после обучения модели
+    Создание генераторов изображений по заданным параметрам аугментации
+    Эту функцию следует вызывать перед первым обучением, а также
+    при смене параметров аугментации после обучения модели
+
+    Args:
+        model (keras.Model): модель, для которой создаются генераторы
+        data (dict): словарь путей к csv-файлам с разметкой для train, val, test
+        augmen_params (dict): словарь параметров аугментации
+        preprocessing_function (str): имя функции предобработки изображений для заданной архитектуры
+        batch_size (int): размер батча
+        num_classes (int): количество классов
+    Returns:
+        генераторы для train, val, test
     """
     df_train = pd.read_csv(data['train'])
     df_validate = pd.read_csv(data['validate'])
@@ -439,7 +481,7 @@ def create_generators(model, data, augmen_params, preprocessing_function, batch_
     flow_args = dict(target_size=model.input_shape[1:3], class_mode='raw', batch_size=batch_size)
 
     if _emulation:
-        return EmulateGen(df_train), EmulateGen(df_validate), EmulateGen(df_test)
+        return _EmulateGen(df_train), _EmulateGen(df_validate), _EmulateGen(df_test)
 
     if preprocessing_function is not None:
         preprocessing_function = eval(preprocessing_function)
@@ -461,30 +503,27 @@ def create_generators(model, data, augmen_params, preprocessing_function, batch_
     return train_generator, val_generator, test_generator
 
 
-def create_layer(type, **kwargs):
-    return getattr(keras.layers, type)(**kwargs)
+def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_learning=True):
+    """
+    Создание модели по заданным параметрам архитектуры
 
-
-def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_learning=True,
-                 include_top=False, class_numbers_in_imagenet=None):
-    if class_numbers_in_imagenet is None:  # If we don't know the number of classes in imagenet, we can't use dense layer of pretrained model
-        include_top = False
+    Args:
+        base (str): имя базовой архитектуры
+        last_layers (str): список слоев, которые будут добавлены к базовой архитектуре
+        dropout (float): коэффициент dropout (0.0 - 1.0)
+        input_shape (tuple): размерность входных данных
+        transfer_learning (bool): использовать ли transfer learning (True) или обучать с нуля (False)
+    Returns:
+        созданная модель
+    """
+    def create_layer(type, **kwargs):
+        return getattr(keras.layers, type)(**kwargs)
 
     if base.lower() in pretrained_models:
         # load pretrained model with weights without last layers
-        base_model = pretrained_models[base](include_top=include_top,
+        base_model = pretrained_models[base](include_top=False,
                                              weights='imagenet' if transfer_learning else None,
                                              input_shape=input_shape)
-        if include_top:  # class_numbers_in_imagenet is a list of class ids in imagenet
-            # get type of activation function of last layer
-            activation = base_model.layers[-1].activation.__name__
-            # remove activation layer
-            base_model.layers.pop()
-            # now last layer is dense; add new activation layer with correct number of classes
-            dense_outputs = base_model.layers[-1].output[:, class_numbers_in_imagenet]
-            # add new activation layer
-            activation_layer = getattr(keras.layers, activation)(dense_outputs)
-            return keras.Model(inputs=base_model.input, outputs=activation_layer)
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
 
@@ -498,6 +537,87 @@ def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_lear
         y = create_layer(**layer)(y)
 
     return keras.models.Model(inputs=x, outputs=y)
+
+
+class FitLog:
+    """
+    Класс для логирования процесса обучения. Может использоваться для построения
+    графиков в параллельном процессе без необходимости записи логов в файл.
+    """
+    def __init__(self, task, hparams):
+        """
+        Args:
+            task (NNTask or None): решаемая задача
+            hparams (dict): гиперпараметры обучения
+        """
+        self.task = task
+        self.hparams = hparams
+        self.loss = []
+        self.val_loss = []
+        self.acc = []
+        self.val_acc = []
+        self.test_acc = []
+        self.train_ends = []
+        self.best_val_acc = 0
+        self.start_time = time.time()
+        self.best_epoch = None
+
+    def add_epoch(self, epoch, loss, accuracy, val_loss=None, val_accuracy=None, **kwargs):
+        self.loss.append(loss)
+        self.val_loss.append(val_loss)
+        self.acc.append(accuracy)
+        self.val_acc.append(val_accuracy)
+        if val_accuracy > self.best_val_acc:
+            self.best_val_acc = val_accuracy
+            self.best_epoch = (len(self.train_ends), epoch)
+
+    def add_train_end(self, **kwargs):
+        self.train_ends.append((len(self.loss), time.time() - self.start_time))
+
+    def add_test(self, accuracy):
+        self.test_acc.append(accuracy)
+
+    @property
+    def best_acc(self):
+        """ лучшая точность на тестовой выборке """
+        return max(self.test_acc) if self.test_acc else 0
+
+
+class ExperimentLog:
+    """
+    Класс для логирования результатов экспериментов. Может использоваться для построения
+    графиков в параллельном процессе без необходимости записи логов в файл.
+
+    Содержит в себе список историй обучения (FitLog), произведенных в рамках эксперимента.
+    """
+    def __init__(self, task=None):
+        self.task = task
+        self.fit_runs = []
+        self.best_run = None
+        self.current_run = None
+
+    def new_experiment(self, hparams):
+        self.current_run = FitLog(self.task, hparams)
+        if self.best_run is None:
+            self.best_run = self.current_run
+        self.fit_runs.append(self.current_run)
+        return self.current_run
+
+    def update_best(self):
+        if self.current_run is not None and self.current_run.best_acc > self.best_run.best_acc:
+            self.best_run = self.current_run
+
+    @property
+    def best_acc(self):
+        """ Лучшая точность на тестовой выборке """
+        self.update_best()
+        return self.best_run.best_acc
+
+    @property
+    def best_val_acc(self):
+        """ Лучшая точность на валидационной выборке (может быть выше, чем best_acc) """
+        self.update_best()
+        return self.best_run.best_val_acc
 
 
 class ExperimentHistory:
@@ -565,14 +685,16 @@ class ExperimentHistory:
 
 
 class StopFlag:
+    """ Флаг, который позволяет остановить обучение модели из другого потока """
     def __init__(self):
         self.flag = False
 
     def __call__(self):
+        """ Устанавливает флаг в True (команда "остановить обучение") """
         self.flag = True
 
 
-class CheckStopCallback(keras.callbacks.Callback):
+class _CheckStopCallback(keras.callbacks.Callback):
     def __init__(self, stop_flag, timeout=None):
         super().__init__()
         self.t0 = time.time()
@@ -584,24 +706,32 @@ class CheckStopCallback(keras.callbacks.Callback):
             self.model.stop_training = True
         elif time.time() - self.t0 > self.timeout:
             self.model.stop_training = True
-            printlog(f'Training stopped by timeout ({self.timeout} sec)')
+            printlog(f'\nTraining stopped by timeout ({self.timeout} sec)')
 
 
-class NotifyCallback(keras.callbacks.Callback):
+class _NotifyCallback(keras.callbacks.Callback):
+    def __init__(self, fit_log):
+        super().__init__()
+        self.fit_log = fit_log
+
     def on_batch_end(self, batch, logs=None):
         pcall('train_callback', 'batch', batch=batch, logs=logs, model=self.model)
 
     def on_epoch_end(self, epoch, logs=None):
+        if self.fit_log:
+            self.fit_log.add_epoch(epoch, **logs)
         pcall('train_callback', 'epoch', epoch=epoch, logs=logs, model=self.model)
 
     def on_train_end(self, logs=None):
+        if self.fit_log:
+            self.fit_log.add_train_end(**logs)
         pcall('train_callback', 'finish', logs=logs, model=self.model)
 
     def on_train_begin(self, logs=None):
         pcall('train_callback', 'start', logs=logs, model=self.model)
 
 
-def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
+def _emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
     loss_begin = 0.2 + random.random()*0.3
     loss_end = 0.1 + random.random()*0.1
     loss = loss_begin
@@ -636,11 +766,11 @@ def emulate_fit(model, x, steps_per_epoch, epochs, callbacks, validation_data):
     return [best_loss, best_acc]
 
 
-def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=None):
+def _save_history(filepath, objects, run_type, model_path, metrics, params, fmt=None):
     history = {'run_type': run_type,
                **params,
                'model_file': model_path,
-               'results_path': os.path.dirname(model_path),
+               'result_path': os.path.dirname(model_path),
                'metric_name': 'accuracy',
                'metric_value': metrics['accuracy'],
                'metrics': metrics,
@@ -668,7 +798,16 @@ def save_history(filepath, objects, run_type, model_path, metrics, params, fmt=N
     return history
 
 
-def compile_model(model: keras.Model, hparams, measured_metrics, freeze_base=None):
+def compile_model(model, hparams, measured_metrics, freeze_base=None):
+    """
+    Компилирует модель с заданными параметрами
+
+    Args:
+        model: модель
+        hparams (dict): гиперпараметры оптимизации (оптимизатор, скорость обучения, ...)
+        measured_metrics (list): список метрик, которые будут измеряться в процессе обучения
+        freeze_base (bool): замораживать ли базовую часть модели (первый этап transfer learning)
+    """
     optimizer, lr = hparams['optimizer'], hparams['learning_rate']
     opt_args = ['decay'] + nn_hparams['optimizer']['values'][optimizer].get('params', [])
     kwargs = {arg: hparams[arg] for arg in opt_args if arg in hparams}
@@ -684,7 +823,21 @@ def compile_model(model: keras.Model, hparams, measured_metrics, freeze_base=Non
     model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
 
 
-def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name):
+def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
+    """
+    Подготавливает список колбэков для обучения модели
+
+    Args:
+        stop_flag (StopFlag): флаг остановки обучения
+        timeout (float): таймаут обучения в секундах
+        cur_subdir (str): путь к папке текущего запуска
+        check_metric (str): метрика, по которой будет производиться остановка обучения и сохранение лучшей модели
+        use_tensorboard (bool): сбрасывать ли логи для TensorBoard
+        weights_name (str): имя файла, в который будут сохраняться веса модели
+        fit_log (FitLog): лог обучения модели
+    Returns:
+        пара (список колбэков, объект, в котором будут сохранены замеры времени по каждой эпохе)
+    """
     if not _emulation:
         c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
         c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + f'/{weights_name}.h5', monitor=check_metric, verbose=1,
@@ -705,19 +858,20 @@ def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorbo
     else:
         callbacks = []
 
-    c_t = TimeHistory()
-    callbacks += [c_t, NotifyCallback()]
+    c_t = _TimeHistory()
+    callbacks += [c_t, _NotifyCallback(fit_log)]
     if stop_flag is not None or timeout is not None:
-        callbacks.append(CheckStopCallback(stop_flag, timeout))
+        callbacks.append(_CheckStopCallback(stop_flag, timeout))
     return callbacks, c_t
 
 
-def fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name):
-    callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name=weights_name)
+def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
+    callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard,
+                                       weights_name=weights_name, fit_log=fit_log)
 
     if _emulation:
-        scores = emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
-                             hparams['epochs'], callbacks, generators[1])
+        scores = _emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
+                              hparams['epochs'], callbacks, generators[1])
     else:
         printlog("Fit model")
         printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
@@ -735,12 +889,15 @@ def fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric
 
         # evaluate model
         scores = model.evaluate(generators[2], steps=None, verbose=1)
+        if fit_log:
+            fit_log.add_test(scores[1])
     return scores, c_t
 
 
 def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None, need_recompile=False,
-              use_tensorboard=False, timeout=None) -> Tuple[List[float], dict]:
+              use_tensorboard=False, timeout=None, exp_log = None) -> Tuple[List[float], dict]:
     """ Обучение модели
+
     Args:
         model (keras.models.Model): модель, которую нужно обучить
         objects (list): список категорий, которые нужно распознавать
@@ -752,6 +909,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         need_recompile (bool): обязательно ли перекомпилировать модель
         use_tensorboard (bool): нужно ли использовать tensorboard
         timeout (float): таймаут обучения в секундах
+        exp_log (ExperimentLog): лог эксперимента
     Returns:
         Достигнутые значения метрик на тестовой выборке во время обучения, а также
         словарь со значениями гиперпараметров, метрик и путей к модели и истории
@@ -766,6 +924,10 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     # set up callbacks
     check_metric = 'val_' + measured_metrics[0]
     date = datetime.now().strftime("%d.%m.%Y-%H:%M:%S")
+    if exp_log is None:
+        fit_log = None
+    else:
+        fit_log = exp_log.new_experiment(hparams)
 
     if not transfer_learning:
         # if model is not compiled, compile it
@@ -773,15 +935,17 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
             compile_model(model, hparams, measured_metrics, freeze_base=transfer_learning)
 
         # fit model
-        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
+        scores, c_t = _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights', fit_log=fit_log)
     else:
         compile_model(model, hparams, measured_metrics, freeze_base=True)
-        scores, c_t = fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights')
+        scores, c_t = _fit(model, generators, hparams, stop_flag, timeout / 2,
+                           cur_subdir, check_metric, use_tensorboard, weights_name='best_weights', fit_log=fit_log)
 
         new_hparams = hparams.copy()
         new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
         compile_model(model, new_hparams, measured_metrics, freeze_base=False)
-        tune_scores, tune_c_t = fit(model, generators, new_hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights')
+        tune_scores, tune_c_t = _fit(model, generators, new_hparams, stop_flag, timeout - (time.time() - t0),
+                                     cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights', fit_log=fit_log)
 
         if tune_scores[1] > scores[1]:
             scores = tune_scores
@@ -798,14 +962,16 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
     metrics = {'accuracy': scores[1]}
     for i, metric in enumerate(measured_metrics):
         metrics[metric] = scores[i + 1]
-    record = save_history(cur_subdir + '/history.json', objects, 'train', cur_subdir + '/best_weights.h5',
-                          metrics, dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
+    record = _save_history(cur_subdir + '/history.json', objects, 'train', cur_subdir + '/best_weights.h5',
+                           metrics, dict(hparams=hparams, date=date, times=c_t.times, total_time=c_t.total_time))
     return scores, record
 
 
 def create_and_train_model(hparams, objects, data, cur_subdir, history=None, stop_flag=None,
-                           model=None, use_tensorboard=True, timeout=None):
+                           model=None, use_tensorboard=True, timeout=None, exp_log=None):
     """
+    Создает модель, компилирует ее и обучает
+
     Args:
         hparams (dict): словарь с гиперпараметрами обучения
         objects (list): список категорий объектов в датасете
@@ -817,6 +983,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
             Если None, то создается новая модель. Если str, то загружается модель из файла.
         use_tensorboard (bool): сбраывать ли данные для tensorboard
         timeout (float or None): таймаут в секундах. Если не None, то обучение прерывается по истечении этого времени.
+        exp_log (ExperimentLog or None): лог экспериментов
     Returns:
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
@@ -841,19 +1008,22 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
                                    hparams.get('preprocessing_function', None),
                                    hparams['batch_size'], len(objects))
     return fit_model(model, objects, hparams, generators, cur_subdir, history=history, stop_flag=stop_flag,
-                     use_tensorboard=use_tensorboard, timeout=timeout)
+                     use_tensorboard=use_tensorboard, timeout=timeout, exp_log=exp_log)
 
 
-def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, timeout=None) -> Tuple[List[float], dict]:
+def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, timeout=None, exp_log=None) -> Tuple[List[float], dict]:
     """
+    Обучает модель для заданной задачи классификации изображений
+
     Args:
         nn_task (NNTask): задача обучения нейросети
         hparams (dict or str): словарь с гиперпараметрами обучения или "auto" для выбора по умолчанию
         stop_flag (StopFlag): флаг, с помощью которого можно остановить обучение из другого потока
-        model (None or keras.models.Model or str): модель, которую нужно обучить.
+        model (None or keras.Model or str): модель, которую нужно обучить.
             Если None, то создается новая модель. Если str, то загружается модель из файла.
         use_tensorboard (bool): сбрасывать ли данные для tensorboard во время обучения (по умолчанию True)
         timeout (int or None): таймаут в секундах. Если не None, то обучение прерывается по истечении этого времени.
+        exp_log (ExperimentLog or None): лог экспериментов
     Returns:
         Список чисел -- достигнутые значения метрик на тестовой выборке во время обучения
     """
@@ -866,25 +1036,27 @@ def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, ti
         raise ValueError(f'`{"`, `".join(unavail)}` not available in the training dataset')
     test_ratio = hparams.get('test_frac', 0.15)
     val_ratio = hparams.get('val_frac', 0.15)
-    exp_name, exp_dir = create_exp_dir('train', nn_task)
+    exp_name, exp_dir = _create_exp_dir('train', nn_task)
     printlog("Prepare data subset for training")
     data = create_data_subset(nn_task.objects, exp_dir,
                               crop_bbox=hparams.get('crop_bbox', not _emulation),
                               split_points=(1 - val_ratio - test_ratio, 1 - test_ratio))
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
-    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history,
-                                  stop_flag=stop_flag, model=model, use_tensorboard=use_tensorboard, timeout=timeout)
+    return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag,
+                                  model=model, use_tensorboard=use_tensorboard, timeout=timeout, exp_log=exp_log)
 
 
 grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
     # TODO: объединить как-то с hyperparameters
+    'model_arch': {'values': list(pretrained_models.keys()) + ['ResNet18', 'ResNet34']},
+    'transfer_learning': {'values': [True, False], 'default': True},
     'optimizer': {'values': {
         'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
         'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
         'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
     }},
     # для каждого оптимизатора указывается, как другие гиперпараметры должны масштабироваться при смене оптимизатора
-    'batch_size': {'range': [1, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
+    'batch_size': {'range': [8, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
     'learning_rate': {'range': [0.000125, 0.064], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     'lr/batch_size': {'range': [0.00000125, 0.00128], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     # только один из двух параметров может быть задан: learning_rate или lr/batch_size
@@ -905,6 +1077,20 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
 
 def param_values(default=None, values=None, step=None, scale=None,
                  zero_point=None, type=None, return_str=False, **kwargs):
+    """Возвращает список значений гиперпараметра по более сжатому описанию.
+
+    Args:
+        default: значение по умолчанию
+        values: список возможных значений, которые будут перебираться по сетке (для категориальных гиперпараметров)
+        step: шаг между значениями для числовых гиперпараметров
+        scale: шкала значений для числовых гиперпараметров (lin, log, 1-log)
+        zero_point: добавить ли точку 0 (только для шкалы log)
+        type: тип значения (int, float, str, bool)
+        return_str: возвращать ли значения в виде строк (например, для отображения в web-интерфейсе)
+        **kwargs: дополнительные параметры, которые будут переданы в функцию values
+    Returns:
+        Список значений гиперпараметра
+    """
     pos = None
     if 'range' in kwargs:
         mn, mx = kwargs['range']
@@ -969,6 +1155,8 @@ def param_values(default=None, values=None, step=None, scale=None,
 class HyperParamGrid:
     def __init__(self, hparams, tuned_params):
         """
+        Создает пространство гиперпараметров, в рамках которого можно перебирать комбинации гиперпараметров
+
         Args:
             hparams (dict): словарь с текущими значениями гиперпараметров
             tuned_params (list): набор гиперпараметров, которые будут подбираться
@@ -1024,6 +1212,7 @@ class HyperParamGrid:
 def neighborhood_gen(c, shape, cat_axis, r, metric):
     """
     Функция возвращает все точки в окрестности центра, которые не выходят за границы сетки
+
     Args:
         c (tuple of int): центр окрестности
         shape (list of int): размеры сетки
@@ -1065,8 +1254,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
         grid_size (list of int): Размеры сетки, на которой производится оптимизация.
         cat_axis (list of int): Типы величин по осям (0 -- числовая, 1 -- категориальная)
         func (callable): Функция, которую нужно оптимизировать.
-        gridmap (callable):
-            Функция, которая преобразует точку сетки в кортеж (key, args, kwargs), где
+        gridmap (callable): Функция, которая преобразует точку сетки в кортеж (key, args, kwargs), где
             key - ключ для кэширования, args и kwargs - аргументы функции func.
         start_point (Union[tuple, str]): Начальная точка. Если 'random', то начальная точка выбирается случайно.
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
@@ -1110,11 +1298,12 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
         cur_value = best_value
 
 
-def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=1e10,
-                      use_tensorboard=True,
+def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=None,
+                      use_tensorboard=True, exp_log=None,
                       start_point='random', grid_metric='l1', radius=1):
     """
     Оптимизирует параметры нейронной сети на сетке.
+
     Args:
         nn_task (NNTask): Задача, для которой оптимизируются параметры.
         data (tuple): Кортеж, с генераторами для обучения, валидации и тестирования.
@@ -1125,15 +1314,16 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         stop_flag (StopFlag, optional): Флаг, который можно использовать для остановки оптимизации.
         timeout (float, optional): Максимальное время работы оптимизации.
         use_tensorboard (bool, optional): Сбрасывать ли данные для TensorBoard.
+        exp_log (ExperimentLog, optional): Объект для логирования результатов оптимизации.
 
         start_point (str): Начальная точка. Если 'random', то начальная точка выбирается случайно.
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
     Returns:
-        Пара (best_params, best_score, params_of_best), где
-            best_params -- лучшие найденные гиперпараметры,
-            best_score -- значение метрики на лучших гиперпараметрах,
-            params_of_best -- список с параметрами лучшей обученной модели.
+        Кортеж (best_params, best_score, params_of_best), где
+         -   best_params -- лучшие найденные гиперпараметры,
+         -   best_score -- значение метрики на лучших гиперпараметрах,
+         -   params_of_best -- список с параметрами лучшей обученной модели.
     """
     t0 = time.time()
     grid = HyperParamGrid(hparams, tuned_params)
@@ -1143,6 +1333,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
     best_point, best_score = None, None
     params_of_best = None
+    timeout = timeout or 1e10
 
     def fit_and_get_score(key, params):
         key_str = '_'.join([str(x) if x is not None else 'n' for x in key])
@@ -1153,7 +1344,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         try:
             scores, p = create_and_train_model(params, nn_task.objects, data, cur_dir, history=history,
                                                stop_flag=stop_flag, use_tensorboard=use_tensorboard,
-                                               timeout=timeout - (time.time() - t0))
+                                               timeout=timeout - (time.time() - t0), exp_log=exp_log)
             val = nn_task.func(scores)
             nonlocal params_of_best, best_score, best_point
             if best_score is None or val > best_score:
@@ -1170,8 +1361,6 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
             break
         printlog(f"Evaluated point: {point}, value: {value}")
         pcall('tune_step', point, value)
-        # if is_max:
-            # best_point, best_score = point, value
         if not nn_task.goals.get('maximize', True) and best_score >= nn_task.target:
             break
         if time.time() - t0 > timeout:
@@ -1186,12 +1375,13 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     return best_point, best_score, params_of_best
 
 
-def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=1e10,
-                         use_tensorboard=True,
+def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=None,
+                         use_tensorboard=True, exp_log=None,
                          exact_category_match=False):
     """
     Оптимизирует параметры нейронной сети по истории экспериментов.
     Ищутся эксперименты, где текущая задача уже решалась, и находятся лучшие гиперпараметры.
+
     Args:
         nn_task (NNTask): Задача, для которой оптимизируются параметры.
         data (tuple): Кортеж, с генераторами для обучения, валидации и тестирования.
@@ -1202,12 +1392,13 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
         stop_flag (StopFlag or None): Флаг, который можно использовать для остановки оптимизации.
         timeout (float): Максимальное время, которое может занять оптимизация.
         use_tensorboard (bool): Сбрасывать ли логи для tensorboard.
+        exp_log (ExperimentLog): Объект, в который будут записываться логи.
         exact_category_match (bool): Если True, то при поиске по истории считается, что категориальные
             параметры должны совпадать точно.
     Returns:
         Пара (best_params, best_score), где
-            best_params -- лучшие найденные гиперпараметры,
-            best_score -- значение метрики на лучших гиперпараметрах.
+         -   best_params -- лучшие найденные гиперпараметры,
+         -   best_score -- значение метрики на лучших гиперпараметрах.
     """
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
     best_point, best_score = None, None
@@ -1218,7 +1409,8 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
             break
         cur_params = {**hparams, **params}
         scores, _ = create_and_train_model(cur_params, nn_task.objects, data, exp_dir, history=history,
-                                           stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard)
+                                           stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard,
+                                           exp_log=exp_log)
         score = nn_task.func(scores)
         printlog(f"Evaluated point: {params}, value: {score}")
         pcall('tune_step', params, score)
@@ -1237,7 +1429,7 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
 
 
 def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=None,
-         use_tensorboard=True, **kwargs):
+         use_tensorboard=True, exp_log=None, **kwargs):
     """
     Оптимизирует гиперпараметры обучения нейронной сети.
 
@@ -1249,6 +1441,8 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=No
         hparams (dict): Исходные гиперпараметры, часть из них будет оптимизироваться.
         stop_flag (StopFlag, optional): Флаг, который можно использовать для остановки оптимизации.
         timeout (int, optional): Максимальное время, которое разрешено затратить на оптимизацию.
+        use_tensorboard (bool): Сбрасывать ли логи для tensorboard.
+        exp_log (ExperimentLog): Объект, в который будут записываться логи.
         **kwargs: Дополнительные параметры для метода оптимизации.
 
     Returns:
@@ -1260,7 +1454,7 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=No
         timeout = 1e10
     if tuned_params == 'all':
         tuned_params = list(grid_hparams_space)
-    exp_name, exp_path = create_exp_dir(f'tune_{method}', nn_task)
+    exp_name, exp_path = _create_exp_dir(f'tune_{method}', nn_task)
     if not os.path.exists(exp_path):
         os.makedirs(exp_path, exist_ok=True)
     printlog(f"Experiment path: {exp_path}")
@@ -1283,12 +1477,13 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=No
     kwargs = {k: v for k, v in kwargs.items() if k in tune_kwargs}
 
     return tune_func(nn_task, data, exp_name, exp_path, hparams, tuned_params,
-                     stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard,
+                     stop_flag=stop_flag, timeout=timeout, use_tensorboard=use_tensorboard, exp_log=exp_log,
                      **kwargs)
 
 
-def create_exp_dir(prefix, nn_task):
+def _create_exp_dir(prefix, nn_task):
     """Создает директорию для эксперимента.
+
     Args:
         prefix (str): Префикс имени директории.
         nn_task (NNTask): Задача.
@@ -1313,10 +1508,11 @@ def create_exp_dir(prefix, nn_task):
 
 def load_history(history_file) -> dict:
     """Загружает историю обучения из файла.
+
     Args:
         history_file (str): Путь к файлу с историей обучения.
     Returns:
-        История обучения.
+        История обучения в виде словаря.
     """
     if history_file.endswith('.json'):
         with open(history_file, 'r') as f:
@@ -1338,6 +1534,12 @@ def load_history(history_file) -> dict:
 
 
 def params_from_history(nn_task):
+    """
+    Args:
+        nn_task (NNTask): Задача обучения нейронной сети
+    Returns:
+        Список историй обучения для данной задачи
+    """
     req = {
         'min_metrics': {nn_task.metric: nn_task.target},
         'categories': list(nn_task.objects),
