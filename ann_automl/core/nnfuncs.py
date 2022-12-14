@@ -786,7 +786,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         if tune_scores[1] > scores[1]:
             scores = tune_scores
             shutil.copyfile(cur_subdir + '/tune_best_weights.h5', cur_subdir + '/best_weights.h5')
-        os.remove(cur_subdir + '/tune_best_weights.h5')
+        os.remove(cur_subdir + '/tune_best_weights.h5', ignore_errors=True)
         c_t.total_time += tune_c_t.total_time
         c_t.times += tune_c_t.times
 
