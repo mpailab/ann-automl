@@ -163,4 +163,3 @@ gpus = [
                  tflops_tc_mixed=125),
     DeviceParams('Tesla P100 SXM2', 'GPU', mem_size=16, bandwidth=732, tflops_fp32=10.5, tflops_fp16=21.1)
 ]
-

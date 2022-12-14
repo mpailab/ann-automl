@@ -75,7 +75,7 @@ def train_classification_model(classes,
     return best_params, best_val
 
 
-def copy_classify_script(out_dir):
+def _copy_classify_script(out_dir):
     printlog('Копируем скрипт для классификации')
     script_path = os.path.join(os.path.dirname(__file__), f'../scripts/')
     shutil.copy(os.path.join(script_path, 'classify.py'), out_dir)
@@ -101,8 +101,10 @@ def create_classification_model(classes,
         classes: список классов
         target_accuracy: требуемая точность
         output_dir: директория для сохранения модели и скрипта (если имеет расширение .zip, то создаётся архив)
-        optimize_over_target: оптимизировать ли модель после достижения целевой точности, пока не достигнется лимит времени
-        stop_flag: флаг, показывающий, что нужно остановить обучение (для запуска из другого процесса)
+        optimize_over_target: оптимизировать ли модель после достижения целевой точности,
+            пока не достигнется лимит времени
+        stop_flag: флаг, показывающий, что нужно остановить обучение
+            (для управления из другого процесса, например, из GUI)
         script_type: тип скрипта (tf, torch или None). Если None, то скрипт не создаётся
         verbosity: уровень подробности печатаемой информации
         for_mobile: создавать ли модель для мобильных устройств
@@ -177,7 +179,7 @@ def create_classification_model(classes,
             log(f'Указан неправильный тип скрипта: {script_type}, должен быть tf или torch', file=sys.stderr)
             log('Используем тип tf', file=sys.stderr)
             script_type = 'tf'
-        copy_classify_script(save_dir)
+        _copy_classify_script(save_dir)
         info['backend'] = script_type
 
     with open(os.path.join(save_dir, 'model.json'), 'w') as f:
@@ -195,3 +197,5 @@ def create_classification_model(classes,
 
     return output_dir
 
+
+__all__ = ['create_classification_model']

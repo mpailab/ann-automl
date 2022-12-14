@@ -17,27 +17,24 @@ class NNTask(Task):
     """ Класс, задающий задачу на обучение нейронной сети """
 
     def __init__(self,
-                 category: str = 'train',
-                 objects: List[str] = (),
-                 type: str = 'classification',
-                 func: TargetFunc = metric_target,
+                 category='train',
+                 objects=(),
+                 type='classification',
+                 func=metric_target,
                  # TODO: кажется, надо вернуть как было -- либо accuracy,
                  #       либо конкретный вид accuracy (categorial, binary, sparse_categorical, etc.)
-                 target: float = 0.9,
-                 goals: Dict[str, Any] = None,
-                 time_limit: int = 60 * 60 * 24,
-                 for_mobile: bool = False,
+                 target=0.9,
+                 goals=None,
+                 time_limit=60 * 60 * 24,
+                 for_mobile=False,
                  ):
         """
         Инициализация задачи.
 
         Parameters:
-        ----------
+        -----------
         category: str
-            Категория задачи:
-            train - обучение модели,
-            test - тестирование модели без предварительного обучения 
-            "служебные" - {проверка наличия нужных классов,БД, моделей}
+            Категория задачи: пока поддерживается только 'train'
         type: str
             Тип задачи {classification, detection, segmentation}
         objects: list[str]
@@ -47,8 +44,9 @@ class NNTask(Task):
         target: str
             Значение целевого функционала {float from [0,1]}
         goal: dict[str, Any]
-            Словарь целей задачи (например {"метрика" : желаемое значение метрики})
-        time_limit: int
+            Словарь дополнительных целей задачи (например {"maximize" :
+            нужно ли максимизировать метрику выше целевого значения})
+        time_limit: float
             Время на выполнение задачи в секундах
         for_mobile: bool
             Флаг, указывающий, что предполагается использование модели на мобильных устройствах

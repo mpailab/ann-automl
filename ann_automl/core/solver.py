@@ -22,6 +22,15 @@ _first_print = _first_error = True
 
 
 def printlog(*args, **kwargs):
+    """
+    Выводит сообщение в лог. Аргументы аналогичны функции print.
+    Если сообщение печатается в файл, то действие эквивалентно `print(*args, **kwargs)`
+
+    Если сообщение печатается в консоль, то дополнительно:
+     - сообщение печатается в файл log.txt (stdout) или err.txt (stderr)
+     - вызавается функция request('print', ...), которая быть привязана к другим
+        действиям при запуске через Web-интерфейс.
+    """
     try:
         request('print', *args, **kwargs)
     except NoHandlerError:
@@ -40,19 +49,23 @@ def printlog(*args, **kwargs):
 
 
 class CannotSolve(Exception):
+    """ Исключение, которое выбрасывается, если решение не найдено. """
     pass
 
 
 class FilterFailed(Exception):
+    """ Исключение, которое выбрасывается, если фильтр не прошёл (используется для внутренних целей). """
     pass
 
 
 def ensure(cond: bool):
+    """ Проверяет, выполняется ли условие. """
     if not cond:
         raise FilterFailed()
 
 
 def defined(x):
+    """ Проверяет, определена ли переменная. """
     if x is None:
         raise FilterFailed()
 
@@ -85,6 +98,7 @@ class Task:
     def solve(self, solver_state=None, rules=None, state=None, global_params=None):
         """
         Базовая функция решения задачи
+
         :param solver_state: Глобальное состояние решателя
             (если нет, то начальное состояние инициализируется по умолчанию)
         :param rules: Дополнительные правила для решения данной задачи
@@ -173,6 +187,10 @@ def rule(*task_classes, stage=None):
     """
     Декоратор для классов приёмов.
     Добавляет данный приём к типам задач, указанных в качестве параметров декоратора.
+
+    Args:
+        task_classes: Классы задач, к которым применяется данный приём
+        stage: Этап или список этапов, на которых применяется данный приём (если None, то применяется на всех этапах)
     """
     if len(task_classes) == 0:
         task_classes = [Task]  # По умолчанию добавляем глобальный приём
@@ -207,8 +225,8 @@ class TaskState:
 class SolverState:
     """
     Класс, хранящий глобальное состояние решателя:
-    - стек задач
-    - глобальные параметры
+     - стек задач
+     - глобальные параметры
     """
     def __init__(self, task=None, global_params=None):
         # self.answer = None  # ответ на решение задачи
@@ -238,24 +256,34 @@ class Rule(ABC):
     """
 
     @abstractmethod
-    def can_apply(self, task: Task, state: SolverState) -> bool:
+    def can_apply(self, task, state) -> bool:
         """
         Проверка целесообразности применения приёма
 
+        Args:
+            task (Task): Задача, для которой проверяется целесообразность применения приёма
+            state (SolverState): Глобальное состояние решателя
         Returns:
-        -------
-        bool
             Нужно ли применять приём
         """
         pass
 
     @abstractmethod
-    def apply(self, task: Task, state: SolverState):
-        """ Применение приёма """
+    def apply(self, task, state):
+        """
+        Применение приёма
+
+        Args:
+            task (Task): Задача, для которой применяется приём
+            state (SolverState): Глобальное состояние решателя
+        """
         pass
 
 
 class RuleFL(Rule):
+    """
+    Класс приёмов, в которых фильтры можно определять в декларативном стиле
+    """
     @abstractmethod
     def filter(self, task, state) -> None:
         """
@@ -274,11 +302,17 @@ class RuleFL(Rule):
 
 
 class FinishTask(RuleFL, ABC):
+    """
+    Базовый класс для приёмов, которые проверяют, что задача решена
+    """
     def apply(self, task: Task, state):
         task.solved = True
 
 
 class RecommendTask(Task):
+    """
+    Класс для задач, в которых нужно дать рекомендации по выбору каких-либо параметров в зависимости от условий
+    """
     def __init__(self, goals):
         super().__init__(goals=goals)
         self.recommendations = {}
@@ -290,6 +324,9 @@ class RecommendTask(Task):
 
 
 class Recommender(Rule, ABC):
+    """
+    Базовый класс для приёмов, которые рекомендуют какие-либо параметры в задаче RecommendTask
+    """
     stages = ['Recommend']
 
     def __init__(self):
@@ -303,6 +340,9 @@ class Recommender(Rule, ABC):
 
 
 class VoteRule(Rule, ABC):
+    """
+    Базовый класс для приёмов, которые голосуют за какие-либо параметры в задаче RecommendTask
+    """
     stages = ['Vote']
 
     def __init__(self):
@@ -315,18 +355,21 @@ class VoteRule(Rule, ABC):
         return self.key not in task.votes and self.can_vote(task)
 
 
-def to_immutable(val):
+def _to_immutable(val):
     if isinstance(val, (str, bytes)):
         return val
     if isinstance(val, dict):
-        return tuple((k, to_immutable(v)) for k, v in val.items())
+        return tuple((k, _to_immutable(v)) for k, v in val.items())
     if hasattr(val, '__iter__'):
-        return tuple(map(to_immutable, val))
+        return tuple(map(_to_immutable, val))
     return val
 
 
 @rule(RecommendTask)
 class SelectRecommendation(Rule):
+    """
+    Приём, который выбирает окончательные рекомендации на основе голосования
+    """
     stages = ['Finalize']
 
     def can_apply(self, task: RecommendTask, state: SolverState) -> bool:
@@ -340,7 +383,7 @@ class SelectRecommendation(Rule):
             votes = defaultdict(lambda: 0.0)
             for rn, rec in task.recommendations.items():
                 if k in rec:
-                    immut = to_immutable(rec[k])
+                    immut = _to_immutable(rec[k])
                     votes[immut] += task.votes.get(rn, 1)
                     to_source[immut] = rec[k]
             res[k] = to_source[max(votes.items(), key=lambda x: x[1])[0]]

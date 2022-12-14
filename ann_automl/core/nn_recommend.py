@@ -16,6 +16,7 @@ from .nn_task import NNTask
 
 
 class SelectHParamsTask(RecommendTask):
+    """ Задача рекомендации гиперпараметров """
     def __init__(self, nn_task: NNTask, fixed_hparams=None):
         super().__init__(goals={})
         self.nn_task = nn_task
@@ -33,7 +34,15 @@ class SelectHParamsTask(RecommendTask):
 
 
 def recommend_hparams(task: NNTask, fixed_params=None, **kwargs) -> dict:
-    """ Рекомендует гиперпараметры для задачи """
+    """ Рекомендует гиперпараметры для задачи
+
+    Args:
+        task (NNTask): задача обучения нейронной сети
+        fixed_params (dict): фиксированные гиперпараметры (которые нельзя менять)
+        **kwargs: вспомогательные параметры, передаваемые в функцию solve
+    Returns:
+        dict: рекомендованные гиперпараметры (включая и фиксированные)
+    """
     htask = SelectHParamsTask(task, fixed_params)
     htask.solve(global_params=kwargs)
     return htask.hparams
@@ -189,3 +198,5 @@ def get_history(task: NNTask, exact_category_match=False):
 #         if len(candidates) > 0:
 #             prec.update(random.choice(candidates))
 #
+
+__all__ = ['SelectHParamsTask', 'recommend_hparams']
