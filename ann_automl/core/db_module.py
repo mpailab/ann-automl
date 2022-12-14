@@ -4,8 +4,9 @@ from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql.expression import func
-import pandas as pd
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.exc import NoResultFound
+import pandas as pd
 import json
 import ast
 import cv2
@@ -279,6 +280,7 @@ class DBModule:
         self.sess = Session()
         self.dbstring_ = dbstring
         self.ds_filter = None
+        self.add_default_licences()
 
     def create_sqlite_file(self):
         """
@@ -293,7 +295,7 @@ class DBModule:
         if os.path.exists(self.dbstring_.split('/')[-1]):  # If file exists we suppose it is filled
             return
         self.create_sqlite_file()
-        self.fill_coco(first_time=True)
+        self.fill_coco()
         self.fill_kaggle_cats_vs_dogs()
         self.fill_imagenet(first_time=True)
         return
@@ -378,7 +380,7 @@ class DBModule:
 
     def fill_coco(self, 
                   anno_file_name='./datasets/COCO2017/annotations/instances_train2017.json', 
-                  file_prefix='./datasets/COCO2017/', first_time=False, ds_info=None):
+                  file_prefix='./datasets/COCO2017/', ds_info=None):
         """Method to fill COCOdataset into db. It is supposed to be called once.
 
         To create custom COCO annotations use some aux tools like https://github.com/jsbroks/coco-annotator
@@ -389,8 +391,6 @@ class DBModule:
             file with json annotation in COCO format
         file_prefix : str
             prefix added to the file names in annotation file
-        first_time : bool
-            put to True if called for the first time
         ds_info : dict
             dictionary with info about dataset (default - COCO2017). Necessary keys:
             description, url, version, year, contributor, date_created
@@ -414,10 +414,8 @@ class DBModule:
             return
         coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
-        # CALL THE FOLLOWING TWO METHODS ONLY WHEN NEEDED - WE MAKE A CHECK - USER IS RESPONSIBLE
-        if first_time:
-            self.add_categories(cats, True)
-            self.add_default_licences()
+        self.add_categories(cats, True)
+
         #######################################################################
         if ds_info is None:
             ds_info = {"description": "COCO 2017 Dataset",
@@ -938,10 +936,16 @@ class DBModule:
             respect_ids (bool): specifies whether ids from dictionary are preserved in DB
         """
         for category in categories:
+            _supercategory = category['supercategory']
+            _name = category['name']
             _id = None
             if respect_ids is True:
                 _id = category['id']
-            new_cat = self.Category(category['supercategory'], category['name'], _id)
+            try:
+                self.sess.query(self.Category).filter_by(
+                    supercategory=_supercategory, name=_name, ID=_id,).one()
+            except NoResultFound:
+                new_cat = self.Category(_supercategory, _name, _id)
             self.sess.add(new_cat)
         self.sess.commit()  # adding categories in db
 

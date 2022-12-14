@@ -157,3 +157,6 @@ log.txt
 err.txt
 DBModule_log.txt
 click_logs.txt
+
+# tests data
+/tests/datasets/*/images/
