@@ -127,7 +127,7 @@ def test_double_fill_coco(db_dir):
     print(f'Categories: {list(mydb.get_all_categories()["name"])}')
     assert set(mydb.get_all_categories()['name']) == {'bicycle', 'airplane'}
 
-    mydb.fill_coco('datasets/test2/annotations/train.json', file_prefix='datasets/test2')
+    mydb.fill_coco('datasets/test2/annotations/train.json', file_prefix='datasets/test2/images')
     assert len(mydb.get_all_datasets()) == 2
     # print(f'Categories: {list(mydb.get_all_categories()["name"])}')
     assert set(mydb.get_all_categories()['name']) == {'bicycle', 'airplane', 'cat', 'dog'}

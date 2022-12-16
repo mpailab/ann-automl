@@ -1,5 +1,6 @@
 import multiprocessing
 import sys
+import warnings
 
 from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
@@ -25,10 +26,18 @@ from tqdm import tqdm
 
 from ann_automl.utils.text_utils import print_progress_bar
 
+
 Base = declarative_base()
 
 
 def check_coco_images(anno_file, image_dir):
+    """
+    Check if directory with images exists; if not, download images from internet by urls from annotation file
+
+    Args:
+        anno_file (str): path to annotation file
+        image_dir (str): path to directory with images
+    """
     if os.path.exists(image_dir):
         return
     print(f'Downloading COCO images for test (annotations = {anno_file})')
@@ -337,9 +346,10 @@ class DBModule:
         file_prefix : str
             prefix added to the file names in annotation file
 
-        Returns
-        -------
-            None
+        Raises
+        ------
+            FileNotFoundError
+                if directory file_prefix and file anno_file_name doesn`t exist
         """
         if hasattr(self, 'KaggleCatsVsDogsConfig_'):  # to init from config file
             anno_file_name = self.KaggleCatsVsDogsConfig_['anno_filename']
@@ -347,20 +357,14 @@ class DBModule:
 
         print('Start filling DB with Kaggle CatsVsDogs')
         if not os.path.isfile(anno_file_name):
-            print('Error: no file', anno_file_name, 'found')
-            print('Stop filling dataset')
-            return
+            raise FileNotFoundError('Error: no annotation file', anno_file_name, 'found')
         if not os.path.isdir(file_prefix):
-            print('Error: no directory', file_prefix, 'found')
-            print('Stop filling dataset')
-            return
+            raise FileNotFoundError('Error: no directory', file_prefix, 'found')
         with open(anno_file_name) as json_file:
             data = json.load(json_file)
-        if not os.path.isfile(file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name']):
-            print('Error in json file, missing images stored on disc (i.e.',
-                  file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name'], ')')
-            print('Stop filling dataset')
-            return
+        filepath = file_prefix + data['images'][0]['file_name'].split('.')[0] + 's/' + data['images'][0]['file_name']
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError(f'In json reference to images that doesn`t exist (i.e. {filepath})')
         dataset_info = data['info']
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
                                dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
@@ -372,9 +376,14 @@ class DBModule:
                            prefix='Adding images:', suffix='Complete', length=50)
         im_counter = 0
         for im_data in data['images']:
-            image = self.Image(file_prefix + im_data['file_name'].split('.')[0] + 's/' + im_data['file_name'], im_data['width'], im_data['height'],
-                               im_data['date_captured'], dataset.ID, im_data['coco_url'], im_data['flickr_url'],
-                               im_data['license'])
+            image = self.Image(file_name=file_prefix + im_data['file_name'].split('.')[0] + 's/' + im_data['file_name'],
+                               width=im_data['width'],
+                               height=im_data['height'],
+                               date_captured=im_data['date_captured'],
+                               ID=dataset.ID,
+                               coco_url=im_data['coco_url'],
+                               flickr_url=im_data['flickr_url'],
+                               license_id=im_data['license'])
             im_objects[im_data['id']] = image
             self.sess.add(image)
             im_counter += 1
@@ -421,9 +430,10 @@ class DBModule:
             dictionary with info about dataset (default - COCO2017). Necessary keys:
             description, url, version, year, contributor, date_created
 
-        Returns
-        -------
-            None
+        Raises
+        ------
+            FileNotFoundError
+                if directory file_prefix and file anno_file_name doesn`t exist
         """
         if hasattr(self, 'COCO2017Config_'):  # to init from config file
             anno_file_name = self.COCO2017Config_['anno_filename']
@@ -431,13 +441,9 @@ class DBModule:
 
         print('Start filling DB with COCO-format dataset from file', anno_file_name)
         if not os.path.isfile(anno_file_name):
-            print('Error: no file', anno_file_name, 'found')
-            print('Stop filling dataset')
-            return
+            raise FileNotFoundError('No annotation file', anno_file_name, 'found')
         if not os.path.isdir(file_prefix):
-            print('Error: no directory', file_prefix, 'found')
-            print('Stop filling dataset')
-            return
+            raise FileNotFoundError('No directory', file_prefix, 'found')
         coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
         self.add_categories(cats, True)
@@ -458,7 +464,6 @@ class DBModule:
         print(f'Dataset description: ', ds_info["description"])
         print(f'Adding {len(anns)} annotations in COCO format to DB')
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
-        return
 
     def fill_in_coco_format(self, anno_file_name, file_prefix, ds_info, auto_download=False):
         """
@@ -471,6 +476,8 @@ class DBModule:
                 description, url, version, year, contributor, date_created
             auto_download (bool): if True and directory file_prefix doesn`t exist,
                 then download images from url in annotation file
+        Raises:
+            FileNotFoundError: if directory file_prefix and file anno_file_name doesn`t exist
         """
         if auto_download:
             check_coco_images(anno_file_name, file_prefix)
@@ -515,9 +522,10 @@ class DBModule:
         ds_info : Optional[dict]
             some information about dataset
 
-        Returns
+        Raises
         -------
-            None
+            FileNotFoundError
+                if annotations_dir or file_prefix doesn`t exist
         """
         if hasattr(self, 'ImageNetConfig_'):  # to init from config file
             annotations_dir = self.ImageNetConfig_['annotations_dir']
@@ -525,13 +533,9 @@ class DBModule:
             assoc_file = self.ImageNetConfig_['categories_assoc_file']
 
         if not os.path.isdir(annotations_dir):
-            print('Error: no directory', annotations_dir, 'found')
-            print('Stop filling ImageNet dataset')
-            return
+            raise FileNotFoundError('No directory', annotations_dir, 'found')
         if not os.path.isdir(file_prefix):
-            print('Error: no directory', file_prefix, 'found')
-            print('Stop filling ImageNet dataset')
-            return
+            raise FileNotFoundError('No directory', file_prefix, 'found')
         # If we make it for the first time, we add dataset information to DB
         if first_time:
             if ds_info is None:
@@ -1025,8 +1029,7 @@ class DBModule:
         if not os.path.isfile(file_prefix + images[0]['file_name']):
             print('Error in json file, missing images stored on disc (i.e.',
                   file_prefix + images[0]['file_name'], ')')
-            print('Stop filling dataset')
-            return
+            raise FileNotFoundError(f'Error in json file, missing images stored on disc (i.e. {file_prefix + images[0]["file_name"]})')
         print('Adding images')
         buf_images = {}
         print_progress_bar(0, len(images), prefix='Adding images:', suffix='Complete', length=50)
@@ -1091,48 +1094,44 @@ class DBModule:
             model_address (str): path to model file
             metrics (dict): dict with metrics values
             history_address (str): path to history file
+        Raises:
+            TypeError: if one of the arguments has wrong type
+            ValueError: if some categories is not in DB
         """
         if not isinstance(task_type, str):
-            print('ERROR: Bad input for global history record, expected string as task_type', file=sys.stderr)
-            return
+            raise TypeError(f'task_type must be a string but {type(task_type)} was given')
         if not isinstance(categories, list):
-            print('ERROR: Bad input for global history record, expected list of objects', file=sys.stderr)
-            return
+            raise TypeError(f'categories must be a list but {type(categories)} was given')
         if not isinstance(model_address, str):
-            print('ERROR: Bad input for global history record, expected string for model_address', file=sys.stderr)
-            return
+            raise TypeError(f'model_address must be a string but {type(model_address)} was given')
         if not isinstance(metrics, dict):
-            print('ERROR: Bad input for global history record, expected dictionary with merics', file=sys.stderr)
-            return
+            raise TypeError(f'metrics must be a dictionary with metrics but {type(metrics)} was given')
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
         # model should be identified by its address uniquely
-        model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
-        if model_from_db is None:
-            # Model not in DB - add it (that's OK)
-            new_model = self.Model(model_address=abs_model_address, task_type=task_type)
-            self.sess.add(new_model)
-            self.sess.commit()
-            for cat_name in categories:  # categories should not change for the model - they are attached once
-                category_from_db = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
-                if category_from_db is None:
-                    # That's a very bad case - we cannot simply add new category, DB may become inconsistent
-                    print("ERROR: No category " + cat_name + " in DB")
-                    return
-                new_cat_record = self.CategoryToModel(category_from_db.ID, new_model.ID)
-                self.sess.add(new_cat_record)
-            self.sess.commit()
-            model_from_db = new_model
-        else:
-            print("ERROR: model was already added in DB. Check model_address for correctness.")
+        if self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first() is not None:
+            warnings.warn(f"model {abs_model_address} was already added in DB. Check model_address for correctness.")
             return
+
+        # Model not in DB - add it (that's OK)
+        new_model = self.Model(model_address=abs_model_address, task_type=task_type)
+        self.sess.add(new_model)
+        self.sess.commit()
+        for cat_name in categories:  # categories should not change for the model - they are attached once
+            category_from_db = self.sess.query(self.Category).filter(self.Category.name == cat_name).first()
+            if category_from_db is None:
+                # That's a very bad case - we cannot simply add new category, DB may become inconsistent
+                raise ValueError(f'Category {cat_name} does not exist in DB (possibly incorrect categories list)')
+            new_cat_record = self.CategoryToModel(category_from_db.ID, new_model.ID)
+            self.sess.add(new_cat_record)
+        self.sess.commit()
 
         # We do not check if metric is valid - module user should keep track on consistency of these records
         for key, value in metrics.items():
             new_train_result = self.TrainResult(metric_name=key,
                                                 metric_value=value,
-                                                model_id=model_from_db.ID,
+                                                model_id=new_model.ID,
                                                 history_address=abs_history_address)
             self.sess.add(new_train_result)
         self.sess.commit()
@@ -1148,13 +1147,13 @@ class DBModule:
             history_address (str): path to the file with training history
         Returns:
             True, if the record was successfully updated, otherwise False (for example, if the record does not exist)
+        Raises:
+            TypeError: if model_address is not a string or metric_name is not a string
         """
         if not isinstance(model_address, str):
-            print('ERROR: Bad input for global history record, expected string for model_address')
-            return False
+            raise TypeError(f'model_address must be a string but {type(model_address)} was given')
         if not isinstance(metric_name, str):
-            print('ERROR: Bad input for global history record, expected string for metric_name')
-            return False
+            raise TypeError(f'metric_name must be a string but {type(metric_name)} was given')
 
         abs_model_address = os.path.abspath(model_address)
         abs_history_address = os.path.abspath(history_address)
@@ -1188,13 +1187,13 @@ class DBModule:
             metric_name (str): name of the metric
         Returns:
             True, if the record was successfully deleted, otherwise False (for example, if the record does not exist)
+        Raises:
+            TypeError: if arguments have wrong type
         """
         if not isinstance(model_address, str):
-            print('ERROR: Bad input for global history record, expected string for model_address')
-            return False
+            raise TypeError(f'model_address must be a string but {type(model_address)} was given')
         if not isinstance(metric_name, str):
-            print('ERROR: Bad input for global history record, expected string for metric_name')
-            return False
+            raise TypeError(f'metric_name must be a string but {type(metric_name)} was given')
 
         abs_model_address = os.path.abspath(model_address)
         model_from_db = self.sess.query(self.Model).filter(self.Model.model_address == abs_model_address).first()
@@ -1268,9 +1267,11 @@ class DBModule:
              list of IDs (one-to-one correspondence).
                 If category is not present, -1 is returned on its position.
                 In case of bad input empty list is returned.
+        Raises:
+            TypeError: if cat_names is not a list
         """
         if not isinstance(cat_names, list):
-            raise ValueError('Bad input for cat_names, must be a list')
+            raise TypeError(f'Cat_names, must be a list, but {type(cat_names)} was given')
         result = []
         for cat_name in cat_names:
             query = self.sess.query(self.Category.ID).filter(self.Category.name == cat_name).first()
@@ -1288,9 +1289,11 @@ class DBModule:
             list of names (one-to-one correspondence).
                 If category is not present, "" is returned on its position.
                 In case of bad input empty list is returned.
+        Raises:
+            TypeError: if cat_ids is not a list
         """
         if not isinstance(cat_ids, list):
-            raise ValueError('Bad input for cat_names, must be a list')
+            raise TypeError(f'Cat_names, must be a list, but {type(cat_ids)} was given')
         result = []
         for cat_ID in cat_ids:
             query = self.sess.query(self.Category.name).filter(self.Category.ID == cat_ID).first()

@@ -890,6 +890,7 @@ def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metri
     if _emulation:
         scores = _emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
                               hparams['epochs'], callbacks, generators[1])
+        model.save(cur_subdir + f'/{weights_name}.h5')
     else:
         printlog("Fit model")
         printlog(f"Train samples: {len(generators[0].filenames)}, batch size: {hparams['batch_size']}")
@@ -907,8 +908,8 @@ def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metri
 
         # evaluate model
         scores = model.evaluate(generators[2], steps=None, verbose=1)
-        if fit_log:
-            fit_log.add_test(scores[1])
+    if fit_log:
+        fit_log.add_test(scores[1])
     return scores, c_t
 
 
