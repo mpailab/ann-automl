@@ -2,15 +2,16 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 import warnings
 
 import tensorflow as tf
 
-from ann_automl.core.nn_recommend import recommend_hparams
-from ann_automl.core.nn_task import NNTask
-from ann_automl.core.nnfuncs import train, tune
-from ann_automl.core.solver import printlog
+from .nn_recommend import recommend_hparams
+from .nn_task import NNTask
+from .nnfuncs import train, tune
+from .solver import printlog
 
 
 def train_classification_model(classes,
@@ -83,6 +84,9 @@ def _copy_classify_script(out_dir):
     shutil.copy(os.path.join(script_path, 'torch_funcs.py'), out_dir)
 
 
+_lock = threading.RLock()
+
+
 def create_classification_model(classes,
                                 target_accuracy,
                                 output_dir,
@@ -112,66 +116,67 @@ def create_classification_model(classes,
         exp_log: объект для логирования экспериментов
         choose_arch: выбирать ли архитектуру модели
     """
-    def log(*args, level=1, **kwargs):
-        if verbosity >= level:
-            printlog(*args, **kwargs)
-    log(f'Запускаем создание модели, это может занять длительное время.\n'
-        f'Установленный лимит времени на обучение модели: {time_limit} секунд.\n'
-        f'Это ориентировочный лимит, в действительности процесс может занять больше или меньше времени.\n'
-        f'Установленная целевая точность: {target_accuracy}.\n')
-    model_info, val = train_classification_model(classes, target_accuracy, optimize_over_target,
-                                                 stop_flag, verbosity, time_limit, for_mobile, exp_log, choose_arch)
-    if val < target_accuracy < 1:
-        warnings.warn(f'Не удалось достичь требуемой точности. Полученная точность: {val:.3f}')
-    elif verbosity > 0:
-        log(f'Модель готова. Полученная точность на тестовой выборке: {val:.3f}')
+    with _lock:
+        def log(*args, level=1, **kwargs):
+            if verbosity >= level:
+                printlog(*args, **kwargs)
+        log(f'Запускаем создание модели, это может занять длительное время.\n'
+            f'Установленный лимит времени на обучение модели: {time_limit} секунд.\n'
+            f'Это ориентировочный лимит, в действительности процесс может занять больше или меньше времени.\n'
+            f'Установленная целевая точность: {target_accuracy}.\n')
+        model_info, val = train_classification_model(classes, target_accuracy, optimize_over_target,
+                                                     stop_flag, verbosity, time_limit, for_mobile, exp_log, choose_arch)
+        if val < target_accuracy < 1:
+            warnings.warn(f'Не удалось достичь требуемой точности. Полученная точность: {val:.3f}')
+        elif verbosity > 0:
+            log(f'Модель готова. Полученная точность на тестовой выборке: {val:.3f}')
 
-    model_path = model_info['model_file']  # directory with model
-    is_zip = output_dir.endswith('.zip')
-    is_mlmodel = output_dir.endswith('.mlmodel')
-    is_tflite = output_dir.endswith('.tflite')
-    is_dir = not is_zip and not is_mlmodel
-    save_dir = output_dir if is_dir else 'tmp/zip_out'
-    # clear save_dir if it exists or create it
-    if os.path.exists(save_dir):
-        shutil.rmtree(save_dir, ignore_errors=True)
-    os.makedirs(save_dir, exist_ok=True)
-    # copy model (best_weights.h5) to save_dir
-    shutil.copy(os.path.join(model_path), os.path.join(save_dir, 'model.h5'))
-    if is_mlmodel:
-        # convert h5 to mlmodel with coremltools
-        try:
-            import coremltools
-        except ImportError:
-            printlog('Не удалось импортировать coremltools. Установка coremltools через pip ...')
-            os.system('pip install coremltools')
+        model_path = model_info['model_file']  # directory with model
+        is_zip = output_dir.endswith('.zip')
+        is_mlmodel = output_dir.endswith('.mlmodel')
+        is_tflite = output_dir.endswith('.tflite')
+        is_dir = not is_zip and not is_mlmodel
+        save_dir = output_dir if is_dir else 'tmp/zip_out'
+        # clear save_dir if it exists or create it
+        if os.path.exists(save_dir):
+            shutil.rmtree(save_dir, ignore_errors=True)
+        os.makedirs(save_dir, exist_ok=True)
+        # copy model (best_weights.h5) to save_dir
+        shutil.copy(os.path.join(model_path), os.path.join(save_dir, 'model.h5'))
+        if is_mlmodel:
+            # convert h5 to mlmodel with coremltools
             try:
                 import coremltools
             except ImportError:
-                is_mlmodel = False
-                output_dir = output_dir[:-7] + '.zip'
-                printlog(f'Не удалось установить coremltools. Создадим zip-архив {output_dir} вместо mlmodel.')
-                is_zip = True
-        if is_mlmodel:
-            try:
-                coreml_model = coremltools.converters.keras.convert(os.path.join(save_dir, 'model.h5'), class_labels=classes)
-                coreml_model.save(output_dir)
-            except Exception as e:
-                is_mlmodel = False
-                output_dir = output_dir[:-7] + '.zip'
-                printlog(f'Не удалось создать mlmodel. Создадим zip-архив {output_dir} вместо mlmodel.')
-                is_zip = True
+                printlog('Не удалось импортировать coremltools. Установка coremltools через pip ...')
+                os.system('pip install coremltools')
+                try:
+                    import coremltools
+                except ImportError:
+                    is_mlmodel = False
+                    output_dir = output_dir[:-7] + '.zip'
+                    printlog(f'Не удалось установить coremltools. Создадим zip-архив {output_dir} вместо mlmodel.')
+                    is_zip = True
+            if is_mlmodel:
+                try:
+                    coreml_model = coremltools.converters.keras.convert(os.path.join(save_dir, 'model.h5'), class_labels=classes)
+                    coreml_model.save(output_dir)
+                except Exception as e:
+                    is_mlmodel = False
+                    output_dir = output_dir[:-7] + '.zip'
+                    printlog(f'Не удалось создать mlmodel. Создадим zip-архив {output_dir} вместо mlmodel.')
+                    is_zip = True
+                return
+        if is_tflite:
+            # convert h5 to tflite with tf.lite.TFLiteConverter
+            converter = tf.lite.TFLiteConverter.from_keras_model_file(os.path.join(save_dir, 'model.h5'))
+            tflite_model = converter.convert()
+            with open(output_dir, "wb") as f:
+                f.write(tflite_model)
+            # save class labels with tflite model
+            with open(output_dir[:-6] + '_labels.txt', 'w') as f:
+                f.write('\n'.join(classes))
             return
-    if is_tflite:
-        # convert h5 to tflite with tf.lite.TFLiteConverter
-        converter = tf.lite.TFLiteConverter.from_keras_model_file(os.path.join(save_dir, 'model.h5'))
-        tflite_model = converter.convert()
-        with open(output_dir, "wb") as f:
-            f.write(tflite_model)
-        # save class labels with tflite model
-        with open(output_dir[:-6] + '_labels.txt', 'w') as f:
-            f.write('\n'.join(classes))
-        return
 
     info = dict(model_path='model.h5', classes=classes, test_accuracy=val)
     if script_type is not None:
@@ -182,20 +187,20 @@ def create_classification_model(classes,
         _copy_classify_script(save_dir)
         info['backend'] = script_type
 
-    with open(os.path.join(save_dir, 'model.json'), 'w') as f:
-        json.dump(info, f)
+        with open(os.path.join(save_dir, 'model.json'), 'w') as f:
+            json.dump(info, f)
 
-    if is_zip:
-        log(f'Создаём архив {output_dir} ...')
-        # check whether path to zip file exists
-        out_dir = os.path.dirname(output_dir)
-        if out_dir and not os.path.exists(out_dir):
-            os.makedirs(out_dir, exist_ok=True)
-        shutil.make_archive(output_dir[:-4], 'zip', save_dir)
-        shutil.rmtree(save_dir, ignore_errors=True)
-        log(f'Архив {output_dir} создан')
+        if is_zip:
+            log(f'Создаём архив {output_dir} ...')
+            # check whether path to zip file exists
+            out_dir = os.path.dirname(output_dir)
+            if out_dir and not os.path.exists(out_dir):
+                os.makedirs(out_dir, exist_ok=True)
+            shutil.make_archive(output_dir[:-4], 'zip', save_dir)
+            shutil.rmtree(save_dir, ignore_errors=True)
+            log(f'Архив {output_dir} создан')
 
-    return output_dir
+        return output_dir
 
 
 __all__ = ['create_classification_model']

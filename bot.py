@@ -65,7 +65,7 @@ class ChatThread:
 
     def stop(self, message, return_result):
         if self.training:
-            if return_result is None:
+            if not return_result:
                 self.result_file_path = None
             self.stop_flag()
             msg = self.bot.send_message(self.chat_id, 'Wait for training to stop...')
