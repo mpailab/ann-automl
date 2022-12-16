@@ -1,6 +1,7 @@
 from ann_automl.core.nn_recommend import recommend_hparams
 from ann_automl.core.nn_task import NNTask
-from ann_automl.core.nnfuncs import train, tune, set_emulation, multithreading_mode, params_from_history, set_db
+from ann_automl.core.nnfuncs import train, tune, set_emulation, multithreading_mode, params_from_history, set_db, \
+    db_context
 from ann_automl.core import nn_recommend
 import ann_automl.core.db_module as db
 
@@ -48,15 +49,15 @@ def test_train(db_dir):
                                       'year': 2020,
                                       'contributor': 'test',
                                       'date_created': '2020-01-01'})
-    set_db(mydb)
+    with db.num_processes_context(1):
+        with db_context(mydb):
+            print('====================')
+            print('Test binary classification')
+            run_train(['dog', 'elephant'])
 
-    print('====================')
-    print('Test binary classification')
-    run_train(['dog', 'elephant'])
-
-    print('====================')
-    print('Test multiclass classification')
-    run_train(['cat', 'dog', 'elephant'])
+            print('====================')
+            print('Test multiclass classification')
+            run_train(['cat', 'dog', 'elephant'])
 
 
 if __name__ == '__main__':

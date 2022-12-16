@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 
-from ann_automl.core.nnfuncs import set_db
+from ann_automl.core.nnfuncs import set_db, db_context
 
 # current file path
 file_path = os.path.dirname(os.path.abspath(__file__))
@@ -18,8 +18,9 @@ test_datasets_path = os.path.join(file_path, 'datasets')
 @pytest.fixture(scope='module')
 def db_dir():
     db_dir = tempfile.mkdtemp()
-    yield db_dir
-    shutil.rmtree(db_dir)
+    with db.num_processes_context(1):
+        yield db_dir
+        shutil.rmtree(db_dir)
 
 
 @pytest.mark.usefixtures('db_dir')
@@ -37,11 +38,12 @@ def test_create_model(db_dir):
                                       'contributor': 'test',
                                       'date_created': '2020-01-01'},
                              auto_download=True)
-    set_db(mydb)
 
-    classes = ['cat', 'dog', 'elephant']
-    target_accuracy = 0.9
-    create_classification_model(classes, target_accuracy, os.path.join(db_dir, 'output'), time_limit=20)
+    with db_context(mydb):
+        classes = ['cat', 'dog', 'elephant']
+        target_accuracy = 0.9
+        create_classification_model(classes, target_accuracy, os.path.join(db_dir, 'output'), time_limit=20)
+
 
 
 if __name__ == '__main__':

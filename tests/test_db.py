@@ -31,6 +31,7 @@ def check_coco_images(anno_file, image_dir):
             handler.write(img_data)
         # print_progress_bar(i, len(img_ids), prefix='Loading images:', suffix='Complete', length=50)
 
+
 def check_imagenet_images(anno_dir, image_dir):
     if os.path.exists(image_dir):
         return
@@ -54,7 +55,8 @@ def check_imagenet_images(anno_dir, image_dir):
                 xml_data = xmltodict.parse(file.read())
                 with open(image_dir + '/' + dirs + '/' + xml_data['annotation']['filename'] + '.JPEG', 'wb') as handler:
                     handler.write(img_data.content)
-                    i+=1
+                    i += 1
+
 
 def download_cat_images(cat_name, anno_dir, image_dir):
     with open(anno_dir + 'annotations1.json') as f:
@@ -76,8 +78,10 @@ def download_cat_images(cat_name, anno_dir, image_dir):
                     continue
                 with open(image_dir + '/' + img_names[img_num], 'wb') as handler:
                     handler.write(img_data.content)
-                img_num+=1
+                img_num += 1
         print(d)
+
+
 def check_cats_vs_dogs_images(anno_dir, image_dir_1, image_dir_2):
     if os.path.exists(image_dir_1) and os.path.exists(image_dir_2):
         return
@@ -94,19 +98,18 @@ def check_cats_vs_dogs_images(anno_dir, image_dir_1, image_dir_2):
         download_cat_images(image_dir_2[-4:-1], anno_dir, image_dir_2)
 
 
-
 # At first run download images from coco dataset
 check_coco_images('datasets/test1/annotations/annotations1.json', 'datasets/test1/images')
 check_coco_images('datasets/test2/annotations/train.json', 'datasets/test2/images')
 check_imagenet_images('datasets/test_imagenet/annotations/', 'datasets/test_imagenet/images')
-check_cats_vs_dogs_images('datasets/test3/annotations/', 'datasets/test3/images/cats', 'datasets/test3/images/dogs')
+#check_cats_vs_dogs_images('datasets/test3/annotations/', 'datasets/test3/images/cats', 'datasets/test3/images/dogs')
 
 
 @pytest.fixture(scope='function')
 def db_dir():
     db_dir = tempfile.mkdtemp()
     yield db_dir
-    # shutil.rmtree(db_dir)
+    shutil.rmtree(db_dir)
 
 
 # Test database creation in temporary directory

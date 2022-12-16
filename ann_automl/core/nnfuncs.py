@@ -60,6 +60,24 @@ def set_db(db):
     nnDB = db
 
 
+class db_context:
+    """ Контекстный менеджер для установки глоабльной базы данных """
+    def __init__(self, db):
+        global nnDB
+        self._db = db
+
+    def __enter__(self):
+        global nnDB
+        self._old_db = nnDB
+        nnDB = self._db
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        global nnDB
+        nnDB.close()
+        nnDB = self._old_db
+        self._old_db = None
+
+
 def cur_db():
     """ Возвращает текущий объект базы данных (DBModule) """
     global nnDB
@@ -523,7 +541,7 @@ def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_lear
         # load pretrained model with weights without last layers
         base_model = pretrained_models[base](include_top=False,
                                              weights='imagenet' if transfer_learning else None,
-                                             input_shape=input_shape)
+                                             input_shape=input_shape or (224, 224, 3))
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
 
@@ -914,6 +932,8 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         Достигнутые значения метрик на тестовой выборке во время обучения, а также
         словарь со значениями гиперпараметров, метрик и путей к модели и истории
     """
+    if timeout is None:
+        timeout = 1e10
     t0 = time.time()
     measured_metrics = hparams['metrics']
     if not isinstance(measured_metrics, list):
@@ -950,7 +970,10 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         if tune_scores[1] > scores[1]:
             scores = tune_scores
             shutil.copyfile(cur_subdir + '/tune_best_weights.h5', cur_subdir + '/best_weights.h5')
-        os.remove(cur_subdir + '/tune_best_weights.h5', ignore_errors=True)
+        try:
+            os.remove(cur_subdir + '/tune_best_weights.h5')
+        except FileNotFoundError:
+            pass
         c_t.total_time += tune_c_t.total_time
         c_t.times += tune_c_t.times
 

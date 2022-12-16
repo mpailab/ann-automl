@@ -1,3 +1,4 @@
+import multiprocessing
 import sys
 
 from sqlalchemy import *
@@ -55,6 +56,26 @@ def _crop_image(input_file, output_file, x, y, w, h):
 
 def _crop_image_tuple(args):
     return _crop_image(*args)
+
+
+_default_num_processes = multiprocessing.cpu_count()-1
+
+
+def set_default_num_processes(num_processes):
+    global _default_num_processes
+    _default_num_processes = num_processes
+
+
+class num_processes_context:
+    def __init__(self, num_processes):
+        self.num_processes = num_processes
+
+    def __enter__(self):
+        self.old_num_processes = _default_num_processes
+        set_default_num_processes(self.num_processes)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        set_default_num_processes(self.old_num_processes)
 
 
 class DBModule:
@@ -275,24 +296,29 @@ class DBModule:
                     self.COCO2017Config_ = dbconfig['COCO2017']
                 if dbconfig.get('ImageNet', False):
                     self.ImageNetConfig_ = dbconfig['ImageNet']
+        # first_time = not os.path.isfile(dbstring[10:])
         self.engine = create_engine(dbstring, echo=dbecho)
         Session = sessionmaker(bind=self.engine)
         self.sess = Session()
         self.dbstring_ = dbstring
+        self._dbfile = dbstring[10:]
         self.ds_filter = None
-        self.add_default_licences()
+        # if first_time:
+        #     Base.metadata.create_all(self.engine)
+        #     self.add_default_licences()
 
     def create_sqlite_file(self):
         """
         In case SQLite file not found one should call this method to create one.
         """
         Base.metadata.create_all(self.engine)
+        self.add_default_licences()
 
     def fill_all_default(self):
         """
         Method to fill all at once, supposing datasets are at default locations (CatsDogs, COCO, ImageNet)
         """
-        if os.path.exists(self.dbstring_.split('/')[-1]):  # If file exists we suppose it is filled
+        if os.path.exists(self._dbfile):  # If file exists we suppose it is filled
             return
         self.create_sqlite_file()
         self.fill_coco()
@@ -603,7 +629,7 @@ class DBModule:
 
     def get_all_datasets(self, full_info=False):
         # SQL file is stored inside project working directory
-        if not os.path.exists(self.dbstring_.split('/')[-1]):
+        if not os.path.exists(self._dbfile):
             self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
@@ -618,7 +644,7 @@ class DBModule:
         return df_dict
 
     def get_all_datasets_info(self, full_info=False):
-        if not os.path.exists(self.dbstring_.split('/')[-1]):
+        if not os.path.exists(self._dbfile):
             self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
         df = pd.read_sql(query.statement, query.session.bind)
@@ -718,17 +744,20 @@ class DBModule:
             new_rows.append([filepath, row['category_id']])
 
         # create multiprocessing pool to speed up the process
-        import multiprocessing
         if num_processes is ...:
-            num_processes = multiprocessing.cpu_count()-1
+            num_processes = _default_num_processes
         if new_images:
-            pool = multiprocessing.Pool(processes=num_processes)
             print(f'Cropping {new_images} with {num_processes} processes')
-            # run the pool with progress bar
-            for _ in tqdm(pool.imap_unordered(_crop_image_tuple, crop_tasks), total=len(crop_tasks), desc='Cropping images',
-                          file=sys.stdout, mininterval=0.5, maxinterval=0.6):
-                pass
-            pool.close()
+            if num_processes > 1:
+                pool = multiprocessing.Pool(processes=num_processes)
+                # run the pool with progress bar
+                for _ in tqdm(pool.imap_unordered(_crop_image_tuple, crop_tasks), total=len(crop_tasks), desc='Cropping images',
+                              file=sys.stdout, mininterval=0.5, maxinterval=0.6):
+                    pass
+                pool.close()
+            else:
+                for task in tqdm(crop_tasks, desc='Cropping images', file=sys.stdout, mininterval=0.5, maxinterval=0.6):
+                    _crop_image_tuple(task)
             print(f'Created {new_images} new image crops, used {df.shape[0] - new_images} existing image crops')
         # convert list of dicts to dataframe
         buf_df = pd.DataFrame(new_rows, columns=['file_name', 'category_id'])
@@ -946,7 +975,7 @@ class DBModule:
                     supercategory=_supercategory, name=_name, ID=_id,).one()
             except NoResultFound:
                 new_cat = self.Category(_supercategory, _name, _id)
-            self.sess.add(new_cat)
+                self.sess.add(new_cat)
         self.sess.commit()  # adding categories in db
 
     def add_default_licences(self):
