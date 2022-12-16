@@ -71,12 +71,25 @@ _default_num_processes = multiprocessing.cpu_count()-1
 
 
 def set_default_num_processes(num_processes):
+    """
+    Set default number of processes for parallel image cropping. Default is number of CPU cores - 1.
+
+    Args:
+        num_processes (int): maximal number of processes
+    """
     global _default_num_processes
     _default_num_processes = num_processes
 
 
 class num_processes_context:
     def __init__(self, num_processes):
+        """
+        Context manager to set default number of processes for parallel image cropping in a block of code.
+        Default is number of CPU cores - 1.
+
+        Args:
+            num_processes (int): maximal number of processes
+        """
         self.num_processes = num_processes
 
     def __enter__(self):
