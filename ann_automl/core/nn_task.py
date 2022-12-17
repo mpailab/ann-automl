@@ -6,10 +6,12 @@ TargetFunc = Callable[[List[float]], float]
 
 
 def loss_target(scores: List[float]) -> float:
+    """:meta private:"""
     return -scores[0]
 
 
 def metric_target(scores: List[float]) -> float:
+    """:meta private:"""
     return scores[1]
 
 

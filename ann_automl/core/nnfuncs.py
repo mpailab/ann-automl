@@ -527,7 +527,7 @@ def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_lear
 
     Args:
         base (str): имя базовой архитектуры
-        last_layers (str): список слоев, которые будут добавлены к базовой архитектуре
+        last_layers (list): список слоев, которые будут добавлены к базовой архитектуре
         dropout (float): коэффициент dropout (0.0 - 1.0)
         input_shape (tuple): размерность входных данных
         transfer_learning (bool): использовать ли transfer learning (True) или обучать с нуля (False)
@@ -581,6 +581,17 @@ class FitLog:
         self.best_epoch = None
 
     def add_epoch(self, epoch, loss, accuracy, val_loss=None, val_accuracy=None, **kwargs):
+        """
+        Добавление информации о текущей эпохе обучения
+        (предполагается вызывать из keras.callbacks.Callback.on_epoch_end)
+
+        Args:
+            epoch (int): номер эпохи
+            loss (float): значение функции потерь на обучающей выборке
+            accuracy (float): значение точности на обучающей выборке
+            val_loss (float): значение функции потерь на валидационной выборке
+            val_accuracy (float): значение точности на валидационной выборке
+        """
         self.loss.append(loss)
         self.val_loss.append(val_loss)
         self.acc.append(accuracy)
@@ -590,9 +601,22 @@ class FitLog:
             self.best_epoch = (len(self.train_ends), epoch)
 
     def add_train_end(self, **kwargs):
+        """
+        Метод вызывается в конце обучения (предполагается вызывать из keras.callbacks.Callback.on_train_end)
+
+        Args:
+            **kwargs: параметры из keras.callbacks.Callback.on_train_end
+        """
         self.train_ends.append((len(self.loss), time.time() - self.start_time))
 
     def add_test(self, accuracy):
+        """
+        Добавление информации о точности на тестовой выборке
+
+        Args:
+            accuracy (float): значение точности на тестовой выборке
+                (метод обязательно должен быть вызван после обучения, иначе история обучения будет некорректной)
+        """
         self.test_acc.append(accuracy)
 
     @property
@@ -615,6 +639,12 @@ class ExperimentLog:
         self.current_run = None
 
     def new_experiment(self, hparams):
+        """
+        Создаёт новую историю обучения (FitLog) для эксперимента с заданными гиперпараметрами.
+
+        Args:
+            hparams (dict): гиперпараметры обучения
+        """
         self.current_run = FitLog(self.task, hparams)
         if self.best_run is None:
             self.best_run = self.current_run
@@ -622,6 +652,7 @@ class ExperimentLog:
         return self.current_run
 
     def update_best(self):
+        """:meta private:"""
         if self.current_run is not None and self.current_run.best_acc > self.best_run.best_acc:
             self.best_run = self.current_run
 
@@ -639,7 +670,17 @@ class ExperimentLog:
 
 
 class ExperimentHistory:
+    """
+    Класс для сохранения истории экспериментов в csv файл.
+    """
     def __init__(self, task, exp_name, exp_path, data):
+        """
+        Args:
+            task (NNTask): задача обучения нейронной сети
+            exp_name (str): название эксперимента
+            exp_path (str): путь к папке с экспериментами
+            data (dict): словарь с путями к обучающей, валидационной и тестовой выборкам
+        """
         self.experiment_number = 0
         self.exp_name = exp_name
         self.exp_path = exp_path
@@ -655,6 +696,17 @@ class ExperimentHistory:
         self.save()
 
     def add_row(self, params, metric, train_subdir, time_stat, total_time, save=True):
+        """
+        Добавление строки об очередном запуске обучения в историю экспериментов.
+
+        Args:
+            params (dict): словарь с гиперпараметрами обучения
+            metric (float): значение метрики на тестовой выборке
+            train_subdir (str): путь к папке с логами обучения и обученной моделью
+            time_stat (list): список временных меток для эпох обучения
+            total_time (float): общее время обучения
+            save (bool): сохранить ли сразу обновлённую историю экспериментов в файл
+        """
         self.experiment_number += 1
         row = ({'Index': self.experiment_number,  # номер эксперимента
                 'task_type': self.task_type,  # тип задачи
@@ -685,17 +737,21 @@ class ExperimentHistory:
             self.save()
 
     def save(self):
+        """ Сохранение истории экспериментов в файл. """
         self.history.to_csv(self.exp_path + '/history.csv', index=False)
 
     def get_best_model(self):
+        """ Получение информации о лучшей модели. """
         best_model = self.history.loc[self.history['metric_test_value'].idxmax()]
         return best_model
 
     def get_best_model_path(self):
+        """ Получение пути к лучшей модели. """
         best_model = self.get_best_model()
         return best_model['train_subdir'] + '/best_model.h5'
 
     def get_best_model_params(self):
+        """ Получение параметров лучшей модели. """
         best_model = self.get_best_model()
         return {'optimizer': best_model['optimizer'],
                 'batch_size': best_model['batch_size'],
@@ -999,7 +1055,7 @@ def create_and_train_model(hparams, objects, data, cur_subdir, history=None, sto
     Args:
         hparams (dict): словарь с гиперпараметрами обучения
         objects (list): список категорий объектов в датасете
-        data (tuple): кортеж из трех генераторов: train, val, test
+        data (dict): словарь путей к csv-файлам с разметкой для train, val, test
         cur_subdir (str):  папка, в которой хранятся результаты текущего обучения
         history (ExperimentHistory):  история экспериментов
         stop_flag (StopFlag or None): флаг, с помощью которого можно остановить обучение из другого потока
@@ -1330,7 +1386,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
 
     Args:
         nn_task (NNTask): Задача, для которой оптимизируются параметры.
-        data (tuple): Кортеж, с генераторами для обучения, валидации и тестирования.
+        data (dict): словарь путей к csv-файлам с разметкой для train, val, test
         exp_name (str): Имя эксперимента.
         exp_dir (str): Путь к директории, в которой сохраняются результаты оптимизации.
         hparams (dict): Исходные гиперпараметры, часть из них будет оптимизироваться.
@@ -1344,10 +1400,11 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
     Returns:
-        Кортеж (best_params, best_score, params_of_best), где
-         -   best_params -- лучшие найденные гиперпараметры,
-         -   best_score -- значение метрики на лучших гиперпараметрах,
-         -   params_of_best -- список с параметрами лучшей обученной модели.
+        (dict, float, dict): Кортеж (best_params, best_score, best_model_info), где
+         - best_params -- лучшие найденные гиперпараметры,
+         - best_score -- значение метрики на лучших гиперпараметрах,
+         - best_model_info -- полная информация о лучшей обученной
+            модели (включая фиксированные гиперпараметры и путь к сохранённой модели).
     """
     t0 = time.time()
     grid = HyperParamGrid(hparams, tuned_params)
@@ -1408,7 +1465,7 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
 
     Args:
         nn_task (NNTask): Задача, для которой оптимизируются параметры.
-        data (tuple): Кортеж, с генераторами для обучения, валидации и тестирования.
+        data (dict): словарь путей к csv-файлам с разметкой для train, val, test
         exp_name (str): Имя эксперимента.
         exp_dir (str): Путь к директории, в которой сохраняются результаты оптимизации.
         hparams (dict): Исходные гиперпараметры, часть из них будет оптимизироваться.
@@ -1420,7 +1477,7 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
         exact_category_match (bool): Если True, то при поиске по истории считается, что категориальные
             параметры должны совпадать точно.
     Returns:
-        Пара (best_params, best_score), где
+        (dict, float): Пара (best_params, best_score), где
          -   best_params -- лучшие найденные гиперпараметры,
          -   best_score -- значение метрики на лучших гиперпараметрах.
     """
@@ -1470,9 +1527,11 @@ def tune(nn_task, tuned_params, method, hparams=None, stop_flag=None, timeout=No
         **kwargs: Дополнительные параметры для метода оптимизации.
 
     Returns:
-        Пара (best_params, best_score), где
-            best_params -- лучшие найденные гиперпараметры,
-            best_score -- значение метрики на лучших гиперпараметрах.
+        (dict, float, dict): Кортеж (best_params, best_score, best_model_info), где
+           - best_params -- лучшие найденные гиперпараметры,
+           - best_score -- значение метрики на лучших гиперпараметрах.
+           - best_model_info -- полная информация о лучшей обученной
+                модели (включая фиксированные гиперпараметры и путь к сохранённой модели).
     """
     if timeout is None:
         timeout = 1e10
@@ -1513,8 +1572,8 @@ def _create_exp_dir(prefix, nn_task):
         nn_task (NNTask): Задача.
     Returns:
         Пара (exp_name, exp_path), где
-            exp_name -- имя директории,
-            exp_path -- путь к директории.
+           - exp_name -- имя директории,
+           - exp_path -- путь к директории.
     """
     obj_set = sorted(cur_db().get_cat_IDs_by_names(list(nn_task.objects)))
     if len(obj_set) > 10:
@@ -1562,7 +1621,7 @@ def params_from_history(nn_task):
     Args:
         nn_task (NNTask): Задача обучения нейронной сети
     Returns:
-        Список историй обучения для данной задачи
+        list: Список историй обучения для данной задачи
     """
     req = {
         'min_metrics': {nn_task.metric: nn_task.target},

@@ -48,11 +48,3 @@ ann\_automl.db\_module
    :members:
    :undoc-members:
    :show-inheritance:
-
-ann\_automl.hw\_devices
------------------------------------
-
-.. automodule:: ann_automl.core.hw_devices
-   :members:
-   :undoc-members:
-   :show-inheritance:

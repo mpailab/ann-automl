@@ -32,11 +32,11 @@ Base = declarative_base()
 
 def check_coco_images(anno_file, image_dir):
     """
-    Check if directory with images exists; if not, download images from internet by urls from annotation file
+    Проверяет, существует ли директория с изображениями; если нет, загружает изображения из интернета по url из файла аннотаций
 
     Args:
-        anno_file (str): path to annotation file
-        image_dir (str): path to directory with images
+        anno_file (str): путь к файлу аннотаций
+        image_dir (str): путь к директории с изображениями
     """
     if os.path.exists(image_dir):
         return
@@ -67,15 +67,15 @@ def _crop_image_tuple(args):
     return _crop_image(*args)
 
 
-_default_num_processes = multiprocessing.cpu_count()-1
+_default_num_processes = 1  # multiprocessing.cpu_count()-1
 
 
 def set_default_num_processes(num_processes):
     """
-    Set default number of processes for parallel image cropping. Default is number of CPU cores - 1.
+    Устанавливает количество процессов для параллельного обрезания изображений. По умолчанию 1
 
     Args:
-        num_processes (int): maximal number of processes
+        num_processes (int): максимальное количество процессов
     """
     global _default_num_processes
     _default_num_processes = num_processes
@@ -84,11 +84,11 @@ def set_default_num_processes(num_processes):
 class num_processes_context:
     def __init__(self, num_processes):
         """
-        Context manager to set default number of processes for parallel image cropping in a block of code.
-        Default is number of CPU cores - 1.
+        Контекстный менеджер для установки количества процессов для параллельного обрезания изображений в блоке кода.
+        По умолчанию 1.
 
         Args:
-            num_processes (int): maximal number of processes
+            num_processes (int): максимальное количество процессов
         """
         self.num_processes = num_processes
 
@@ -110,26 +110,28 @@ class DBModule:
         __tablename__ = "image"
 
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор изображения в БД """
         dataset_id = Column(Integer, ForeignKey("dataset.ID"))
-        """ID of the dataset this image belongs to"""
+        """ID датасета, к которому относится это изображение"""
         license_id = Column(Integer, ForeignKey("license.ID"))
-        """ID of the license this image is released under"""
+        """ID лицензии, под которой выпущено это изображение"""
         file_name = Column(String)
-        """Name of the image file"""
+        """Имя файла изображения"""
         coco_url = Column(String)
-        """URL of the image file"""
+        """URL файла изображения"""
         height = Column(Integer)
-        """height of the image"""
+        """высота изображения"""
         width = Column(Integer)
-        """width of the image"""
+        """ширина изображения"""
         date_captured = Column(String)
-        """date image was captured"""
+        """дата создания изображения"""
         flickr_url = Column(String)
         aux = Column(String)
-        """Auxiliary data for the image"""
+        """Вспомогательные данные для изображения"""
 
         def __init__(self, file_name, width, height, date_captured, dataset_id, coco_url='', flickr_url='',
                      license_id=-1, ID=None, aux=''):
+            """ Создание информации об изображении для записи в базу данных """
             self.width = width
             self.height = height
             self.file_name = file_name
@@ -147,24 +149,26 @@ class DBModule:
     class Dataset(Base):
         __tablename__ = "dataset"
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор датасета в БД """
         description = Column(String)
-        """Name or description of the dataset"""
+        """Имя или описание датасета"""
         url = Column(String)
-        """URL of the dataset (if any)"""
+        """URL датасета (если есть)"""
         version = Column(String)
-        """Version of the dataset"""
+        """Версия датасета"""
         year = Column(Integer)
-        """Year when the dataset was created"""
+        """Год, когда был создан датасет"""
         contributor = Column(String)
-        """Contributor of the dataset"""
+        """Автор датасета"""
         date_created = Column(String)
-        """Date when the dataset was created"""
+        """Дата создания датасета"""
         aux = Column(String)
-        """Auxiliary information for the dataset"""
+        """Вспомогательная информация для датасета"""
         images = relationship("Image", backref=backref("dataset"))
-        """Relationship to the Image table"""
+        """Привязка к таблице Image (one-to-many)"""
 
         def __init__(self, description, url, version, year, contributor, date_created, ID=None, aux=''):
+            """ Создание информации о датасете для записи в базу данных """
             self.description = description
             self.url = url
             self.version = version
@@ -178,19 +182,22 @@ class DBModule:
     class Category(Base):
         __tablename__ = "category"
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор категории в БД """
         supercategory = Column(String)
-        """Supercategory of the category (e.g. 'animal', 'vehicle', 'outdoor')"""
+        """Надкатегория категории (например, 'animal', 'vehicle', 'outdoor')"""
         name = Column(String)
-        """Name of the category (e.g. 'dog', 'car', 'tree')"""
+        """Имя категории (например, 'dog', 'car', 'tree')"""
         aux = Column(String)
-        """Auxiliary information for the category"""
+        """Вспомогательная информация для категории"""
         images = relationship("Annotation", backref=backref("category"))
-        """Relationship to the Annotation table"""
+        """Привязка к таблице Annotation (one-to-many, существует много аннотаций для одной категории)"""
         records = relationship("CategoryToModel")
-        """Relationship to the Model table (many-to-many via CategoryToModel);
-         each model supports some set of categories """
+        """Привязка к таблице Model (many-to-many через CategoryToModel);
+         каждая обученная модель поддерживает некоторый набор категорий, 
+         а каждая категория поддерживается некоторым набором моделей"""
 
         def __init__(self, supercategory, name, ID=None, aux=''):
+            """ Создание информации о категории для записи в базу данных """
             self.supercategory = supercategory
             self.name = name
             if ID is not None:
@@ -200,16 +207,18 @@ class DBModule:
     class License(Base):
         __tablename__ = "license"
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор лицензии в БД """
         name = Column(String)
-        """Name of the license"""
+        """Название лицензии"""
         url = Column(String)
-        """URL of the license"""
+        """URL лицензии"""
         aux = Column(String)
-        """Auxiliary information for the license"""
+        """Вспомогательная информация для лицензии"""
         images = relationship("Image")
-        """Relationship to the Image table (an image can have a license)"""
+        """Привязка к таблице Image (изображение может иметь лицензию)"""
 
         def __init__(self, name, url, ID=None, aux=''):
+            """ Создание информации о лицензии для записи в базу данных """
             self.url = url
             self.name = name
             if ID is not None:
@@ -219,20 +228,24 @@ class DBModule:
     class Annotation(Base):
         __tablename__ = "annotation"
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор аннотации в БД """
         image_id = Column(Integer, ForeignKey("image.ID"))
-        """ID of the image associated with the annotation"""
+        """ID изображения, связанного с аннотацией"""
         category_id = Column(Integer, ForeignKey("category.ID"))
-        """ID of the category associated with the annotation"""
+        """ID категории, связанной с аннотацией"""
         bbox = Column(String)
-        """Bounding box of the annotation in the format [x, y, width, height]"""
+        """Ограничивающий прямоугольник для объекта в формате [x, y, width, height]"""
         segmentation = Column(String)
-        """Segmentation defined by the annotation"""
+        """Сегментация, определенная аннотацией"""
         is_crowd = Column(Integer)
+
         area = Column(Float)
+        """Площадь объекта, описываемого аннотацией"""
         aux = Column(String)
-        """Auxiliary information for the annotation"""
+        """Вспомогательная информация для аннотации"""
 
         def __init__(self, image_id, category_id, bbox, segmentation, is_crowd, area, ID=None, aux=''):
+            """ Создание информации об аннотации для записи в базу данных """
             self.image_id = image_id
             self.category_id = category_id
             self.bbox = bbox
@@ -246,18 +259,20 @@ class DBModule:
     class TrainResult(Base):
         __tablename__ = "trainResult"
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор результата обучения в БД """
         metric_name = Column(String)
-        """Name of the metric (e.g. 'accuracy', 'loss')"""
+        """Название метрики (например, 'accuracy', 'loss')"""
         metric_value = Column(Float)
-        """Value of the metric achieved by the model on test data"""
+        """Значение метрики, достигнутое моделью на тестовых данных"""
         model_id = Column(Integer, ForeignKey("model.ID"))
-        """ID of the model associated with the result"""
+        """ID модели, связанной с результатом"""
         history_address = Column(String)
-        """Address of the history file describing the training process"""
+        """Адрес файла истории, описывающего процесс обучения"""
         aux = Column(String)
-        """Can contain some additional information about the training process"""
+        """Может содержать дополнительную информацию о процессе обучения"""
 
         def __init__(self, metric_name, metric_value, model_id, history_address='', aux='', ID=None):
+            """ Создание информации о результате обучения для записи в базу данных """
             self.metric_name = metric_name
             self.metric_value = metric_value
             self.history_address = history_address
@@ -267,31 +282,34 @@ class DBModule:
             self.aux = aux
 
     class CategoryToModel(Base):
+        """:meta private:"""
         __tablename__ = "categoryToModel"
         category_id = Column(Integer, ForeignKey("category.ID"), primary_key=True)
         model_id = Column(Integer, ForeignKey("model.ID"), primary_key=True)
 
         def __init__(self, category_id, model_id):
+            """ Связывает модель с категорией, которую она может распознавать"""
             self.category_id = category_id
             self.model_id = model_id
 
     class Model(Base):
         __tablename__ = "model"
         ID = Column(Integer, primary_key=True)
+        """ Идентификатор модели в БД """
         model_address = Column(String)
-        """Address of the model file"""
+        """Адрес файла модели"""
         task_type = Column(String)
-        """Type of the training task"""
+        """Тип задачи обучения нейронной сети"""
         aux = Column(String)
-        """Auxiliary information for the model"""
+        """Вспомогательная информация для модели"""
         train_results = relationship("TrainResult", backref=backref("model"))
-        """Relationship to the TrainResult table (a model can have 
-        multiple TrainResult records for different metrics)"""
+        """Связь с таблицей TrainResult (модель может иметь несколько записей TrainResult для разных метрик)"""
         categories = relationship("CategoryToModel")
-        """Relationship to the Category table (many-to-many via CategoryToModel);
-            each model supports some set of categories """
+        """Связь с таблицей Category (many-to-many через CategoryToModel);
+            каждая модель поддерживает некоторый набор категорий"""
 
         def __init__(self, model_address, task_type, aux='', ID=None):
+            """Создание записи о модели для сохранения в базе данных"""
             self.model_address = model_address
             self.task_type = task_type
             if ID is not None:
@@ -303,9 +321,14 @@ class DBModule:
     ############################################################
 
     def __init__(self, dbstring='sqlite:///datasets.sqlite', dbconf_file='dbconfig.json', dbecho=False):
-        """
-        Basic initialization method, creates session to the DB address
-        given by dbstring (defult sqlite:///datasets.sqlite).
+        """Создает сеанс работы с БД по адресу,
+        заданному в dbstring (по умолчанию sqlite:///datasets.sqlite, то есть локальная
+        БД в файле datasets.sqlite в текущей директории)
+
+        Args:
+            dbstring (str): адрес файла sqlite БД
+            dbconf_file (str): адрес файла конфигурации, в котором содержатся пути к датасетам
+            dbecho (bool): выводить ли в консоль запросы к БД
         """
         if os.path.isfile(dbconf_file):  # if config file exists we take all paths from there
             with open(dbconf_file) as f:
@@ -330,16 +353,13 @@ class DBModule:
         #     self.add_default_licences()
 
     def create_sqlite_file(self):
-        """
-        In case SQLite file not found one should call this method to create one.
-        """
+        """Если файл SQLite ещё не создан, его нужно создать вызовом этого метода"""
         Base.metadata.create_all(self.engine)
         self.add_default_licences()
 
     def fill_all_default(self):
-        """
-        Method to fill all at once, supposing datasets are at default locations (CatsDogs, COCO, ImageNet)
-        """
+        """Метод для заполнения всех баз данных, предполагая, что
+        датасеты находятся в директориях по умолчанию (CatsDogs, COCO, ImageNet)"""
         if os.path.exists(self._dbfile):  # If file exists we suppose it is filled
             return
         self.create_sqlite_file()
@@ -350,19 +370,14 @@ class DBModule:
 
     def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', 
                                  file_prefix='./datasets/Kaggle/'):
-        """Method to fill Kaggle CatsVsDogs dataset into db. It is supposed to be called once.
-        
-        Parameters
-        ----------
-        anno_file_name : str
-            file with json annotation in COCO format for cats and dogs
-        file_prefix : str
-            prefix added to the file names in annotation file
+        """Метод для заполнения базы данных Kaggle CatsVsDogs.
+        Предполагается, что он вызывается один раз.
 
-        Raises
-        ------
-            FileNotFoundError
-                if directory file_prefix and file anno_file_name doesn`t exist
+        Args:
+            anno_file_name (str): файл с json-аннотацией в формате COCO для кошек и собак
+            file_prefix (str): префикс, добавляемый к именам файлов в файле аннотации
+        Raises:
+            FileNotFoundError: если директория file_prefix и файл anno_file_name не существуют
         """
         if hasattr(self, 'KaggleCatsVsDogsConfig_'):  # to init from config file
             anno_file_name = self.KaggleCatsVsDogsConfig_['anno_filename']
@@ -429,24 +444,18 @@ class DBModule:
     def fill_coco(self, 
                   anno_file_name='./datasets/COCO2017/annotations/instances_train2017.json', 
                   file_prefix='./datasets/COCO2017/', ds_info=None):
-        """Method to fill COCOdataset into db. It is supposed to be called once.
+        """ Заполняет базу данных COCOdataset. Предполагается, что вызывается один раз.
 
-        To create custom COCO annotations use some aux tools like https://github.com/jsbroks/coco-annotator
+        Для создания собственных аннотаций COCO используйте вспомогательные инструменты,
+        например, https://github.com/jsbroks/coco-annotator.
 
-        Parameters
-        ----------
-        anno_file_name : str
-            file with json annotation in COCO format
-        file_prefix : str
-            prefix added to the file names in annotation file
-        ds_info : dict
-            dictionary with info about dataset (default - COCO2017). Necessary keys:
-            description, url, version, year, contributor, date_created
-
-        Raises
-        ------
-            FileNotFoundError
-                if directory file_prefix and file anno_file_name doesn`t exist
+        Args:
+            anno_file_name (str): файл с json-аннотациями в формате COCO
+            file_prefix (str): префикс, добавляемый к именам файлов в файле аннотаций
+            ds_info (dict): словарь с информацией о наборе данных (по умолчанию - COCO2017). Необходимые ключи:
+                description, url, version, year, contributor, date_created
+        Raises:
+            FileNotFoundError: если не существует директории file_prefix или файла anno_file_name
         """
         if hasattr(self, 'COCO2017Config_'):  # to init from config file
             anno_file_name = self.COCO2017Config_['anno_filename']
@@ -479,18 +488,18 @@ class DBModule:
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
 
     def fill_in_coco_format(self, anno_file_name, file_prefix, ds_info, auto_download=False):
-        """
-        Method to add new dataset in COCO format into db. It is supposed to be called for each new dataset.
+        """ Заполняет базу данных новым набором данных в формате COCO.
+        Предполагается, что вызывается для каждого нового датасета.
 
         Args:
-            anno_file_name (str): file with json annotation in COCO format
-            file_prefix (str): prefix added to the file names in annotation file
-            ds_info (dict): dictionary with info about dataset. Necessary keys:
+            anno_file_name (str): файл с json-аннотациями в формате COCO
+            file_prefix (str): префикс, добавляемый к именам файлов в файле аннотаций (обычно - путь к директории с изображениями)
+            ds_info (dict): словарь с информацией о наборе данных. Необходимые ключи:
                 description, url, version, year, contributor, date_created
-            auto_download (bool): if True and directory file_prefix doesn`t exist,
-                then download images from url in annotation file
+            auto_download (bool): если True и директория file_prefix не существует,
+                то изображения загружаются из интернета по url, взятому из файла аннотаций
         Raises:
-            FileNotFoundError: if directory file_prefix and file anno_file_name doesn`t exist
+            FileNotFoundError: если не существует директории file_prefix или файла anno_file_name
         """
         if auto_download:
             check_coco_images(anno_file_name, file_prefix)
@@ -520,25 +529,17 @@ class DBModule:
                       file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
                       assoc_file='imageNetToCOCOClasses.txt', first_time=False,
                       ds_info=None):
-        """Method to fill ImageNet dataset into db. It is supposed to be called once.
+        """ Заполняет базу данных набором данных ImageNet.
+        Предполагается, что вызывается один раз.
 
-        Parameters
-        ----------
-        annotations_dir : str
-            path to annotations directories
-        file_prefix : str
-            prefix of images from ImageNet
-        assoc_file : str
-            filename of ImageNet to COCO associations
-        first_time : bool
-            put to True if called for the first time
-        ds_info : Optional[dict]
-            some information about dataset
-
-        Raises
-        -------
-            FileNotFoundError
-                if annotations_dir or file_prefix doesn`t exist
+        Args:
+            annotations_dir (str): путь к директории с аннотациями
+            file_prefix (str): префикс к именам файлов из ImageNet (обычно - путь к директории с изображениями)
+            assoc_file (str): имя файла с соответствием категорий ImageNet и COCO
+            first_time (bool): если True, то добавляются категории из файла assoc_file
+            ds_info (dict): словарь с информацией о наборе данных.
+        Raises:
+            FileNotFoundError: если не существует директории annotations_dir или file_prefix
         """
         if hasattr(self, 'ImageNetConfig_'):  # to init from config file
             annotations_dir = self.ImageNetConfig_['annotations_dir']
@@ -645,6 +646,17 @@ class DBModule:
         return images, annotations
 
     def get_all_datasets(self, full_info=False):
+        """
+        Возвращает все датасеты в базе данных в виде словаря
+
+        Args:
+            full_info (bool): Если True, то возвращается полная информация о датасете,
+            включая количество аннотаций для каждой категории.
+            Иначе возвращается только базовая информация (название, автор, версия, дата создания, лицензия)
+
+        Returns:
+            dict: словарь вида {ID : информация о датасете}
+        """
         # SQL file is stored inside project working directory
         if not os.path.exists(self._dbfile):
             self.create_sqlite_file()
@@ -661,6 +673,16 @@ class DBModule:
         return df_dict
 
     def get_all_datasets_info(self, full_info=False):
+        """
+        Возвращает информацию обо всех датасетах в базе данных в виде словаря
+
+        Args:
+            full_info (bool): Если True, то возвращается полная информация о датасете,
+                включая количество аннотаций для каждой категории и каждой надкатегории.
+                Иначе возвращается только базовая информация (название, автор, версия, дата создания, лицензия)
+        Returns:
+            dict: словарь вида {ID : информация о датасете}
+        """
         if not os.path.exists(self._dbfile):
             self.create_sqlite_file()
         query = self.sess.query(self.Dataset)
@@ -675,21 +697,14 @@ class DBModule:
         return df_dict
 
     def load_specific_datasets_annotations(self, datasets_ids, normalize_cats=False, **kwargs):
-        """Method to load annotations from specific datasets, given their IDs.
+        """ Загружает аннотации из указанных датасетов по их ID
 
-        Parameters
-        ----------
-        datasets_ids : list
-            list of datasets IDs to get annotations from
-        normalize_cats : bool
-            if True - category IDs will be normalized to form range [0, N-1], where N is number of categories
-        kwargs["normalize_cats"] : bool
-            used for test purposes only, changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
-
-        Returns
-        -------
-        DataFrame
-            pandas dataframe with annotations for given datasets IDs
+        Args:
+            datasets_ids (list): список ID датасетов, из которых нужно загрузить аннотации
+            normalize_cats (bool): Если True, то категории будут нормализованы,
+                т.е. их ID будут приведены к диапазону [0, N-1], где N - количество категорий
+        Returns:
+            DataFrame: pandas dataframe с аннотациями для указанных датасетов
         """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id, 
                                 self.Annotation.bbox, self.Annotation.segmentation
@@ -704,20 +719,18 @@ class DBModule:
         return df
 
     def get_all_categories(self):
-        """
-        Returns pandas dataframe with all available categories in database
-        """
+        """ Возвращает pandas dataframe со всеми доступными категориями в базе данных """
         query = self.sess.query(self.Category)
         df = pd.read_sql(query.statement, query.session.bind)
         return df
 
     def get_dataset_categories_info(self, ds_id) -> dict:
-        """
-        Args:
-            ds_id (int): identifier of a dataset inside database (IDs can be aquired by, i.e., get_all_datasets method)
+        """ Возвращает информацию о категориях в датасете по его ID
 
+        Args:
+            ds_id (int): ID датасета в базе данных (ID можно получить, например, методом get_all_datasets)
         Returns:
-            dictictionary of the form: { supercategory : { category : number of images in dataset } }
+            dict: словарь вида { надкатегория : { категория : количество изображений в датасете } }
         """
         reply = self.sess.query(self.Category.supercategory, self.Category.name,
             func.count(self.Annotation.category_id)
@@ -732,9 +745,7 @@ class DBModule:
         return res
 
     def _prepare_cropped_images(self, df, cropped_dir='', files_dir='', num_processes=..., skip_existing=True):
-        """
-        Helper for image cropping in case of multiple annotations on one picture.
-        """
+        """ Вспомогательный метод для обрезки изображений в случае, когда на одном изображении несколько аннотаций """
         cropped_dir = cropped_dir or 'buf_crops/'
         Path(cropped_dir).mkdir(parents=True, exist_ok=True)
 
@@ -784,6 +795,7 @@ class DBModule:
         """
         Helper for storing csv files with annotations returned
         """
+        """ Вспомогательный метод для сохранения csv-файлов с аннотациями """
         train_end = int(split_points[0] * len(df))
         val_end = int(split_points[1] * len(df))
         train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])  # we shuffle and split
@@ -795,17 +807,22 @@ class DBModule:
     def _process_query(self, query, cat_names, with_segmentation, crop_bbox=False, split_points=(0.6, 0.8),
                        normalize_cats=False, balance_by_min_category=False, balance_by_categories=None,
                        cur_experiment_dir='.', **kwargs):
+        """ Вспомогательный метод для обработки SQL-запроса для аннотаций
+
+        Args:
+            query: запрос sqlalchemy
+            cat_names: имена категорий
+            with_segmentation: если True, будут возвращены только аннотации с сегментацией
+            crop_bbox: если True, будет выполнено вырезание объектов по bbox, заданным в аннотациях, и
+                сохранение их в отдельные файлы в директории cur_experiment_dir
+            split_points: квантили для разделения на обучающую, тестовую и валидационную выборки (по умолчанию 0.6,0.8)
+            normalize_cats: устанавливается только для тестовых целей
+            balance_by_min_category: Если True, будет выполнено балансирование
+                по минимальному количеству изображений в категории
+            balance_by_categories: словарь с количеством аннотаций, которые нужно получить для каждой категории
+                (например, {'cat':100,'dog':200}).
         """
-        Helper to process SQL query for Annotations
-            - query -> sqlalchemy query object
-            - with_segmentation -> if True, only annotations with segmentation will be returned
-            - kwargs['crop_bbox'] -> if True, cropping and saving will be performed
-            - kwargs['split_points'] -> stores quantiles for train_test_validation split (default 0.6,0.8)
-            - kwargs['normalize_cats'] -> set for test purposes only,
-            - kwargs['balance_by_min_category'] -> boolean, set to True to balance by minimum amount in some category
-            - kwargs['balance_by_categories'] -> dictionary with number of elements of each category to query (i.e. {'cat':100,'dog':200})
-              changes real categories to count from 0 (i.e. cats,dogs(17,18) -> (0,1))
-        """
+
         df = pd.read_sql(query.statement, query.session.bind)
         av_width = df['width'].mean()
         av_height = df['height'].mean()
@@ -852,21 +869,17 @@ class DBModule:
         return df_new, filename_dict, av_width, av_height
 
     def load_specific_categories_annotations(self, cat_names, with_segmentation=False, **kwargs):
-        """Method to load annotations from specific categories, given their IDs.
+        """
+        Метод для загрузки аннотаций из конкретных категорий, заданных их ID.
 
-        Parameters
-        ----------
-        cat_names : list
-            list of categories IDs to get annotations from
-        with_segmentation : bool
-            if True, only annotations with segmentation will be returned
-
-        Returns
-        -------
-        DataFrame
-            pandas dataframe with full annotations for given cat_ids
-            dictionary with train, test, val files
-            average width, height of images
+        Args:
+            cat_names (list): список ID категорий, аннотации из которых нужно получить
+            with_segmentation (bool): если True, будут возвращены только аннотации с сегментацией
+        Returns:
+            (DataFrame,dict,float,float): кортеж (df, filename_dict, av_width, av_height), где:
+               - df - pandas dataframe с полными аннотациями для заданных cat_ids
+               - filename_dict - словарь с именами файлов для train, test, val
+               - av_width, av_height - средняя ширина и высота изображений
         """
         if self.ds_filter is not None:
             return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation, **kwargs)
@@ -880,23 +893,18 @@ class DBModule:
         return self._process_query(query, cat_names, with_segmentation, **kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
-        """Method to load annotations from specific categories, given their IDs.
+        """
+        Метод для загрузки аннотаций из конкретных категорий и датасетов, заданных их ID.
 
-        Parameters
-        ----------
-        cat_names : list
-            list of categories IDs to get annotations from
-        datasets_ids : list
-            list of dataset IDs to get annotations from
-        with_segmentation : bool
-            if True, only annotations with segmentation will be returned
-
-        Returns
-        -------
-        DataFrame
-            pandas dataframe with full annotations for given cat_ids
-            dictionary with train, test, val files
-            average width, height of images
+        Args:
+            cat_names (list): список ID категорий, аннотации из которых нужно получить
+            datasets_ids (list): список ID датасетов, аннотации из которых нужно получить
+            with_segmentation (bool): если True, будут возвращены только аннотации с сегментацией
+        Returns:
+            (DataFrame,dict,float,float): кортеж (df, filename_dict, av_width, av_height), где:
+                - df - pandas dataframe с полными аннотациями для заданных cat_ids
+                - filename_dict - словарь с именами файлов для train, test, val
+                - av_width, av_height - средняя ширина и высота изображений
         """
         datasets_ids = [self.get_dataset_id(ds) for ds in datasets_ids]
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
@@ -913,20 +921,21 @@ class DBModule:
                                                                     cur_experiment_dir='.',
                                                                     **kwargs):
         """
-        Method to load annotations from specific datasets filtered by specific categories 
-        (different from load_categories_datasets_annotations).
-        
+        Метод для загрузки аннотаций из конкретных датасетов, отфильтрованных по конкретным категориям
+        (отличается от load_categories_datasets_annotations).
+
         Args:
-            dataset_categories_dict: dictionary of categories correspondence, structure: {datasetID1 : [cat1,cat2], datasetID2: [cat1,cat2,cat3], ...}
-            normalize_cats: if True, category IDs will be normalized to range(0, num_cats)
-            with_segmentation: if True, only annotations with segmentation will be returned
-            split_points: list of two elements, points to split train, val, test sets
-            cur_experiment_dir: directory to save train, test, val files
-            kwargs: additional parameters.
+            dataset_categories_dict: словарь соответствия категорий, структура: {datasetID1 : [cat1,cat2], datasetID2: [cat1,cat2,cat3], ...}
+            normalize_cats: если True, ID категорий будут нормализованы в диапазоне(0, num_cats)
+            with_segmentation: если True, будут возвращены только аннотации с сегментацией
+            split_points: список из двух элементов, точки разделения train, val, test
+            cur_experiment_dir: директория для сохранения файлов train, test, val
+            kwargs: дополнительные параметры.
         Returns:
-            pandas dataframe with full annotations for given cat_ids
-            dictionary with train, test, val files
-            average width, height of images
+            (DataFrame,dict,float,float): кортеж (df, filename_dict, av_width, av_height), где:
+                - df - pandas dataframe с полными аннотациями для заданных cat_ids
+                - filename_dict - словарь с именами файлов для train, test, val
+                - av_width, av_height - средняя ширина и высота изображений
         """
         result = None
         sum_width = 0
@@ -952,14 +961,14 @@ class DBModule:
 
     def load_specific_images_annotations(self, image_names, normalize_cats=True) -> pd.DataFrame:
         """
-        Method to load annotations from specific images, given their names.
+        Метод для загрузки аннотаций из конкретных изображений, заданных их именами.
 
         Args:
-            image_names (list of str): list of images names to get annotations from
-            normalize_cats: if True, category IDs will be normalized to range(0, num_cats)
-                  (e.g., cats,dogs(17,18) -> (0,1))
+            image_names (list of str): список имен изображений, для которых нужно получить аннотации
+            normalize_cats: если True, ID категорий будут нормализованы в диапазоне(0, num_cats)
+                    (например, cats,dogs(17,18) -> (0,1))
         Returns:
-            pandas dataframe with annotations for given image_names
+            DataFrame: pandas dataframe с аннотациями для заданных image_names
         """
         query = self.sess.query(self.Image.file_name, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation
@@ -974,12 +983,12 @@ class DBModule:
 
     def add_categories(self, categories, respect_ids=True):
         """
-        Method to add given categories to database.
-        Expected to be called rarely, since category list is almost permanent.
+        Метод для добавления заданных категорий в базу данных.
+        Ожидается вызываться редко, поскольку список категорий почти постоянен.
 
         Args:
-            categories (list of dicts): list of disctionaries with necessary fields: supercategory, name, id
-            respect_ids (bool): specifies whether ids from dictionary are preserved in DB
+            categories (list of dicts): список словарей с необходимыми полями: supercategory, name, id
+            respect_ids (bool): указывает, сохраняются ли идентификаторы из словаря в БД
         """
         for category in categories:
             _supercategory = category['supercategory']
@@ -996,7 +1005,7 @@ class DBModule:
         self.sess.commit()  # adding categories in db
 
     def add_default_licences(self):
-        """Method to add default licenses to DB. Exptected to be called once"""
+        """Метод для добавления лицензий по умолчанию в БД. Ожидается вызываться один раз"""
         licenses = [{"url": "https://creativecommons.org/licenses/by-nc-sa/2.0/", "id": 1,
                      "name": "Attribution-NonCommercial-ShareAlike License"},
                     {"url": "https://creativecommons.org/licenses/by-nc/2.0/", "id": 2,
@@ -1016,7 +1025,13 @@ class DBModule:
         self.sess.commit()  # adding licenses from dogs_vs_cats.json
 
     def add_dataset_info(self, dataset_info):
-        """Method to add info about new dataset. Returns added dataset ID"""
+        """Метод для добавления информации о новом датасете
+        
+        Args:
+            dataset_info (dict): словарь с информацией о датасете
+        Returns:
+            int: ID добавленного датасета
+        """
         dataset = self.Dataset(dataset_info['description'], dataset_info['url'], dataset_info['version'],
                                dataset_info['year'], dataset_info['contributor'], dataset_info['date_created'])
         self.sess.add(dataset)
@@ -1025,16 +1040,17 @@ class DBModule:
 
     def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='',
                                    respect_ids=False):
-        """Method to add a chunk of images and their annotations to DB.
+        """
+        Метод для добавления части изображений и их аннотаций в БД.
 
         Args:
-            images (list of dict): array of dicts with attributes:
+            images (list of dict): массив словарей с атрибутами:
                 license, file_name, coco_url, height, width, date_captured, flickr_url, id
-            annotations (list of dict): array of dicts with attributes:
+            annotations (list of dict): массив словарей с атрибутами:
                 segmentation, area, iscrowd, image_id, bbox, category_id, id
-            dataset_id (int): ID of a dataset images are from
-            file_prefix (str): prefix to be added to filenames
-            respect_ids (bool): specifies whether input ids are preserved in DB
+            dataset_id (int): ID датасета, из которого изображения
+            file_prefix (str): префикс, добавляемый к именам файлов (обычно путь к папке с изображениями)
+            respect_ids (bool): указывает, сохраняются ли идентификаторы из словаря в БД
         """
 
         if file_prefix != '' and file_prefix[-1] not in ['\\', '/']:
@@ -1097,19 +1113,19 @@ class DBModule:
 
     def add_model_record(self, task_type, categories, model_address, metrics, history_address=''):
         """
-        Inserts records about train results for some model.
-        If model already exists method does not create new model.
-        If key update_metrics is set to True, then metric records will be updated if they already exist
+        Добавляет записи о результатах обучения модели.
+        Если модель уже существует, метод не создает новую модель.
+        Если ключ update_metrics установлен в True, то записи о метриках будут обновлены, если они уже существуют
 
         Args:
-            task_type (str): type of task model was trained for
-            categories (list): list of categories that model can classify
-            model_address (str): path to model file
-            metrics (dict): dict with metrics values
-            history_address (str): path to history file
+            task_type (str): тип задачи, для которой обучалась модель
+            categories (list): список категорий, которые может классифицировать модель
+            model_address (str): путь к файлу модели
+            metrics (dict): словарь со значениями метрик
+            history_address (str): путь к файлу истории
         Raises:
-            TypeError: if one of the arguments has wrong type
-            ValueError: if some categories is not in DB
+            TypeError: если один из аргументов имеет неправильный тип
+            ValueError: если некоторые категории отсутствуют в БД
         """
         if not isinstance(task_type, str):
             raise TypeError(f'task_type must be a string but {type(task_type)} was given')
@@ -1151,17 +1167,17 @@ class DBModule:
 
     def update_train_result_record(self, model_address, metric_name, metric_value, history_address=''):
         """
-        Updates record about train results for some model.
+        Обновляет запись о результатах обучения модели.
 
         Args:
-            model_address (str): path to the file with saved model
-            metric_name (str): name of the metric
-            metric_value (float): value of the metric
-            history_address (str): path to the file with training history
+            model_address (str): путь к файлу с сохраненной моделью
+            metric_name (str): название метрики
+            metric_value (float): значение метрики
+            history_address (str): путь к файлу с историей обучения
         Returns:
-            True, if the record was successfully updated, otherwise False (for example, if the record does not exist)
+            True, если запись была успешно обновлена, иначе False (например, если запись не существует)
         Raises:
-            TypeError: if model_address is not a string or metric_name is not a string
+            TypeError: если model_address не является строкой или metric_name не является строкой
         """
         if not isinstance(model_address, str):
             raise TypeError(f'model_address must be a string but {type(model_address)} was given')
@@ -1193,15 +1209,15 @@ class DBModule:
 
     def delete_train_result_record(self, model_address, metric_name):
         """
-        Deletes a record about the training result from the DB with the specified metric name for the specified model
+        Удаляет запись о результате обучения из БД с указанным именем метрики для указанной модели
 
         Args:
-            model_address (str): path to the file with saved model
-            metric_name (str): name of the metric
+            model_address (str): путь к файлу с сохраненной моделью
+            metric_name (str): название метрики
         Returns:
-            True, if the record was successfully deleted, otherwise False (for example, if the record does not exist)
+            True, если запись была успешно удалена, иначе False (например, если запись не существует)
         Raises:
-            TypeError: if arguments have wrong type
+            TypeError: если аргументы имеют неправильный тип
         """
         if not isinstance(model_address, str):
             raise TypeError(f'model_address must be a string but {type(model_address)} was given')
@@ -1224,19 +1240,19 @@ class DBModule:
 
     def get_models_by_filter(self, filter_dict, exact_category_match=False):
         """
-        Returns list of models that match filter_dict
+        Возвращает список моделей, которые соответствуют filter_dict
 
         Args:
-            filter_dict (dict): dictionary which contains params for model search.
-                Specification for this structure can be changed in time.
+            filter_dict (dict): словарь, который содержит параметры поиска модели.
+                Специфика этой структуры может меняться со временем.
 
-                Currently supported key-value pairs:
+                В настоящее время поддерживаются пары ключ-значение:
                   - 'min_metrics': {'metric_name': min_value}
                   - 'categories': ['list','of','categories','names']
             exact_category_match (bool):
-                If True, then only models that have exactly the same categories will be returned.
+                Если True, то будут возвращены только модели, которые имеют точно такие же категории.
         Returns:
-            pandas DataFrame with models info
+            DataFrame: pandas DataFrame с информацией о моделях
         """
         model_query = self.sess.query(self.Model, self.TrainResult).join(self.TrainResult).join(self.CategoryToModel).join(self.Category)
         if 'categories_ids' in filter_dict:
@@ -1275,13 +1291,12 @@ class DBModule:
     def get_cat_IDs_by_names(self, cat_names):
         """
         Args:
-            cat_names (list of str): list of names of categories.
+            cat_names (list of str): список имен категорий.
         Returns:
-             list of IDs (one-to-one correspondence).
-                If category is not present, -1 is returned on its position.
-                In case of bad input empty list is returned.
+            list: список ID категорий, соответствующих именам (в том же порядке).
+                Если категория отсутствует, возвращается -1 на ее позиции.
         Raises:
-            TypeError: if cat_names is not a list
+            TypeError: если cat_names не является списком
         """
         if not isinstance(cat_names, list):
             raise TypeError(f'Cat_names, must be a list, but {type(cat_names)} was given')
@@ -1297,13 +1312,12 @@ class DBModule:
     def get_cat_names_by_IDs(self, cat_ids):
         """
         Args:
-            cat_ids (list of int): list of IDs of categories.
+            cat_ids (list of int): список ID категорий.
         Returns:
-            list of names (one-to-one correspondence).
-                If category is not present, "" is returned on its position.
-                In case of bad input empty list is returned.
+            list: список имен категорий, соответствующих ID (в том же порядке).
+                Если категория отсутствует, возвращается "" на ее позиции.
         Raises:
-            TypeError: if cat_ids is not a list
+            TypeError: если cat_ids не является списком
         """
         if not isinstance(cat_ids, list):
             raise TypeError(f'Cat_names, must be a list, but {type(cat_ids)} was given')
@@ -1318,9 +1332,11 @@ class DBModule:
 
     def get_dataset_id(self, dataset_id_or_name):
         """
+        Args:
+            dataset_id_or_name (int or str): ID или имя датасета.
+                Если dataset_id_or_name - int, то считается, что это ID, иначе считается, что это имя.
         Returns:
-            ID of dataset with given name or ID. If not found, returns -1.
-            If dataset_id_or_name is int, then it is assumed that it is ID, otherwise it is assumed that it is name.
+            int: ID датасета с заданным именем или ID. Если не найден, возвращает -1.
         """
         if not isinstance(dataset_id_or_name, str):
             return int(dataset_id_or_name)
@@ -1331,19 +1347,13 @@ class DBModule:
 
     def get_full_dataset_info(self, ds_id):
         """
-        Parameters
-        ----------
-        ds_id : int
-            identifier of a dataset inside database (IDs can be aquired by, i.e., get_all_datasets method)
-
-        Returns
-        -------
-        dict
-            full information about dataset given its ID in database in a dictionary
-
-            dictionary keys:
-               - 'dataset_info' -> brief info on dataset
-               - 'categories' -> explicit number of specific categories in this dataset
+        Args:
+            ds_id (int): ID датасета в базе данных (ID можно получить, например, методом get_all_datasets)
+        Returns:
+            dict: полная информация о датасете по его ID в базе данных в виде словаря
+              Словарь содержит следующие ключи:
+                - 'dataset_info' -> краткая информация о датасете
+                - 'categories' -> число конкретных категорий в этом датасете
         """
         result = {}
         query = self.sess.query(self.Dataset).filter(self.Dataset.ID == ds_id)
@@ -1371,14 +1381,14 @@ class DBModule:
         return result
 
     def close(self):
-        """ Closes connection to database """
+        """ Закрывает соединение с базой данных """
         self.sess.close()
         self.engine.dispose()
 
     def get_all_category_names(self) -> "list[str]":
         """
-        Return:
-            all category names in database
+        Returns:
+            list: имена всех категорий в базе данных
         """
         query = self.sess.query(self.Category.name)
         df = pd.read_sql(query.statement, query.session.bind)

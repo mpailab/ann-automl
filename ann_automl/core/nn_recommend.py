@@ -18,6 +18,13 @@ from .nn_task import NNTask
 class SelectHParamsTask(RecommendTask):
     """ Задача рекомендации гиперпараметров """
     def __init__(self, nn_task: NNTask, fixed_hparams=None):
+        """
+        Инициализация задачи.
+
+        Args:
+            nn_task: задача обучения нейронной сети, для которой требуется рекомендовать гиперпараметры
+            fixed_hparams: словарь фиксированных гиперпараметров
+        """
         super().__init__(goals={})
         self.nn_task = nn_task
         self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
@@ -30,6 +37,7 @@ class SelectHParamsTask(RecommendTask):
         self.recommendations = {}
 
     def set_selected_options(self, options):
+        """ Установка выбранных гиперпараметров """
         self.hparams.update(options)
 
 
