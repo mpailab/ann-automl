@@ -320,8 +320,8 @@ nn_hparams = {
                       'title': "скорость обучения"},
     'fine_tune_lr_div': {'type': 'float', 'range': [1.0, 1e3], 'default': 10, 'step': 10, 'scale': 'log',
                          'title': "коэффициент для скорости fine-tune при дообучении"},
-    'decay': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
-              'title': 'декремент скорости обучения'},
+    # 'decay': {'type': 'float', 'range': [0, 1], 'default': 0.0, 'step': 0.01, 'scale': 'lin',
+    #           'title': 'декремент скорости обучения'},
     'activation': {'type': 'str', 'values': ['softmax', 'elu', 'selu', 'softplus', 'softsign', 'relu', 'tanh',
                                              'sigmoid', 'hard_sigmoid', 'linear'],
                    'default': 'relu', 'title': 'функция активации'},
@@ -1226,7 +1226,7 @@ grid_hparams_space = {  # гиперпараметры, которые буде�
     'learning_rate': {'range': [0.000125, 0.064], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     'lr/batch_size': {'range': [0.00000125, 0.00128], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
     # только один из двух параметров может быть задан: learning_rate или lr/batch_size
-    'decay': {'type': 'float', 'range': [1/2**5, 1], 'default': 0.0, 'step': 2, 'scale': 'log', 'zero_point': 1},
+    # 'decay': {'type': 'float', 'range': [1/2**5, 1], 'default': 0.0, 'step': 2, 'scale': 'log', 'zero_point': 1},
 
     # conditonal params
     'amsgrad': {'values': [True, False], 'default': False, 'cond': True},   # для Adam
@@ -1387,9 +1387,12 @@ class HyperParamGrid:
                     v = params[p]
                 if isinstance(v, (int, float)):
                     # find index or closest value in ax
-                    point.append(np.argmin(np.abs(np.array(ax) - v)))
+                    if not isinstance(ax[0], (int, float)):
+                        raise ValueError(f'Parameter {p} is not numeric but value {v} is')
+                    point.append(np.argmin(np.abs(np.array(ax, dtype=np.float64) - float(v))))
                 else:
                     point.append(ax.index(v) if v in ax else None)
+        return tuple(point)
 
 
 def neighborhood_gen(c, shape, cat_axis, r, metric):

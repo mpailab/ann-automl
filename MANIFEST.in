@@ -1,1 +1,2 @@
 recursive-include ann_automl *.pyg
+include ann_automl/scripts/*.py

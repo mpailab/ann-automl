@@ -48,7 +48,8 @@ all_hparams = {
 param_groups = {
     'train': ['train.model_arch', 'train.transfer_learning',
               'train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
-              'train.decay', 'train.activation',
+              # 'train.decay',
+              'train.activation',
               'train.loss', 'train.metrics', 'train.dropout',
               'train.min_delta', 'train.patience', 'train.early_stopping',
               # 'train.kernel_initializer', 'train.bias_initializer',
