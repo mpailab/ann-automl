@@ -463,7 +463,7 @@ tune_hparams = {
     'method': {'type': 'str',
                'values': {
                    'grid': {'params': ['radius', 'grid_metric', 'start_point']},
-                   #'history': {'params': ['exact_category_match']}
+                   # 'history': {'params': ['exact_category_match']}
                },
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
@@ -473,8 +473,8 @@ tune_hparams = {
                     'title': 'Метрика на сетке', 'cond': True},
     'start_point': {'type': 'str', 'values': ['random', 'auto'], 'default': 'auto',
                     'title': 'Начальная точка', 'cond': True},
-    'exact_category_match': {'type': 'bool', 'default': False,
-                             'title': 'Точное совпадение списка категорий', 'cond': True},
+    # 'exact_category_match': {'type': 'bool', 'default': False,
+    #                         'title': 'Точное совпадение списка категорий', 'cond': True},
 }
 
 
