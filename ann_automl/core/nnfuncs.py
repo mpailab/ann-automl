@@ -500,8 +500,8 @@ tune_hparams = {
     'tuned_params': {'type': 'list',
                      'default': ['model_arch'],
                      'values': ['model_arch', 'transfer_learning', 'optimizer', 'batch_size', 'lr/batch_size'],
-                     'cond': True, 'title': 'Оптиимизируемые параметры',
-                     'description': 'Параметры, которые будут оптимизироваться'},
+                     'cond': True, 'title': 'Оптимизируемые гиперпараметры',
+                     'description': 'Гиперпараметры, по которым будет производиться оптимизация'},
     'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1, 'scale': 'lin', 'title': 'Радиус', 'cond': True},
     'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1',
                     'title': 'Метрика на сетке', 'cond': True},
@@ -1055,7 +1055,8 @@ def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorbo
     return callbacks, c_t
 
 
-def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
+def _fit(model: keras.Model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard,
+         weights_name, fit_log, initial_epoch=0):
     callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard,
                                        weights_name=weights_name, fit_log=fit_log,
                                        early_stopping=hparams.get('early_stopping', True),
@@ -1074,7 +1075,8 @@ def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metri
                   epochs=hparams['epochs'],
                   validation_data=generators[1],
                   callbacks=callbacks,
-                  validation_steps=max(1, len(generators[1].filenames) // hparams['batch_size']))
+                  validation_steps=max(1, len(generators[1].filenames) // hparams['batch_size']),
+                  initial_epoch=initial_epoch)
 
         # load best weights
         printlog("Load best weights")
@@ -1147,7 +1149,7 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         compile_model(model, new_hparams, measured_metrics, freeze_base=False)
         tune_scores, tune_c_t = _fit(model, generators, new_hparams, stop_flag, timeout - (time.time() - t0),
                                      cur_subdir, check_metric, use_tensorboard,
-                                     weights_name='tune_best_weights', fit_log=fit_log)
+                                     weights_name='tune_best_weights', fit_log=fit_log, initial_epoch=len(c_t.times))
 
         if tune_scores[1] > scores[1]:
             scores = tune_scores

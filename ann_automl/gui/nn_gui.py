@@ -698,7 +698,7 @@ class NNGui(object):
             self.task_objects_info.visible = True
             self.task_func_info.text = f"<p><b>Функционал:</b> {self.task_func.value}</p>"
             self.task_func_info.visible = True
-            self.task_value_info.text = f"<p><b>Значение:</b> {self.task_value.value}</p>"
+            self.task_value_info.text = f"<p><b>Значение:</b> {self.task_value.value:.2f}</p>"
             self.task_value_info.visible = True
             self.task_maximize_info.text = f"<p><b>Максимально оптимизировать:</b> {'Да' if self.task_maximize.value else 'Нет'}</p>"
             self.task_maximize_info.visible = True
