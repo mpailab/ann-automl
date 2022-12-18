@@ -146,9 +146,11 @@ def Button(label, on_click_func, *args, js=False, **kwargs):
         button.on_click(on_click_func)
     return button
 
+
 def Delimiter(*args, **kwargs, ):
     return Spacer(*args, **kwargs, height=3, background="#b8b8b8",
                   margin=(10, 30, 10, 15))
+
 
 def Table(source, columns, *args, **kwargs):
     return DataTable(*args, **kwargs, source=source, columns=columns,
@@ -163,6 +165,7 @@ def Toggle(label, on_click_func, *args, **kwargs):
                                  button_type='primary', width=8*len(label) + 50)
     button.on_click(on_click_func)
     return button
+
 
 js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
 
@@ -848,7 +851,8 @@ class NNGui(object):
         self.stop = StopFlag()
         if self.tune.value:
             self.process = process(tune)(nn_task=self.task, stop_flag=self.stop,
-                                         tuned_params=['optimizer', 'batch_size', 'learning_rate'],
+                                         # tuned_params=['optimizer', 'batch_size', 'learning_rate'],
+                                         tuned_params=['model_arch'],
                                          method=self.tune_method.value,
                                          hparams=hparams, start=False)
         else:
@@ -1109,7 +1113,7 @@ class NNGui(object):
 
     def init_interface(self):
 
-        for field in ['datasets', 'task_type', 'task_objects', \
+        for field in ['datasets', 'task_type', 'task_objects',
                       'task_func', 'task_value', 'task_maximize']:
             widget = Div(align='start', visible=False, height=50, height_policy='fixed',
                          sizing_mode='stretch_width')

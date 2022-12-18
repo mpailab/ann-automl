@@ -130,33 +130,107 @@ def set_db_file(db_file):
 
 
 pretrained_models = {
-    'vgg16': tf.keras.applications.vgg16.VGG16,  # model for image classification
-    'vgg19': tf.keras.applications.vgg19.VGG19,  # model for image classification
-    'resnet50': tf.keras.applications.resnet50.ResNet50,  # model for image classification
-    'resnet101': tf.keras.applications.resnet.ResNet101,  # model for image classification
-    'resnet152': tf.keras.applications.resnet.ResNet152,  # model for image classification
-    'resnet50v2': tf.keras.applications.resnet_v2.ResNet50V2,  # model for image classification
-    'resnet101v2': tf.keras.applications.resnet_v2.ResNet101V2,  # model for image classification
-    'resnet152v2': tf.keras.applications.resnet_v2.ResNet152V2,  # model for image classification
-    'inceptionv3': tf.keras.applications.inception_v3.InceptionV3,  # model for image classification
-    'inceptionresnetv2': tf.keras.applications.inception_resnet_v2.InceptionResNetV2,  # model for image classification
-    'mobilenet': tf.keras.applications.mobilenet.MobileNet,  # model for image classification
-    'densenet121': tf.keras.applications.densenet.DenseNet121,  # model for image classification
-    'densenet169': tf.keras.applications.densenet.DenseNet169,  # model for image classification
-    'densenet201': tf.keras.applications.densenet.DenseNet201,  # model for image classification
-    'nasnetlarge': tf.keras.applications.nasnet.NASNetLarge,  # model for image classification
-    'nasnetmobile': tf.keras.applications.nasnet.NASNetMobile,  # model for image classification
-    'xception': tf.keras.applications.xception.Xception,  # model for image classification
-    'mobilenetv2': tf.keras.applications.mobilenet_v2.MobileNetV2,  # model for image classification
-    'efficientnetb0': tf.keras.applications.efficientnet.EfficientNetB0,  # model for image classification
-    'efficientnetb1': tf.keras.applications.efficientnet.EfficientNetB1,  # model for image classification
-    'efficientnetb2': tf.keras.applications.efficientnet.EfficientNetB2,  # model for image classification
-    'efficientnetb3': tf.keras.applications.efficientnet.EfficientNetB3,  # model for image classification
-    'efficientnetb4': tf.keras.applications.efficientnet.EfficientNetB4,  # model for image classification
-    'efficientnetb5': tf.keras.applications.efficientnet.EfficientNetB5,  # model for image classification
-    'efficientnetb6': tf.keras.applications.efficientnet.EfficientNetB6,  # model for image classification
-    'efficientnetb7': tf.keras.applications.efficientnet.EfficientNetB7,  # model for image classification
+    'vgg16': tf.keras.applications.vgg16.VGG16,
+    'vgg19': tf.keras.applications.vgg19.VGG19,
+    'resnet50': tf.keras.applications.resnet50.ResNet50,
+    'resnet101': tf.keras.applications.resnet.ResNet101,
+    'resnet152': tf.keras.applications.resnet.ResNet152,
+    'resnet50v2': tf.keras.applications.resnet_v2.ResNet50V2,
+    'resnet101v2': tf.keras.applications.resnet_v2.ResNet101V2,
+    'resnet152v2': tf.keras.applications.resnet_v2.ResNet152V2,
+    'inceptionv3': tf.keras.applications.inception_v3.InceptionV3,
+    'inceptionresnetv2': tf.keras.applications.inception_resnet_v2.InceptionResNetV2,
+    'mobilenet': tf.keras.applications.mobilenet.MobileNet,
+    'densenet121': tf.keras.applications.densenet.DenseNet121,
+    'densenet169': tf.keras.applications.densenet.DenseNet169,
+    'densenet201': tf.keras.applications.densenet.DenseNet201,
+    'nasnetlarge': tf.keras.applications.nasnet.NASNetLarge,  # error when loading
+    'nasnetmobile': tf.keras.applications.nasnet.NASNetMobile,  # error when loading
+    'xception': tf.keras.applications.xception.Xception,
+    'mobilenetv2': tf.keras.applications.mobilenet_v2.MobileNetV2,
+    'efficientnetb0': tf.keras.applications.efficientnet.EfficientNetB0,
+    'efficientnetb1': tf.keras.applications.efficientnet.EfficientNetB1,
+    'efficientnetb2': tf.keras.applications.efficientnet.EfficientNetB2,
+    'efficientnetb3': tf.keras.applications.efficientnet.EfficientNetB3,
+    'efficientnetb4': tf.keras.applications.efficientnet.EfficientNetB4,
+    'efficientnetb5': tf.keras.applications.efficientnet.EfficientNetB5,
+    'efficientnetb6': tf.keras.applications.efficientnet.EfficientNetB6,
+    'efficientnetb7': tf.keras.applications.efficientnet.EfficientNetB7,
 }
+
+
+_model_num_weights = {
+    'vgg16': 14714688,
+    'vgg19': 20024384,
+    'resnet50': 23587712,
+    'resnet101': 42658176,
+    'resnet152': 58370944,
+    'resnet50v2': 23564800,
+    'resnet101v2': 42626560,
+    'resnet152v2': 58331648,
+    'inceptionv3': 21802784,
+    'inceptionresnetv2': 54336736,
+    'mobilenet': 3228864,
+    'densenet121': 7037504,
+    'densenet169': 12642880,
+    'densenet201': 18321984,
+    'xception': 20861480,
+    'mobilenetv2': 2257984,
+    'efficientnetb0': 4049571,
+    'efficientnetb1': 6575239,
+    'efficientnetb2': 7768569,
+    'efficientnetb3': 10783535,
+    'efficientnetb4': 17673823,
+    'efficientnetb5': 28513527,
+    'efficientnetb6': 40960143,
+    'efficientnetb7': 64097687}
+
+
+_model_input_shape = {
+    'vgg16': (224, 224, 3),
+    'vgg19': (224, 224, 3),
+    'resnet18': (224, 224, 3),
+    'resnet34': (224, 224, 3),
+    'resnet50': (224, 224, 3),
+    'resnet101': (224, 224, 3),
+    'resnet152': (224, 224, 3),
+    'resnet50v2': (224, 224, 3),
+    'resnet101v2': (224, 224, 3),
+    'resnet152v2': (224, 224, 3),
+    'inceptionv3': (299, 299, 3),
+    'inceptionresnetv2': (299, 299, 3),
+    'mobilenet': (224, 224, 3),
+    'densenet121': (224, 224, 3),
+    'densenet169': (224, 224, 3),
+    'densenet201': (224, 224, 3),
+    'xception': (299, 299, 3),
+    'mobilenetv2': (224, 224, 3),
+    'efficientnetb0': (224, 224, 3),
+    'efficientnetb1': (240, 240, 3),
+    'efficientnetb2': (260, 260, 3),
+    'efficientnetb3': (300, 300, 3),
+    'efficientnetb4': (380, 380, 3),
+    'efficientnetb5': (456, 456, 3),
+    'efficientnetb6': (528, 528, 3),
+    'efficientnetb7': (600, 600, 3)}
+
+
+def get_additionnal_models(dir_path):
+    """ Get additionnal models from a directory """
+    models = []
+    if not os.path.exists(dir_path):
+        return models
+    for file in os.listdir(dir_path):
+        if file.endswith('.h5'):
+            model_name = file[:-3]
+            model_path = os.path.join(dir_path, file)
+            models.append(model_name)
+    return models
+
+
+_models_order_by_num_weights = sorted(_model_num_weights, key=_model_num_weights.get)
+_additional_models = get_additionnal_models(os.path.join(_data_dir, 'architectures'))
+
 
 # !!! гиперпараметры и их значения сгенерированы автоматически !!!
 # TODO: проверить их на корректность
@@ -238,7 +312,7 @@ nn_hparams = {
         'title': "оптимизатор",
         'description': "Оптимизатор, используемый при обучении нейронной сети"
     },
-    'model_arch': {'type': 'str', 'values': list(pretrained_models.keys())+['ResNet18', 'ResNet34'],
+    'model_arch': {'type': 'str', 'values': _models_order_by_num_weights + _additional_models,
                    'default': 'resnet50', 'title': 'архитектура нейронной сети'},
     'transfer_learning': {'type': 'bool', 'default': False,
                           'title': 'дообучить предобученную нейронную сеть'},
@@ -539,9 +613,9 @@ def create_model(base, last_layers, dropout=0.0, input_shape=None, transfer_lear
 
     if base.lower() in pretrained_models:
         # load pretrained model with weights without last layers
-        base_model = pretrained_models[base](include_top=False,
+        base_model = pretrained_models[base.lower()](include_top=False,
                                              weights='imagenet' if transfer_learning else None,
-                                             input_shape=input_shape or (224, 224, 3))
+                                             input_shape=input_shape or _model_input_shape[base.lower()])
     else:
         base_model = keras.models.load_model(f'{_data_dir}/architectures/{base}.h5')
 
@@ -897,7 +971,8 @@ def compile_model(model, hparams, measured_metrics, freeze_base=None):
     model.compile(optimizer=optimizer, loss=hparams['loss'], metrics=measured_metrics)
 
 
-def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
+def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log,
+                      early_stopping=True, patience=5, min_delta=0.001):
     """
     Подготавливает список колбэков для обучения модели
 
@@ -909,20 +984,27 @@ def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorbo
         use_tensorboard (bool): сбрасывать ли логи для TensorBoard
         weights_name (str): имя файла, в который будут сохраняться веса модели
         fit_log (FitLog): лог обучения модели
+        early_stopping (bool): использовать ли раннюю остановку
+        patience (int): количество эпох, после которых обучение будет остановлено, если метрика не улучшилась
+        min_delta (float): минимальное изменение метрики, которое считается улучшением
     Returns:
         пара (список колбэков, объект, в котором будут сохранены замеры времени по каждой эпохе)
     """
     if not _emulation:
+
         c_log = keras.callbacks.CSVLogger(cur_subdir + '/Log.csv', separator=',', append=True)
         c_ch = keras.callbacks.ModelCheckpoint(cur_subdir + f'/{weights_name}.h5', monitor=check_metric, verbose=1,
                                                save_best_only=True, save_weights_only=False, mode='auto')
-        c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=0.001, mode='auto', patience=5)  # TODO: магические константы
+        callbacks = [c_log, c_ch]
+        if early_stopping:
+            c_es = keras.callbacks.EarlyStopping(monitor=check_metric, min_delta=min_delta, patience=patience,
+                                                 mode='auto')
+            callbacks.append(c_es)
         # clear tensorboard logs
         if os.path.exists(tensorboard_logdir()):
             shutil.rmtree(tensorboard_logdir(), ignore_errors=True)
         os.makedirs(tensorboard_logdir(), exist_ok=True)
 
-        callbacks = [c_log, c_ch, c_es]
         if use_tensorboard:
             c_tb = keras.callbacks.TensorBoard(
                 log_dir=tensorboard_logdir(),  # , datetime.now().strftime("%Y%m%d-%H%M%S")),
@@ -941,8 +1023,10 @@ def prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorbo
 
 def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name, fit_log):
     callbacks, c_t = prepare_callbacks(stop_flag, timeout, cur_subdir, check_metric, use_tensorboard,
-                                       weights_name=weights_name, fit_log=fit_log)
-
+                                       weights_name=weights_name, fit_log=fit_log,
+                                       early_stopping=hparams.get('early_stopping', True),
+                                       patience=hparams.get('patience', 5),
+                                       min_delta=hparams.get('min_delta', 0.001))
     if _emulation:
         scores = _emulate_fit(model, generators[0], max(1, len(generators[0].filenames) // hparams['batch_size']),
                               hparams['epochs'], callbacks, generators[1])
@@ -970,7 +1054,7 @@ def _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metri
 
 
 def fit_model(model, objects, hparams, generators, cur_subdir, history=None, stop_flag=None, need_recompile=False,
-              use_tensorboard=False, timeout=None, exp_log = None) -> Tuple[List[float], dict]:
+              use_tensorboard=False, timeout=None, exp_log=None):
     """ Обучение модели
 
     Args:
@@ -986,8 +1070,8 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         timeout (float): таймаут обучения в секундах
         exp_log (ExperimentLog): лог эксперимента
     Returns:
-        Достигнутые значения метрик на тестовой выборке во время обучения, а также
-        словарь со значениями гиперпараметров, метрик и путей к модели и истории
+        (list[float], dict): Достигнутые значения метрик на тестовой выборке во время обучения, а также
+            словарь со значениями гиперпараметров, метрик и путей к модели и истории
     """
     if timeout is None:
         timeout = 1e10
@@ -1012,7 +1096,8 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
             compile_model(model, hparams, measured_metrics, freeze_base=transfer_learning)
 
         # fit model
-        scores, c_t = _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard, weights_name='best_weights', fit_log=fit_log)
+        scores, c_t = _fit(model, generators, hparams, stop_flag, timeout, cur_subdir, check_metric, use_tensorboard,
+                           weights_name='best_weights', fit_log=fit_log)
     else:
         compile_model(model, hparams, measured_metrics, freeze_base=True)
         scores, c_t = _fit(model, generators, hparams, stop_flag, timeout / 2,
@@ -1022,7 +1107,8 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
         new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
         compile_model(model, new_hparams, measured_metrics, freeze_base=False)
         tune_scores, tune_c_t = _fit(model, generators, new_hparams, stop_flag, timeout - (time.time() - t0),
-                                     cur_subdir, check_metric, use_tensorboard, weights_name='tune_best_weights', fit_log=fit_log)
+                                     cur_subdir, check_metric, use_tensorboard,
+                                     weights_name='tune_best_weights', fit_log=fit_log)
 
         if tune_scores[1] > scores[1]:
             scores = tune_scores
@@ -1128,7 +1214,7 @@ def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, ti
 
 grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
     # TODO: объединить как-то с hyperparameters
-    'model_arch': {'values': list(pretrained_models.keys()) + ['ResNet18', 'ResNet34']},
+    'model_arch': {'values': _models_order_by_num_weights + _additional_models},
     'transfer_learning': {'values': [True, False], 'default': True},
     'optimizer': {'values': {
         'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
@@ -1288,6 +1374,23 @@ class HyperParamGrid:
                         res[ppp] *= s
         return key, [key, res], {}
 
+    def get_point(self, params):
+        point = []
+        for p, ax in zip(self.tuned_params, self.axis):
+            if p in params:
+                if p == 'lr/batch_size' and 'learning_rate' in params and 'batch_size' in params:
+                    v = params['learning_rate'] / params['batch_size']
+                elif p not in params:
+                    point.append(None)
+                    continue
+                else:
+                    v = params[p]
+                if isinstance(v, (int, float)):
+                    # find index or closest value in ax
+                    point.append(np.argmin(np.abs(np.array(ax) - v)))
+                else:
+                    point.append(ax.index(v) if v in ax else None)
+
 
 def neighborhood_gen(c, shape, cat_axis, r, metric):
     """
@@ -1341,14 +1444,15 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
     Returns:
         Генератор троек (coords, val, is_max), где
-            coords -- кортеж с координатами текущей точки,
-            val -- значение функции в этой точке,
-            is_max -- является ли точка локальным максимумом.
+           - coords -- кортеж с координатами текущей точки,
+           - val -- значение функции в этой точке,
+           - is_max -- является ли точка локальным максимумом.
     """
     if start_point == 'random':
         start_point = tuple(np.random.randint(0, grid_size[i]) for i in range(len(grid_size)))
     else:
-        start_point = tuple(start_point)
+        start_point = tuple(np.random.randint(0, grid_size[i]) if start_point[i] is None else start_point[i]
+                            for i in range(len(grid_size)))
 
     cur_point = start_point
     key, args, kwargs = gridmap(cur_point)
@@ -1380,7 +1484,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
 
 def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=None,
                       use_tensorboard=True, exp_log=None,
-                      start_point='random', grid_metric='l1', radius=1):
+                      start_point='auto', grid_metric='l1', radius=1):
     """
     Оптимизирует параметры нейронной сети на сетке.
 
@@ -1396,15 +1500,19 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         use_tensorboard (bool, optional): Сбрасывать ли данные для TensorBoard.
         exp_log (ExperimentLog, optional): Объект для логирования результатов оптимизации.
 
-        start_point (str): Начальная точка. Если 'random', то начальная точка выбирается случайно.
+        start_point (str):
+           Начальная точка. Допустимые значения:
+               - `random` -- начальная точка выбирается полностью случайно
+               - `auto` -- параметры, присутствующие в hparams, используются в качестве начального
+                 значения этих параметров, остальные параметры выбираются случайно
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
     Returns:
-        (dict, float, dict): Кортеж (best_params, best_score, best_model_info), где
-         - best_params -- лучшие найденные гиперпараметры,
-         - best_score -- значение метрики на лучших гиперпараметрах,
-         - best_model_info -- полная информация о лучшей обученной
-            модели (включая фиксированные гиперпараметры и путь к сохранённой модели).
+        (dict, float, dict):
+           Кортеж (best_params, best_score, best_model_info), где
+              - best_params -- лучшие найденные гиперпараметры,
+              - best_score -- значение метрики на лучших гиперпараметрах,
+              - best_model_info -- полная информация о лучшей обученной модели (включая фиксированные гиперпараметры и путь к сохранённой модели).
     """
     t0 = time.time()
     grid = HyperParamGrid(hparams, tuned_params)
@@ -1416,7 +1524,18 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
     params_of_best = None
     timeout = timeout or 1e10
 
+    point_num = 0
+
     def fit_and_get_score(key, params):
+        nonlocal point_num
+        point_num += 1
+        printlog(f'==================== Point {point_num:2} ====================')
+        printlog(f'Parameters:')
+        for ki, pi in zip(key, tuned_params):
+            if ki is not None:
+                printlog(f'    {pi}: {params.get(pi, None)}')
+            else:
+                printlog(f'    {pi}: [inactive dependent parameter]')
         key_str = '_'.join([str(x) if x is not None else 'n' for x in key])
         cur_dir = os.path.join(exp_dir, key_str)
         if os.path.exists(cur_dir):
@@ -1435,6 +1554,9 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
         except Exception as e:
             printlog(f'Error in experiment {key_str}: {e}')
             return -np.inf
+
+    if start_point == 'auto':
+        start_point = grid.get_point(hparams)
 
     for point, value, is_max in grid_search_gen(grid_size, cat_axis, fit_and_get_score,
                                                 grid, start_point, grid_metric, radius):
@@ -1494,6 +1616,7 @@ def hparams_history_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params
                                            exp_log=exp_log)
         score = nn_task.func(scores)
         printlog(f"Evaluated point: {params}, value: {score}")
+        printlog("==================================================\n")
         pcall('tune_step', params, score)
         if best_score is None or score >= best_score:
             best_point, best_score = params, score
