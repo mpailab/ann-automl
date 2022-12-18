@@ -59,7 +59,7 @@ param_groups = {
     'optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
                   'train.beta_1', 'train.beta_2'],
-    'tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point', 'tune.exact_category_match']
+    'tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point']  #, 'tune.exact_category_match']
 }
 
 
