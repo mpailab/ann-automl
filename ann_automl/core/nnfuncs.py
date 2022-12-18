@@ -459,15 +459,49 @@ nn_hparams = {
 }
 
 
+grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
+    # TODO: объединить как-то с hyperparameters
+    'model_arch': {'values': _models_order_by_num_weights + _additional_models},
+    'transfer_learning': {'values': [True, False], 'default': True},
+    'optimizer': {'values': {
+        'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
+        'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
+        'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
+    }},
+    # для каждого оптимизатора указывается, как другие гиперпараметры должны масштабироваться при смене оптимизатора
+    'batch_size': {'range': [8, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
+    'learning_rate': {'range': [0.000125, 0.064], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
+    'lr/batch_size': {'range': [0.00000125, 0.00128], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
+    # только один из двух параметров может быть задан: learning_rate или lr/batch_size
+    # 'decay': {'type': 'float', 'range': [1/2**5, 1], 'default': 0.0, 'step': 2, 'scale': 'log', 'zero_point': 1},
+
+    # conditonal params
+    'amsgrad': {'values': [True, False], 'default': False, 'cond': True},   # для Adam
+    'nesterov': {'values': [True, False], 'default': True, 'cond': True},   # для SGD
+    'centered': {'values': [True, False], 'default': False, 'cond': True},  # для RMSprop
+
+    'beta_1': {'range': [0.5, 0.999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': '1-log'},     # для Adam
+    'beta_2': {'range': [0.5, 0.9999], 'default': 0.999, 'cond': True, 'step': 2, 'scale': '1-log'},  # для Adam
+    'rho': {'range': [0.5, 0.9999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': '1-log'},  # для RMSprop
+    'epsilon': {'range': [1e-8, 1], 'default': 1e-7, 'cond': True, 'step': 10, 'scale': 'log'},  # для Adam, RMSprop
+    'momentum': {'range': [0, 1], 'default': 0.0, 'cond': True, 'step': 0.1, 'scale': 'lin'},    # для SGD, RMSprop
+}
+
+
 tune_hparams = {
     'method': {'type': 'str',
                'values': {
-                   'grid': {'params': ['radius', 'grid_metric', 'start_point']},
+                   'grid': {'params': ['radius', 'grid_metric', 'start_point', 'tuned_params']},
                    # 'history': {'params': ['exact_category_match']}
                },
                'default': 'grid',
                'title': 'Метод оптимизации гиперпараметров'},
     # conditional parameters:
+    'tuned_params': {'type': 'list',
+                     'default': ['model_arch'],
+                     'values': ['model_arch', 'transfer_learning', 'optimizer', 'batch_size', 'lr/batch_size'],
+                     'cond': True, 'title': 'Оптиимизируемые параметры',
+                     'description': 'Параметры, которые будут оптимизироваться'},
     'radius': {'type': 'int', 'range': [1, 5], 'default': 1, 'step': 1, 'scale': 'lin', 'title': 'Радиус', 'cond': True},
     'grid_metric': {'type': 'str', 'values': ['l1', 'max'], 'default': 'l1',
                     'title': 'Метрика на сетке', 'cond': True},
@@ -1100,11 +1134,16 @@ def fit_model(model, objects, hparams, generators, cur_subdir, history=None, sto
                            weights_name='best_weights', fit_log=fit_log)
     else:
         compile_model(model, hparams, measured_metrics, freeze_base=True)
-        scores, c_t = _fit(model, generators, hparams, stop_flag, timeout / 2,
+        coef = hparams.get('fine_tune_lr_div', 10)
+        first_fit_params = {**hparams, 'epochs': max(1, hparams['epochs'] // coef)}
+        if hparams.get('early_stopping', True):
+            first_fit_params['min_delta'] = hparams['min_delta']
+            first_fit_params['patience'] = max(1, hparams['patience'] // coef)
+        scores, c_t = _fit(model, generators, first_fit_params, stop_flag, timeout / 2,
                            cur_subdir, check_metric, use_tensorboard, weights_name='best_weights', fit_log=fit_log)
 
         new_hparams = hparams.copy()
-        new_hparams['learning_rate'] = hparams['learning_rate'] / hparams.get('fine_tune_lr_div', 10)
+        new_hparams['learning_rate'] = hparams['learning_rate'] / coef
         compile_model(model, new_hparams, measured_metrics, freeze_base=False)
         tune_scores, tune_c_t = _fit(model, generators, new_hparams, stop_flag, timeout - (time.time() - t0),
                                      cur_subdir, check_metric, use_tensorboard,
@@ -1210,35 +1249,6 @@ def train(nn_task, hparams, stop_flag=None, model=None, use_tensorboard=True, ti
     history = ExperimentHistory(nn_task, exp_name, exp_dir, data)
     return create_and_train_model(hparams, nn_task.objects, data, exp_dir, history=history, stop_flag=stop_flag,
                                   model=model, use_tensorboard=use_tensorboard, timeout=timeout, exp_log=exp_log)
-
-
-grid_hparams_space = {  # гиперпараметры, которые будем перебирать по сетке
-    # TODO: объединить как-то с hyperparameters
-    'model_arch': {'values': _models_order_by_num_weights + _additional_models},
-    'transfer_learning': {'values': [True, False], 'default': True},
-    'optimizer': {'values': {
-        'Adam': {'params': ['amsgrad', 'beta_1', 'beta_2', 'epsilon']},
-        'SGD': {'scale': {'learning_rate': 10}, 'params': ['nesterov', 'momentum']},
-        'RMSprop': {'params': ['rho', 'epsilon', 'momentum', 'centered']},
-    }},
-    # для каждого оптимизатора указывается, как другие гиперпараметры должны масштабироваться при смене оптимизатора
-    'batch_size': {'range': [8, 32], 'default': 32, 'step': 2, 'scale': 'log', 'type': 'int'},
-    'learning_rate': {'range': [0.000125, 0.064], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
-    'lr/batch_size': {'range': [0.00000125, 0.00128], 'default': 0.001, 'step': 2, 'scale': 'log', 'type': 'float'},
-    # только один из двух параметров может быть задан: learning_rate или lr/batch_size
-    # 'decay': {'type': 'float', 'range': [1/2**5, 1], 'default': 0.0, 'step': 2, 'scale': 'log', 'zero_point': 1},
-
-    # conditonal params
-    'amsgrad': {'values': [True, False], 'default': False, 'cond': True},   # для Adam
-    'nesterov': {'values': [True, False], 'default': True, 'cond': True},   # для SGD
-    'centered': {'values': [True, False], 'default': False, 'cond': True},  # для RMSprop
-
-    'beta_1': {'range': [0.5, 0.999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': '1-log'},     # для Adam
-    'beta_2': {'range': [0.5, 0.9999], 'default': 0.999, 'cond': True, 'step': 2, 'scale': '1-log'},  # для Adam
-    'rho': {'range': [0.5, 0.9999], 'default': 0.9, 'cond': True, 'step': 2, 'scale': '1-log'},  # для RMSprop
-    'epsilon': {'range': [1e-8, 1], 'default': 1e-7, 'cond': True, 'step': 10, 'scale': 'log'},  # для Adam, RMSprop
-    'momentum': {'range': [0, 1], 'default': 0.0, 'cond': True, 'step': 0.1, 'scale': 'lin'},    # для SGD, RMSprop
-}
 
 
 def param_values(default=None, values=None, step=None, scale=None,

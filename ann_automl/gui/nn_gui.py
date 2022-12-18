@@ -91,8 +91,8 @@ task_params = {
               'values': ['Метрика'], 'default': 'Метрика' },
     'value': { 'title': 'Значение целевого функционала', 'type':
                'float', 'range': [0, 1], 'step': 0.01, 'scale': 'lin', 'default': 0.9 },
-    'maximize': { 'title': 'Оптимизировать целевой функционал', 'type': 'bool',
-                  'default': True }
+    'maximize': { 'title': 'Продолжать оптимизацию после достижения целевого значения', 'type': 'bool',
+                  'default': False }
 }
 
 
@@ -700,7 +700,7 @@ class NNGui(object):
             self.task_func_info.visible = True
             self.task_value_info.text = f"<p><b>Значение:</b> {self.task_value.value}</p>"
             self.task_value_info.visible = True
-            self.task_maximize_info.text = f"<p><b>Оптимизировать:</b> {'Да' if self.task_maximize.value else 'Нет'}</p>"
+            self.task_maximize_info.text = f"<p><b>Максимально оптимизировать:</b> {'Да' if self.task_maximize.value else 'Нет'}</p>"
             self.task_maximize_info.visible = True
             self.task_apply_button.disabled = True
             self.menu_train_button.css_classes=['ann-active-head-btn']
@@ -850,11 +850,16 @@ class NNGui(object):
 
         self.stop = StopFlag()
         if self.tune.value:
+            from ..core.nnfuncs import tune_hparams
+            param_names = tune_hparams['method']['values'][self.tune_method.value]['params']
+            additional_args = {k: getattr(self, f'tune_{k}').value for k in param_names}
             self.process = process(tune)(nn_task=self.task, stop_flag=self.stop,
                                          # tuned_params=['optimizer', 'batch_size', 'learning_rate'],
-                                         tuned_params=['model_arch'],
+                                         # tuned_params=self.tune_tuned_params.value,
                                          method=self.tune_method.value,
-                                         hparams=hparams, start=False)
+                                         hparams=hparams,
+                                         **additional_args,
+                                         start=False)
         else:
             self.process = process(train)(nn_task=self.task, stop_flag=self.stop,
                                           hparams=hparams, start=False,
@@ -910,9 +915,9 @@ class NNGui(object):
                                     y_axis_label='Loss/Accuracy',
                                     plot_width=500, plot_height=250,
                                     sizing_mode='stretch_both')
-        self.loss_acc_plot_attr = dict(epochs = [], losses = [], accuracies = [],
-                                       val_losses = [], val_accuracies = [],
-                                       last_epoch = 0)
+        self.loss_acc_plot_attr = dict(epochs=[], losses=[], accuracies=[],
+                                       val_losses=[], val_accuracies=[],
+                                       last_epoch=0)
         self.model = None
         self.trining_tools_box = Box(self.loss_acc_plot, sizing_mode='stretch_width')
         print("ok")

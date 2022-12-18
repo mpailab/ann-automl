@@ -51,7 +51,7 @@ param_groups = {
               # 'train.decay',
               'train.activation',
               'train.loss', 'train.metrics', 'train.dropout',
-              'train.min_delta', 'train.patience', 'train.early_stopping',
+              'train.early_stopping', 'train.min_delta', 'train.patience',
               # 'train.kernel_initializer', 'train.bias_initializer',
               # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
               # 'train.kernel_constraint', 'train.bias_constraint'
@@ -59,7 +59,9 @@ param_groups = {
     'optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
                   'train.beta_1', 'train.beta_2'],
-    'tune': ['tune.method', 'tune.radius', 'tune.grid_metric', 'tune.start_point']  #, 'tune.exact_category_match']
+    'tune': ['tune.method',
+             'tune.tuned_params',
+             'tune.radius', 'tune.grid_metric', 'tune.start_point']  #, 'tune.exact_category_match']
 }
 
 
