@@ -280,7 +280,6 @@ class DBModule:
         self.sess = Session()
         self.dbstring_ = dbstring
         self.ds_filter = None
-        self.add_default_licences()
 
     def create_sqlite_file(self):
         """
@@ -356,6 +355,23 @@ class DBModule:
                 print_progress_bar(im_counter, len(data['images']),
                                    prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
+        ###################################
+
+        with open(anno_file_name, 'r') as file:
+            d = json.load(file)
+            categories = d['categories']
+
+        for category in categories:
+            _supercategory = category['supercategory']
+            _name = category['name']
+            _id = category['id']
+            try:
+                self.sess.query(self.Category).filter_by(
+                    supercategory=_supercategory, name=_name, ID=_id,).one()
+            except NoResultFound:
+                new_cat = self.Category(_supercategory, _name, _id)
+            self.sess.add(new_cat)
+        self.sess.commit()  # adding categories
         ###################################
 
         print_progress_bar(0, len(data['annotations']), 
