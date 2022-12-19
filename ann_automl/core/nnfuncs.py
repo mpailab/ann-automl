@@ -1389,21 +1389,20 @@ class HyperParamGrid:
     def get_point(self, params):
         point = []
         for p, ax in zip(self.tuned_params, self.axis):
-            if p in params:
-                if p == 'lr/batch_size' and 'learning_rate' in params and 'batch_size' in params:
-                    v = params['learning_rate'] / params['batch_size']
-                elif p not in params:
-                    point.append(None)
-                    continue
-                else:
-                    v = params[p]
-                if isinstance(v, (int, float)):
-                    # find index or closest value in ax
-                    if not isinstance(ax[0], (int, float)):
-                        raise ValueError(f'Parameter {p} is not numeric but value {v} is')
-                    point.append(np.argmin(np.abs(np.array(ax, dtype=np.float64) - float(v))))
-                else:
-                    point.append(ax.index(v) if v in ax else None)
+            if p == 'lr/batch_size' and 'learning_rate' in params and 'batch_size' in params:
+                v = params['learning_rate'] / params['batch_size']
+            elif p not in params:
+                point.append(None)
+                continue
+            else:
+                v = params[p]
+            if isinstance(v, (int, float)):
+                # find index or closest value in ax
+                if not isinstance(ax[0], (int, float)):
+                    raise ValueError(f'Parameter {p} is not numeric but value {v} is')
+                point.append(np.argmin(np.abs(np.array(ax, dtype=np.float64) - float(v))))
+            else:
+                point.append(ax.index(v) if v in ax else None)
         return tuple(point)
 
 

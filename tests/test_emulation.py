@@ -64,7 +64,7 @@ def test_tune_emulation(db_dir):
         print(f'{k}: {v}')
 
     set_emulation(True)
-    tune(task, ['learning_rate', 'batch_size', 'optimizer', 'nesterov'], 'grid', hparams=hparams)
+    tune(task, ['lr/batch_size', 'batch_size', 'optimizer', 'nesterov'], 'grid', hparams=hparams)
 
 
 @pytest.mark.usefixtures('db_dir')
