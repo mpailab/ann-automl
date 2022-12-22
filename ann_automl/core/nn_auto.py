@@ -132,6 +132,7 @@ def create_classification_model(classes,
             log(f'Модель готова. Полученная точность на тестовой выборке: {val:.3f}')
 
         model_path = model_info['model_file']  # directory with model
+        preprocessing = model_info['hparams'].get('preprocessing_function', None)
         is_zip = output_dir.endswith('.zip')
         is_mlmodel = output_dir.endswith('.mlmodel')
         is_tflite = output_dir.endswith('.tflite')
@@ -178,29 +179,32 @@ def create_classification_model(classes,
                 f.write('\n'.join(classes))
             return
 
-    info = dict(model_path='model.h5', classes=classes, test_accuracy=val)
+    info = dict(model_path='model.h5', classes=classes, test_accuracy=val, preprocessing=preprocessing)
     if script_type is not None:
         if script_type not in ('tf', 'torch'):
             log(f'Указан неправильный тип скрипта: {script_type}, должен быть tf или torch', file=sys.stderr)
             log('Используем тип tf', file=sys.stderr)
             script_type = 'tf'
         _copy_classify_script(save_dir)
+        # run script to print usage in usage.txt (as subprocess)
+        script_path = os.path.join(save_dir, 'classify.py')
+        os.system(f'{sys.executable} {script_path} --help > {save_dir}/usage.txt')
         info['backend'] = script_type
 
-        with open(os.path.join(save_dir, 'model.json'), 'w') as f:
-            json.dump(info, f)
+    with open(os.path.join(save_dir, 'model.json'), 'w') as f:
+        json.dump(info, f)
 
-        if is_zip:
-            log(f'Создаём архив {output_dir} ...')
-            # check whether path to zip file exists
-            out_dir = os.path.dirname(output_dir)
-            if out_dir and not os.path.exists(out_dir):
-                os.makedirs(out_dir, exist_ok=True)
-            shutil.make_archive(output_dir[:-4], 'zip', save_dir)
-            shutil.rmtree(save_dir, ignore_errors=True)
-            log(f'Архив {output_dir} создан')
+    if is_zip:
+        log(f'Создаём архив {output_dir} ...')
+        # check whether path to zip file exists
+        out_dir = os.path.dirname(output_dir)
+        if out_dir and not os.path.exists(out_dir):
+            os.makedirs(out_dir, exist_ok=True)
+        shutil.make_archive(output_dir[:-4], 'zip', save_dir)
+        shutil.rmtree(save_dir, ignore_errors=True)
+        log(f'Архив {output_dir} создан')
 
-        return output_dir
+    return output_dir
 
 
 __all__ = ['create_classification_model']

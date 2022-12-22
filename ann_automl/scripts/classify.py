@@ -12,9 +12,13 @@ if __name__ == '__main__':
     #                     (if not specified, images will not be copied)
     # optional argument - whether to clear output directory before copying
     # optional argument - score threshold to copy images (by default 0.5, used only if copy_images is True)
-    # one optional - path to model config in json format (default: model.json)
+    # optional argument - path to model config in json format (default: model.json)
 
-    parser = argparse.ArgumentParser()
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+
+    parser = argparse.ArgumentParser(description="Script can classify one image or all images in directory. "
+                                                 "Classifications results can be saved to file or printed to stdout. "
+                                                 "Also, script can copy classified images to subdirectories by class. ")
     parser.add_argument('image_path', type=str, help='path to image')
     parser.add_argument('--ext', type=str, default='jpg;jpeg;png',
                         help='image extensions to classify separated by `;` (default: jpg;jpeg;png)')
@@ -22,13 +26,14 @@ if __name__ == '__main__':
     parser.add_argument('--out_dir', type=str, help='path to directory to copy classified images to')
     parser.add_argument('--clear_out_dir', action='store_true', help='clear output directory before copying')
     parser.add_argument('--threshold', type=float, default=0.5, help='score threshold to copy images (default: 0.5)')
-    parser.add_argument('--model_config', type=str, default='model.json', help='path to model config in json format')
+    parser.add_argument('--model_config', type=str, default=f'{script_dir}/model.json', help='path to model config in json format')
     args = parser.parse_args()
 
     # load model config
     with open(args.model_config, 'r') as f:
         model_config = json.load(f)
     bk = model_config.get('backend', 'tf')
+    preprocessing = model_config.get('preprocessing', None)
     if bk == 'tf':
         from tf_funcs import classify_image, classify_all_in_directory
     elif bk == 'torch':
@@ -36,12 +41,18 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'Unknown backend: {bk}')
 
+    config_path = os.path.dirname(args.model_config)
+    model_path = model_config['model_path']
+    if not os.path.isabs(model_path):
+        model_path = os.path.join(config_path, model_path)
+
     if not os.path.isdir(args.image_path):
         # classify image
         if not os.path.exists(args.image_path):
             print(f'File {args.image_path} does not exist')
         else:
-            object_name, score = classify_image(model_config['model_path'], model_config['classes'], args.image_path)
+            object_name, score = classify_image(model_path, model_config['classes'], args.image_path,
+                                                preprocessing=preprocessing)
             print(f'Object: {object_name}, score: {score}')
             if args.save:
                 if args.save.endswith('.json'):
@@ -57,7 +68,8 @@ if __name__ == '__main__':
                         json.dump({args.image_path: (object_name, score)}, f)
     else:
         # classify all images in directory
-        results = classify_all_in_directory(model_config['model_path'], model_config['classes'], args.image_path)
+        results = classify_all_in_directory(model_path, model_config['classes'], args.image_path,
+                                            preprocessing=preprocessing)
         if args.save:
             if args.save.endswith('.json'):
                 with open(args.save, 'w') as f:

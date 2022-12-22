@@ -12,6 +12,7 @@ ipywidgets
 ipython
 matplotlib
 tensorflow>=2.0
+tqdm
 
 panel
 bokeh

@@ -995,7 +995,6 @@ def compile_model(model, hparams, measured_metrics, freeze_base=None):
     optimizer = getattr(tf.keras.optimizers, optimizer)(learning_rate=lr, **kwargs)
     if freeze_base is True:
         printlog("Freeze base model layers")
-        print(model.layers[1])
         model.layers[1].trainable = False
     elif freeze_base is False:
         printlog("Unfreeze base model layers (fine-tuning)")

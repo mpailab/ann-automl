@@ -6,7 +6,6 @@ import os
 import sys
 
 
-
 def init_db(dbfile, dbconfig):
     newdb = db.DBModule(dbstring=dbfile, dbconf_file=dbconfig)  # datasets.sqlite - название файла с корпусом аннотаций
     newdb.fill_all_default()

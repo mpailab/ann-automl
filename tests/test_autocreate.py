@@ -24,7 +24,7 @@ def db_dir():
 
 
 @pytest.mark.usefixtures('db_dir')
-def test_create_model(db_dir):
+def test_create_model(db_dir, output=None):
     mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite", dbconf_file=f"{test_datasets_path}/dbconf.json")
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir+'/test.sqlite')
@@ -42,12 +42,14 @@ def test_create_model(db_dir):
     with db_context(mydb):
         classes = ['cat', 'dog', 'elephant']
         target_accuracy = 0.9
-        create_classification_model(classes, target_accuracy, os.path.join(db_dir, 'output'), time_limit=20)
+        if output is None:
+            output = os.path.join(db_dir, 'output')
+        create_classification_model(classes, target_accuracy, output, time_limit=20)
 
 
 
 if __name__ == '__main__':
     db_dir = tempfile.mkdtemp()
-    test_create_model(db_dir)
+    test_create_model(db_dir, 'output')
     shutil.rmtree(db_dir)
 

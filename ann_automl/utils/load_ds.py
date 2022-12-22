@@ -3,11 +3,12 @@ import sys
 from tqdm import tqdm
 
 
-def create_annotations(ds_dir, anno_file):
+def create_annotations(ds_dir, anno_file, extentions=('jpg', 'jpeg', 'png', 'bmp')):
     """
     Args:
         ds_dir: path to the dataset folder
         anno_file: path to the output file with annotations (if None, resuls are not saved)
+        extentions: list of extentions of images to include in the dataset
     Returns:
         dict: dataset info in the format of the COCO dataset
     """
@@ -56,7 +57,10 @@ def create_annotations(ds_dir, anno_file):
         cls_id = len(cls_ids)
         cls_ids[class_name] = cls_id
         json_result['categories'].append({"supercategory": "", "id": cls_id, "name": class_name})
+        num_images_in_class = 0
         for im_name in os.listdir(os.path.join(ds_dir, class_name)):
+            if im_name.split('.')[-1].lower() not in extentions:
+                continue
             if not os.path.isfile(os.path.join(ds_dir, class_name, im_name)):
                 continue
             im_id += 1
@@ -82,6 +86,17 @@ def create_annotations(ds_dir, anno_file):
                 "category_id": cls_id,
                 "id": anno_id
             })
+            num_images_in_class += 1
+
+        if num_images_in_class == 0:
+            del cls_ids[class_name]
+            del json_result['categories'][-1]
+            print(f'WARNING: no images found for class {class_name}')
+        else:
+            print(f'INFO: class {class_name} has {num_images_in_class} images')
+
+    if len(cls_ids) == 0:
+        raise Exception('No classes found in the folder ' + ds_dir)
 
     if anno_file is not None:
         with open(anno_file, 'w') as f:

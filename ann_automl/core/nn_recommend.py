@@ -117,6 +117,14 @@ class RecommendArch(Recommender):
             prec['preprocessing_function'] = 'keras.applications.xception.preprocess_input'
         elif prec['model_arch'].startswith('mobilenet'):
             prec['preprocessing_function'] = 'keras.applications.mobilenet.preprocess_input'
+        elif prec['model_arch'].startswith('densenet'):
+            prec['preprocessing_function'] = 'keras.applications.densenet.preprocess_input'
+        elif prec['model_arch'].startswith('nasnet'):
+            prec['preprocessing_function'] = 'keras.applications.nasnet.preprocess_input'
+        elif prec['model_arch'].startswith('vgg'):
+            prec['preprocessing_function'] = 'keras.applications.vgg16.preprocess_input'
+        elif prec['model_arch'].startswith('efficientnet'):
+            prec['preprocessing_function'] = 'keras.applications.efficientnet.preprocess_input'
         if len(task.nn_task.objects) == 2:
             last_layers.append({'type': 'Dense', 'units': 1})
             last_layers.append({'type': 'Activation', 'activation': 'sigmoid'})

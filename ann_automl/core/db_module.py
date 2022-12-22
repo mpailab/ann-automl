@@ -516,7 +516,7 @@ class DBModule:
         add_cats = [cat for cat, cat_id in zip(cats, cat_ids) if cat_id < 0]
         if len(add_cats) > 0:
             # preserve ids if there are no such ids in DB
-            respect_ids = not any(x for x in self.get_cat_names_by_IDs(cat_ids))
+            respect_ids = False  # not any(x for x in self.get_cat_names_by_IDs(cat_ids))
             self.add_categories(add_cats, respect_ids=respect_ids)
         img_ids = coco.getImgIds()
         imgs = coco.loadImgs(img_ids)
@@ -812,7 +812,7 @@ class DBModule:
         crop_tasks = []
 
         for index, row in tqdm(df.iterrows(), total=df.shape[0], desc='Collecting images', file=sys.stdout,
-                               mininterval=0.5, maxinterval=0.6):
+                               mininterval=0.5, maxinterval=0.6, ncols=79):
             bbox = []
             input_file = os.path.join(files_dir, row['file_name'])
             if row['bbox'] != '':
@@ -836,12 +836,13 @@ class DBModule:
             if num_processes > 1:
                 pool = multiprocessing.Pool(processes=num_processes)
                 # run the pool with progress bar
-                for _ in tqdm(pool.imap_unordered(_crop_image_tuple, crop_tasks), total=len(crop_tasks), desc='Cropping images',
-                              file=sys.stdout, mininterval=0.5, maxinterval=0.6):
+                for _ in tqdm(pool.imap_unordered(_crop_image_tuple, crop_tasks), total=len(crop_tasks),
+                              desc='Cropping images', file=sys.stdout, mininterval=0.5, maxinterval=0.6, ncols=79):
                     pass
                 pool.close()
             else:
-                for task in tqdm(crop_tasks, desc='Cropping images', file=sys.stdout, mininterval=0.5, maxinterval=0.6):
+                for task in tqdm(crop_tasks, desc='Cropping images', file=sys.stdout,
+                                 mininterval=0.5, maxinterval=0.6, ncols=79):
                     _crop_image_tuple(task)
             print(f'Created {new_images} new image crops, used {df.shape[0] - new_images} existing image crops')
         # convert list of dicts to dataframe
@@ -1117,7 +1118,7 @@ class DBModule:
                   file_prefix + images[0]['file_name'], ')')
             raise FileNotFoundError(f'Error in json file, missing images stored on disc (i.e. {file_prefix + images[0]["file_name"]})')
         buf_images = {}
-        for im_data in tqdm(images, desc='Adding images', total=len(images)):
+        for im_data in tqdm(images, desc='Adding images', total=len(images), file=sys.stdout, ncols=79):
             im_id = None
             if respect_ids is True:
                 im_id = im_data['id']
@@ -1133,7 +1134,7 @@ class DBModule:
             buf_images[im_data['id']] = image
             self.sess.add(image)
         self.sess.commit()  # adding images
-        for an_data in tqdm(annotations, desc='Adding annotations', total=len(annotations)):
+        for an_data in tqdm(annotations, desc='Adding annotations', total=len(annotations), file=sys.stdout, ncols=79):
             anno_id = None
             if respect_ids is True:
                 anno_id = an_data['id']
