@@ -1,6 +1,8 @@
+import datetime
 import multiprocessing
 import sys
 import warnings
+import getpass
 
 from sqlalchemy import *
 from sqlalchemy.orm import relationship, backref
@@ -524,6 +526,61 @@ class DBModule:
         print(f'Adding {len(anns)} annotations in COCO format to DB')
         ds_id = self.add_dataset_info(ds_info)
         self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
+
+    def add_tensorflow_dataset(self, tdfs_name, name=None, ds_path=None, datasets_dir='./datasets'):
+        """ Добавляет в базу новый датасет через tensorflow_datasets.
+
+        Args:
+            tdfs_name (str): имя набора данных в формате TensorFlow Dataset
+            name (str): имя набора данных в базе данных
+            ds_path (str): путь к директории с набором данных
+            datasets_dir (str): путь к директории с наборами данных
+        """
+        from ..utils.load_ds import download_tfds
+        if name is None:
+            name = tdfs_name.split('/')[-1]
+        res = download_tfds(tdfs_name, ds_path, os.path.join(datasets_dir, name))
+        anno_file = res['annotations']
+        prefix = res['images']
+        ds_info = {"description": res['name'],
+                   "url": res['url'],
+                   "version": res['version'],
+                   "year": "",
+                   "contributor": 'tensorflow_datasets',
+                   "date_created": ""}
+        self.fill_in_coco_format(anno_file_name=anno_file, file_prefix=prefix, ds_info=ds_info)
+
+    def init_dataset_from_folders(self, root_folder, ds_name, ds_info=None, datasets_dir='./datasets'):
+        """ Заполняет базу данных новым набором данных, представленным в виде поддиректорий с изображениями.
+        Имя поддиректории - имя класса.
+
+        Args:
+            root_folder (str): корневая директория, содержащая директории с изображениями
+            ds_name (str): название набора данных
+            ds_info (dict): словарь с информацией о наборе данных. Необходимые ключи:
+                description, url, version, year, contributor, date_created
+            datasets_dir (str): путь к директории, в которой хранятся датасеты
+        """
+        from ..utils.load_ds import create_annotations
+        ds_info_0 = {"description": ds_name,
+                   "url": "",
+                   "version": "1.0",
+                   "year": f"{datetime.datetime.now():%Y}",
+                   "contributor": f"{getpass.getuser()}",
+                   "date_created": f"{datetime.datetime.now():%Y-%m-%d}"}
+        if ds_info is not None:
+            ds_info_0.update(ds_info)
+        ds_info = ds_info_0
+        ds_path = os.path.join(datasets_dir, ds_name)
+        anno_file = os.path.join(ds_path, 'annotations.json')
+        if os.path.isfile(anno_file):
+            print(f'Annotations file {anno_file} already exists, skip creating')
+        else:
+            if not os.path.isdir(ds_path):
+                os.mkdir(ds_path)
+            create_annotations(root_folder, anno_file)
+
+        self.fill_in_coco_format(anno_file_name=anno_file, file_prefix=root_folder, ds_info=ds_info)
 
     def fill_imagenet(self, annotations_dir='./datasets/imagenet/annotations',
                       file_prefix='./datasets/imagenet/ILSVRC2012_img_train',
@@ -1059,11 +1116,8 @@ class DBModule:
             print('Error in json file, missing images stored on disc (i.e.',
                   file_prefix + images[0]['file_name'], ')')
             raise FileNotFoundError(f'Error in json file, missing images stored on disc (i.e. {file_prefix + images[0]["file_name"]})')
-        print('Adding images')
         buf_images = {}
-        print_progress_bar(0, len(images), prefix='Adding images:', suffix='Complete', length=50)
-        im_counter = 0
-        for im_data in images:
+        for im_data in tqdm(images, desc='Adding images', total=len(images)):
             im_id = None
             if respect_ids is True:
                 im_id = im_data['id']
@@ -1078,19 +1132,8 @@ class DBModule:
                                ID=im_id)
             buf_images[im_data['id']] = image
             self.sess.add(image)
-            im_counter += 1
-            if im_counter % 10 == 0 or im_counter == len(images) - 2:
-                print_progress_bar(im_counter, len(images),
-                                   prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
-        print('Done adding images, adding annotations')
-        counter = 0
-        print_progress_bar(0, len(annotations),
-                           prefix='Adding annotations:', suffix='Complete', length=50)
-        an_counter = 0
-        for an_data in annotations:
-            # print(counter)
-            counter += 1
+        for an_data in tqdm(annotations, desc='Adding annotations', total=len(annotations)):
             anno_id = None
             if respect_ids is True:
                 anno_id = an_data['id']
@@ -1105,10 +1148,6 @@ class DBModule:
                                          area=an_data['area'],
                                          ID=anno_id)
             self.sess.add(annotation)
-            an_counter += 1
-            if an_counter % 10 == 0 or an_counter == len(annotations):
-                print_progress_bar(an_counter, len(annotations),
-                    prefix='Adding annotations:', suffix='Complete', length=50)
         self.sess.commit()  # adding annotations
 
     def add_model_record(self, task_type, categories, model_address, metrics, history_address=''):

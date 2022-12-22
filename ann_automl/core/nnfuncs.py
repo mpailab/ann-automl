@@ -26,9 +26,8 @@ import atexit
 
 
 _data_dir = 'data'
-_db_file = 'tests.sqlite'  # TODO: уточнить путь к файлу базы данных
+_db_file = 'datasets.sqlite'
 
-# nnDB = ObjectWrapper(db_module.DBModule, dbstring=f'sqlite:///{_db_file}')
 nnDB = db_module.DBModule(dbstring=f'sqlite:///{_db_file}')
 
 
