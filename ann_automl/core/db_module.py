@@ -550,7 +550,7 @@ class DBModule:
                    "date_created": ""}
         self.fill_in_coco_format(anno_file_name=anno_file, file_prefix=prefix, ds_info=ds_info)
 
-    def init_dataset_from_folders(self, root_folder, ds_name, ds_info=None, datasets_dir='./datasets'):
+    def add_dataset_from_subdirs(self, root_folder, ds_name, ds_info=None, datasets_dir='./datasets'):
         """ Заполняет базу данных новым набором данных, представленным в виде поддиректорий с изображениями.
         Имя поддиректории - имя класса.
 

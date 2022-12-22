@@ -111,12 +111,16 @@ class RecommendArch(Recommender):
 
         if prec['model_arch'].startswith('resnet'):
             prec['preprocessing_function'] = 'keras.applications.resnet.preprocess_input'
-        elif prec['model_arch'].startswith('inception'):
+        elif prec['model_arch'].startswith('inceptionv3'):
             prec['preprocessing_function'] = 'keras.applications.inception_v3.preprocess_input'
+        elif prec['model_arch'].startswith('inceptionresnetv2'):
+            prec['preprocessing_function'] = 'keras.applications.inception_resnet_v2.preprocess_input'
         elif prec['model_arch'].startswith('xception'):
             prec['preprocessing_function'] = 'keras.applications.xception.preprocess_input'
-        elif prec['model_arch'].startswith('mobilenet'):
+        elif prec['model_arch'] == 'mobilenet':
             prec['preprocessing_function'] = 'keras.applications.mobilenet.preprocess_input'
+        elif prec['model_arch'] == 'mobilenetv2':
+            prec['preprocessing_function'] = 'keras.applications.mobilenet_v2.preprocess_input'
         elif prec['model_arch'].startswith('densenet'):
             prec['preprocessing_function'] = 'keras.applications.densenet.preprocess_input'
         elif prec['model_arch'].startswith('nasnet'):
