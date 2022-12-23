@@ -350,9 +350,6 @@ class DBModule:
         self.dbstring_ = dbstring
         self._dbfile = dbstring[10:]
         self.ds_filter = None
-        # if first_time:
-        #     Base.metadata.create_all(self.engine)
-        #     self.add_default_licences()
 
     def create_sqlite_file(self):
         """Если файл SQLite ещё не создан, его нужно создать вызовом этого метода"""
@@ -421,6 +418,24 @@ class DBModule:
                 print_progress_bar(im_counter, len(data['images']),
                                    prefix='Adding images:', suffix='Complete', length=50)
         self.sess.commit()  # adding images
+        ###################################
+
+
+        with open(anno_file_name, 'r') as file:
+            d = json.load(file)
+            categories = d['categories']
+
+        for category in categories:
+            _supercategory = category['supercategory']
+            _name = category['name']
+            _id = category['id']
+            try:
+                self.sess.query(self.Category).filter_by(
+                    supercategory=_supercategory, name=_name, ID=_id,).one()
+            except NoResultFound:
+                new_cat = self.Category(_supercategory, _name, _id)
+            self.sess.add(new_cat)
+        self.sess.commit()  # adding categories
         ###################################
 
         print_progress_bar(0, len(data['annotations']), 
@@ -1083,7 +1098,7 @@ class DBModule:
 
     def add_dataset_info(self, dataset_info):
         """Метод для добавления информации о новом датасете
-        
+
         Args:
             dataset_info (dict): словарь с информацией о датасете
         Returns:

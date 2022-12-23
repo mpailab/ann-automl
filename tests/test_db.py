@@ -154,7 +154,7 @@ def test_fill_kaggle_cats_vs_dogs(db_dir):
     assert os.path.isfile(db_dir + '/test.sqlite')
     mydb.fill_kaggle_cats_vs_dogs('datasets/test3/annotations/annotations1.json', file_prefix='datasets/test3/images/')
     assert len(mydb.get_all_datasets()) == 1
-    assert len(mydb.get_all_categories()) == 0
+    assert len(mydb.get_all_categories()) == 2
     print('all data sets info : ', mydb.get_all_datasets_info(full_info=True))
     mydb.close()
 
