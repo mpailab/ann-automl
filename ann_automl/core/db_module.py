@@ -367,6 +367,16 @@ class DBModule:
         self.fill_imagenet(first_time=True)
         return
 
+    def _get_category_id_mapping(self, categories):
+        cat_names = [cat['name'] for cat in categories]
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
+        add_cats = [cat for cat, cat_id in zip(categories, cat_ids) if cat_id < 0]
+        if len(add_cats) > 0:
+            self.add_categories(add_cats, respect_ids=False)
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
+        cat_id_map = {cat['id']: cat_id for cat, cat_id in zip(categories, cat_ids)}
+        return cat_id_map
+
     def fill_kaggle_cats_vs_dogs(self, anno_file_name='dogs_vs_cats_coco_anno.json', 
                                  file_prefix='./datasets/Kaggle/'):
         """Метод для заполнения базы данных Kaggle CatsVsDogs.
@@ -407,7 +417,7 @@ class DBModule:
                                width=im_data['width'],
                                height=im_data['height'],
                                date_captured=im_data['date_captured'],
-                               ID=dataset.ID,
+                               dataset_id=dataset.ID,
                                coco_url=im_data['coco_url'],
                                flickr_url=im_data['flickr_url'],
                                license_id=im_data['license'])
@@ -420,32 +430,15 @@ class DBModule:
         self.sess.commit()  # adding images
         ###################################
 
-
-        with open(anno_file_name, 'r') as file:
-            d = json.load(file)
-            categories = d['categories']
-
-        for category in categories:
-            _supercategory = category['supercategory']
-            _name = category['name']
-            _id = category['id']
-            try:
-                self.sess.query(self.Category).filter_by(
-                    supercategory=_supercategory, name=_name, ID=_id,).one()
-            except NoResultFound:
-                new_cat = self.Category(_supercategory, _name, _id)
-            self.sess.add(new_cat)
-        self.sess.commit()  # adding categories
-        ###################################
-
-        print_progress_bar(0, len(data['annotations']), 
+        cat_id_map = self._get_category_id_mapping(data['categories'])
+        print_progress_bar(0, len(data['annotations']),
                            prefix='Adding annotations:', suffix='Complete', length=50)
         an_counter = 0
         for an_data in data['annotations']:
             # +1 because of json file structure for this DB only
             real_id = im_objects[an_data['image_id']].ID
             annotation = self.Annotation(image_id=real_id,
-                                         category_id=an_data['category_id'] + 1,
+                                         category_id=cat_id_map[an_data['category_id']],
                                          bbox=';'.join(an_data['bbox']),
                                          segmentation=';'.join(an_data['segmentation']),
                                          is_crowd=an_data['iscrowd'],
@@ -526,13 +519,7 @@ class DBModule:
             raise FileNotFoundError(f'No directory {file_prefix} found, stop filling dataset')
         coco = COCO(anno_file_name)
         cats = coco.loadCats(coco.getCatIds())
-        cat_names = [cat['name'] for cat in cats]
-        cat_ids = self.get_cat_IDs_by_names(cat_names)
-        add_cats = [cat for cat, cat_id in zip(cats, cat_ids) if cat_id < 0]
-        if len(add_cats) > 0:
-            self.add_categories(add_cats, respect_ids=False)
-        cat_ids = self.get_cat_IDs_by_names(cat_names)
-        cat_id_map = {cat['id']: cat_id for cat, cat_id in zip(cats, cat_ids)}
+        cat_id_map = self._get_category_id_mapping(cats)
         img_ids = coco.getImgIds()
         imgs = coco.loadImgs(img_ids)
         ann_ids = coco.getAnnIds()

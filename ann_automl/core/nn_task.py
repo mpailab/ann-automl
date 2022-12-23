@@ -31,27 +31,18 @@ class NNTask(Task):
                  for_mobile=False,
                  ):
         """
-        Инициализация задачи.
+        Инициализация задачи обучения нейронной сети
 
-        Parameters:
-        -----------
-        category: str
-            Категория задачи: пока поддерживается только 'train'
-        type: str
-            Тип задачи {classification, detection, segmentation}
-        objects: list[str]
-            Список категорий изображений
-        func: TargetFunc
-            Целевой функционал {loss_target, metric_target}
-        target: str
-            Значение целевого функционала {float from [0,1]}
-        goal: dict[str, Any]
-            Словарь дополнительных целей задачи (например {"maximize" :
-            нужно ли максимизировать метрику выше целевого значения})
-        time_limit: float
-            Время на выполнение задачи в секундах
-        for_mobile: bool
-            Флаг, указывающий, что предполагается использование модели на мобильных устройствах
+        Args:
+            category (str): Категория задачи: пока поддерживается только 'train'
+            objects (list[str]): Список категорий изображений
+            type (str): Тип задачи (пока поддерживается только 'classification')
+            func (TargetFunc): Целевой функционал {loss_target, metric_target}
+            target (str): Значение целевого функционала {float from [0,1]}
+            goals (dict[str, Any]): Словарь дополнительных целей задачи (например {"maximize" :
+                нужно ли максимизировать метрику выше целевого значения})
+            time_limit (float): Время на выполнение задачи в секундах
+            for_mobile (bool): Флаг, указывающий, что предполагается использование модели на мобильных устройствах
         """
         super().__init__(goals=goals or {})
         self._category = category  # str

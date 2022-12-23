@@ -102,7 +102,7 @@ def check_cats_vs_dogs_images(anno_dir, image_dir_1, image_dir_2):
 check_coco_images('datasets/test1/annotations/annotations1.json', 'datasets/test1/images')
 check_coco_images('datasets/test2/annotations/train.json', 'datasets/test2/images')
 check_imagenet_images('datasets/test_imagenet/annotations/', 'datasets/test_imagenet/images')
-#check_cats_vs_dogs_images('datasets/test3/annotations/', 'datasets/test3/images/cats', 'datasets/test3/images/dogs')
+check_cats_vs_dogs_images('datasets/test3/annotations/', 'datasets/test3/images/cats', 'datasets/test3/images/dogs')
 
 
 @pytest.fixture(scope='function')
