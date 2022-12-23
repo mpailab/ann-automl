@@ -246,8 +246,6 @@ augmen_params_list = {
     'horizontal_flip': {'type': 'bool', 'default': False, 'title': 'горизонтальное отражение'},
     'vertical_flip': {'type': 'bool', 'default': False, 'title': 'вертикальное отражение'},
     'rescale': {'type': 'float', 'range': [0, 1], 'default': None, 'title': 'масштабирование'},
-    'preprocessing_function': {'type': 'str', 'values': ['auto', 'None', 'rescale', 'preprocess_input'],
-                               'default': 'auto', 'title': 'функция предобработки'},
     'data_format': {'type': 'str', 'values': ['channels_last', 'channels_first'], 'default': 'channels_last',
                     'title': 'формат данных'},
 }
@@ -1554,6 +1552,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
             warnings.warn(f'Experiment {key_str} already exists.')
         os.makedirs(cur_dir, exist_ok=True)
         try:
+            # TODO: recommend_hparams
             scores, p = create_and_train_model(params, nn_task.objects, data, cur_dir, history=history,
                                                stop_flag=stop_flag, use_tensorboard=use_tensorboard,
                                                timeout=timeout - (time.time() - t0), exp_log=exp_log)

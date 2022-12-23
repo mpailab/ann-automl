@@ -515,9 +515,9 @@ class DBModule:
         cat_ids = self.get_cat_IDs_by_names(cat_names)
         add_cats = [cat for cat, cat_id in zip(cats, cat_ids) if cat_id < 0]
         if len(add_cats) > 0:
-            # preserve ids if there are no such ids in DB
-            respect_ids = False  # not any(x for x in self.get_cat_names_by_IDs(cat_ids))
-            self.add_categories(add_cats, respect_ids=respect_ids)
+            self.add_categories(add_cats, respect_ids=False)
+        cat_ids = self.get_cat_IDs_by_names(cat_names)
+        cat_id_map = {cat['id']: cat_id for cat, cat_id in zip(cats, cat_ids)}
         img_ids = coco.getImgIds()
         imgs = coco.loadImgs(img_ids)
         ann_ids = coco.getAnnIds()
@@ -525,7 +525,7 @@ class DBModule:
         print(f'Dataset description: {ds_info["description"]}')
         print(f'Adding {len(anns)} annotations in COCO format to DB')
         ds_id = self.add_dataset_info(ds_info)
-        self.add_images_and_annotations(imgs, anns, ds_id, file_prefix)
+        self.add_images_and_annotations(imgs, anns, ds_id, file_prefix, category_id_map=cat_id_map)
 
     def add_tensorflow_dataset(self, tdfs_name, name=None, ds_path=None, datasets_dir='./datasets'):
         """ Добавляет в базу новый датасет через tensorflow_datasets.
@@ -1042,7 +1042,6 @@ class DBModule:
     def add_categories(self, categories, respect_ids=True):
         """
         Метод для добавления заданных категорий в базу данных.
-        Ожидается вызываться редко, поскольку список категорий почти постоянен.
 
         Args:
             categories (list of dicts): список словарей с необходимыми полями: supercategory, name, id
@@ -1097,7 +1096,7 @@ class DBModule:
         return dataset.ID
 
     def add_images_and_annotations(self, images, annotations, dataset_id, file_prefix='',
-                                   respect_ids=False):
+                                   respect_ids=False, category_id_map=None):
         """
         Метод для добавления части изображений и их аннотаций в БД.
 
@@ -1141,8 +1140,9 @@ class DBModule:
             cur_image_id = buf_images[an_data['image_id']].ID
             seg_str = json.dumps(an_data['segmentation'])
             bbox_str = json.dumps(an_data['bbox'])
+            cat_id = an_data['category_id'] if category_id_map is None else category_id_map[an_data['category_id']]
             annotation = self.Annotation(image_id=cur_image_id,
-                                         category_id=an_data['category_id'],
+                                         category_id=cat_id,
                                          bbox=bbox_str,
                                          segmentation=seg_str,
                                          is_crowd=an_data['iscrowd'],
