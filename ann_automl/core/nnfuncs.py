@@ -1494,7 +1494,7 @@ def grid_search_gen(grid_size, cat_axis, func, gridmap, start_point='random', gr
 
 def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, stop_flag=None, timeout=None,
                       use_tensorboard=True, exp_log=None,
-                      start_point='auto', grid_metric='l1', radius=1):
+                      start_point='auto', grid_metric='l1', radius=1, verbosity=1):
     """
     Оптимизирует параметры нейронной сети на сетке.
 
@@ -1517,6 +1517,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
                  значения этих параметров, остальные параметры выбираются случайно
         grid_metric (str): Метрика, по которой определяется расстояние между точками сетки ('l1' или 'max').
         radius (int): Радиус окрестности, в которой производится поиск лучшей точки.
+        verbosity (int): Уровень логирования.
     Returns:
         (dict, float, dict):
            Кортеж (best_params, best_score, best_model_info), где
@@ -1524,6 +1525,7 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
               - best_score -- значение метрики на лучших гиперпараметрах,
               - best_model_info -- полная информация о лучшей обученной модели (включая фиксированные гиперпараметры и путь к сохранённой модели).
     """
+    from .nn_recommend import recommend_hparams
     t0 = time.time()
     grid = HyperParamGrid(hparams, tuned_params)
     grid_size = list(map(len, grid.axis))
@@ -1552,8 +1554,12 @@ def hparams_grid_tune(nn_task, data, exp_name, exp_dir, hparams, tuned_params, s
             warnings.warn(f'Experiment {key_str} already exists.')
         os.makedirs(cur_dir, exist_ok=True)
         try:
-            # TODO: recommend_hparams
-            scores, p = create_and_train_model(params, nn_task.objects, data, cur_dir, history=history,
+            new_params = recommend_hparams(nn_task, fixed_params=params, trace_source=verbosity>1)
+            is_tuned_changed = any(params.get(p, None) is not None and new_params.get(p, None) != params[p] for p in tuned_params)
+            if is_tuned_changed:
+                printlog(f'Some tuned parameter changed by recommend_hparams, so this point is invalid; skipping.')
+                return -np.inf
+            scores, p = create_and_train_model(new_params, nn_task.objects, data, cur_dir, history=history,
                                                stop_flag=stop_flag, use_tensorboard=use_tensorboard,
                                                timeout=timeout - (time.time() - t0), exp_log=exp_log)
             val = nn_task.func(scores)
