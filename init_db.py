@@ -36,6 +36,8 @@ if __name__ == '__main__':
     parser.add_argument('--add_dir_ds', help='add directory which contain subdirectories with images as dataset')
     parser.add_argument('--name', '-n', help='name of dataset to add (if --add_tfds is specified, '
                                              'then default is the name of dataset in tensorflow)')
+    parser.add_argument('--tfds_dir', default='datasets/.tensorflow_datasets',
+                        help='directory where tensorflow datasets are stored')
 
     args = parser.parse_args()
     backup = None
@@ -53,9 +55,11 @@ if __name__ == '__main__':
         if args.add_dir_ds and not args.name:
             print('--name argument should be specified if subdurs dataset is added', file=sys.stderr)
             sys.exit(1)
+        if not os.path.isdir('datasets'):
+            os.mkdir('datasets')
         if os.path.isfile(args.db):
-            if not os.path.isfile(args.dbconf):
-                print(f'File {args.dbconf} not found', file=sys.stderr)
+            if not os.path.isfile(args.conf):
+                print(f'File {args.conf} not found', file=sys.stderr)
                 sys.exit(1)
             if args.reset:
                 # backup existing database file
@@ -65,9 +69,9 @@ if __name__ == '__main__':
                 print(f'File {args.db} already exists, use --reset to overwrite it', file=sys.stderr)
                 sys.exit(1)
         if args.init:
-            newdb = init_db(args.db, args.dbconf)
+            newdb = init_db(f'sqlite:///{args.db}', args.conf)
         else:
-            newdb = db.DBModule(dbstring=args.db, dbconf_file=args.dbconf)
+            newdb = db.DBModule(dbstring=f'sqlite:///{args.db}', dbconf_file=args.conf)
             if not os.path.isfile(args.db):
                 newdb.create_sqlite_file()
         if args.add_tfds:

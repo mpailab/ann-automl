@@ -1,3 +1,0 @@
-,Unnamed: 0,TaskType,categories,pipeline,augmen_params,optimizer,batch_size,epoch,loss,metrics,additional_params,achieved accuracy
-0,0.0,classification,"('cats', 'mice')",ResNet50,"{'preprocessing_function': <function preprocess_input at 0x7f94372527a0>, 'horizontal_flip': True}",Adam,32,1,binary_crossentropy,accuracy,{},0.91
-1,,classification,"[('cats', 'dogs')]",ResNet50,"[""{'preprocessing_function': <function preprocess_input at 0x7f94372527a0>, 'horizontal_flip': True}""]",Adam,32,1,binary_crossentropy,accuracy,[{}],0.92

@@ -1,6 +1,0 @@
-,TaskType,Objects,ModelAddress,Metrics
-0,detection,"{'cats', 'mice'}",./TrainedNN/New_NetworkFirst,{'accuracy': 0.91}
-1,classification,"{'cats', 'dogs'}",./TrainedNN/New_NetworkPP,{'accuracy': 0.91}
-2,classification,"{'cats', 'dogs'}",./TrainedNN/New_NetworkFirst,{'accuracy': 0.8}
-3,classification,"{'cats', 'mice'}",./TrainedNN/New_NetworkFirst,{'accuracy': 0.93}
-4,classification,"{'cats', 'mice'}",./TrainedNN/New_NetworkFirst,{'loss': 0.93}
