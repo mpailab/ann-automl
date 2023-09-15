@@ -1,7 +1,7 @@
 numpy>=1.19
 keras>=2.4
 pandas
-sqlalchemy>=1.4
+sqlalchemy==1.4.49
 pillow>=8.2.0
 pyyaml>=6.0
 
@@ -14,8 +14,8 @@ matplotlib
 tensorflow>=2.0
 tqdm
 
-panel
-bokeh
+panel==0.14.4
+bokeh==2.4.3
 holoviews
 
 psutil
