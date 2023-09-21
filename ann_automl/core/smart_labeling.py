@@ -4,23 +4,24 @@ import yolov5
 from PIL import Image
 from datetime import datetime, date
 
+
 def make_labeling_info():
     labeling_info = {}
-    print("Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
-          "2) Загрузить изображения zip-архивом")
-    labeling_info["upload_type"] = input()
-    print("Введите название датасета:")
-    labeling_info["dataset_name"] = input()
+    labeling_info["upload_type"] = input(
+        "Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
+        "2) Загрузить изображения zip-архивом")
+    labeling_info["dataset_name"] = input("Введите название датасета:")
     dict_of_nn = {"yolov5s": 'yolov5s.pt', "yolov5n": 'yolov5n.pt', "yolov5m": 'yolov5m.pt', "yolov5l": 'yolov5l.pt',
                   "yolov5x": 'yolov5x.pt'}
-    print("Выберите, какую нейросеть использовать для разметки: ")
     i = 0
     for key in dict_of_nn.keys():
         i = i + 1
         print(i, ")", key)
-    nn_var = input()
+    nn_var = input("Выберите, какую нейросеть использовать для разметки: ")
     labeling_info["nn"] = dict_of_nn[nn_var]
     return labeling_info
+
+
 def upload_images(upload_type, dst_dir):
     if upload_type == "1":
         upload_from_folder(dst_dir)
@@ -30,8 +31,10 @@ def upload_images(upload_type, dst_dir):
         return 0
     else:
         return 101
-def labeling():
-    dst_dir = "data/datasets"
+
+
+def labeling(dst_dir=""):
+    dst_dir = os.path.join(dst_dir, "data", "datasets")
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
     labeling_info = make_labeling_info()
@@ -44,11 +47,12 @@ def labeling():
     with open(dst_dir + "/annotations/annotations.json", "w") as outfile:
         json.dump(final_anno, outfile)
     return dst_dir
+
+
 def make_dict_for_labeler(dst_dir, labeling_info):
-    labeling_dict = {}
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
-    dst_dir = dst_dir +"/" + labeling_info["dataset_name"]
+    dst_dir = dst_dir + "/" + labeling_info["dataset_name"]
     os.makedirs(dst_dir + "/images")
     os.makedirs(dst_dir + "/annotations")
     upload_type = labeling_info["upload_type"]
@@ -57,6 +61,7 @@ def make_dict_for_labeler(dst_dir, labeling_info):
         print("Введено неверное значение")
     labeling_dict = make_anno_with_yolo(dst_dir, labeling_info["nn"])
     return labeling_dict, dst_dir.strip()
+
 
 def make_anno_with_yolo(dst_dir, network):
     data_dir = dst_dir + "/images"
@@ -104,7 +109,8 @@ def make_anno_with_yolo(dst_dir, network):
     result_dict["batchSize"] = 1
     result_dict["allowConfigChange"] = True
     result_dict["advanceOnSave"] = True
-    return(result_dict)
+    return (result_dict)
+
 
 def make_final_anno(labels_dir):
     with open(labels_dir + "/labels.json", "r") as file:
@@ -135,7 +141,7 @@ def make_final_anno(labels_dir):
         image_dict["flickr_url"] = ""
         image_dict["id"] = img_id_index
         anno_dict["images"].append(image_dict)
-        img_id_index = img_id_index+1
+        img_id_index = img_id_index + 1
         for box in image["labels"]["boxes"]:
             annotation_dict = {}
             annotation_dict["segmentation"] = []
@@ -144,8 +150,8 @@ def make_final_anno(labels_dir):
             annotation_dict["iscrowd"] = 0
             annotation_dict["keypoints"] = []
             annotation_dict["image_id"] = image_dict["id"]
-            annotation_dict["bbox"] = [box["pt1"]["x"]*image_dict["width"], box["pt1"]["y"]*image_dict["height"],
-                                       box["pt2"]["x"]*image_dict["width"], box["pt2"]["y"]*image_dict["height"]]
+            annotation_dict["bbox"] = [box["pt1"]["x"] * image_dict["width"], box["pt1"]["y"] * image_dict["height"],
+                                       box["pt2"]["x"] * image_dict["width"], box["pt2"]["y"] * image_dict["height"]]
             annotation_dict["category_id"] = cat_dict[box["labels"]["Type"][0]]
             annotation_dict["id"] = len(anno_dict["annotations"])
             anno_dict["annotations"].append(annotation_dict)
@@ -156,17 +162,17 @@ def make_final_anno(labels_dir):
     return anno_dict
 
 
-
 def upload_from_folder(dst_dir):
     from os.path import isfile, join
     import shutil
-    print("Введите путь директории с изображениями")
-    src_dir = input()
+    # print("Введите путь директории с изображениями")
+    src_dir = input("Введите путь директории с изображениями")
     for filename in os.listdir(src_dir):
         if isfile(join(src_dir, filename)):
             if filename.endswith(".jpeg") or filename.endswith(".jpg"):
                 jpgfile = join(src_dir, filename)
                 shutil.copy(jpgfile, dst_dir)
+
 
 def upload_from_server(dst_dir):
     import requests
@@ -185,6 +191,7 @@ def upload_from_server(dst_dir):
                 with open(dst_dir + '/' + list_of_names[i], 'wb') as handler:
                     handler.write(img_data)
             i = i + 1
+
 
 def upload_from_zip(dst_dir):
     import shutil
