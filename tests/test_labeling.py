@@ -5,7 +5,6 @@ from ann_automl.core.smart_labeling import labeling
 import tempfile
 import os
 from datetime import datetime, date
-import shutil
 import pytest
 
 @pytest.fixture(scope='function')
@@ -15,11 +14,23 @@ def db_dir():
 
 @pytest.mark.usefixtures('db_dir')
 def test_fill_in_coco_format(db_dir, monkeypatch):
+    """
+            Создает словарь в формате, пригодном для использования разметчиком qsl.
+            Args:
+                db_dir (str): путь к временному каталогу, в котором хранится база данных
+                monkeypatch: необходим для передачи в тест параметров, вместо входного потока
+
+            В path_to_images указывается путь до директории с добавляемыми изображениями. В качестве итерируемого
+            объекта подается список параметров: 1) способ добавления изображений
+                                                2) Название датасета
+                                                3) Нейросеть, используемая для разметки
+                                                4) Путь до директории с изображениями
+    """
     mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    path_to_images = "C:/Users/droby/OneDrive/Документы/tests/pictures"
+    path_to_images = "C:/Users/Alexander/Documents/tests/pictures"
     input_data = iter(["1", "My_dataset", "yolov5x", path_to_images])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
