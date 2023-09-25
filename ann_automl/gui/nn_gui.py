@@ -95,6 +95,15 @@ task_params = {
                   'default': False }
 }
 
+labeling_params = {
+    'images_name': { 'title': 'Название базы изображений', 'type': 'str', 'default': '' },
+    'images_path': { 'title': 'Путь к базе изображений', 'type': 'str', 'default': '' },
+    'images_zip': { 'title': 'База изображений запакована в zip-архив?', 'type': 'bool', 'default': False },
+    'nn_core': { 'title': 'Ядро разметчика (используемая нейросеть)',
+                 'type': 'str', 'default': 'yolov5s',
+                 'values': ['yolov5s', 'yolov5n', 'yolov5m', 'yolov5l', 'yolov5x'] },
+    'save_path': { 'title': 'Путь для сохранения аннотации, сделанной разметчиком', 'type': 'str', 'default': '' },
+}
 
 dataset_params = {
     'description': { 'title': 'Название', 'type': 'str', 'default': '' },
@@ -122,6 +131,10 @@ gui_params = {
     **{
         f'dataset_{k}': {**v, 'gui': {'group': 'dataset', 'widget': widget_type(v)}}
         for k,v in dataset_params.items()
+    },
+    **{
+        f'labeling_{k}': {**v, 'gui': {'group': 'labeling', 'widget': widget_type(v)}}
+        for k,v in labeling_params.items()
     },
     **hyperparameters
 }
@@ -415,6 +428,7 @@ class NNGui(object):
         self.hparams_desc = hparams
 
         self.make_params_widgets(gui_params)
+        self.init_labeling_interface()
         self.init_database_interface()
         self.init_task_interface()
         self.init_train_interface()
@@ -424,6 +438,7 @@ class NNGui(object):
 
     def make_params_widgets(self, params: Dict[str, Any]):
         self.general_params = []
+        self.labeling_params = []
         self.task_params = []
         self.dataset_params = []
         self.train_params = []
@@ -443,6 +458,30 @@ class NNGui(object):
                 for w in [*self.train_params, *self.optimizer_params]
             })
         return res
+    
+    def on_click_labeling_start(self):
+        pass
+
+    def init_labeling_interface(self):
+        self.labeling_logs = Div(align="start", visible=False)
+
+        self.labeling_start_button = Button('Запустить разметчик',
+                                         self.on_click_labeling_start)
+        self.labeling_buttons = [self.labeling_start_button]
+
+        self.labeling_interfaces = [
+            Column(self.labeling_images_name.interface,
+                   self.labeling_images_path.interface,
+                   self.labeling_images_zip.interface,
+                   self.labeling_nn_core.interface,
+                   self.labeling_save_path.interface,
+                   sizing_mode='stretch_both') ]
+
+    def activate_labeling_interface(self):
+        self.menu_button.label = "Разметка"
+        self.buttons_interface.children = self.labeling_buttons
+        self.window_interface.children = self.labeling_interfaces
+        self.logs_interface.children = [self.labeling_logs]
 
     def get_dataset_supercategories(self, ds):
         return list(self.database[ds]['categories'].keys())
@@ -616,7 +655,7 @@ class NNGui(object):
                 self.dataset_supercategory, self.dataset_category,
                 self.dataset_categories_num)
 
-        self.dataset_add_button = Button('Добавить датасет',
+        self.dataset_add_button = Button('Добавить новый датасет',
                                          self.on_click_dataset_add)
         self.dataset_load_button = Button('Загрузить', self.on_click_dataset_load,
                                           visible=False)
@@ -1125,6 +1164,7 @@ class NNGui(object):
             setattr(self, f'{field}_info', widget)
 
         menu = [
+            ("Разметка", "labeling"),
             ("База данных", "database"),
             ("Задача", "task"),
             ("Обучение", "train"),
@@ -1169,6 +1209,9 @@ class NNGui(object):
                        margin=(-10, 5, -5, 5)),
                    self.buttons_interface, self.window_interface, self.logs_interface, spacing=5)
 
+        self.menu_labeling_button = Button("Разметка", self.on_click_labeling_menu,
+                                           button_type='default',
+                                           css_classes=['ann-active-head-btn'])
         self.menu_database_button = Button("База данных", self.on_click_database_menu,
                                            button_type='default',
                                            css_classes=['ann-active-head-btn'])
@@ -1204,9 +1247,14 @@ class NNGui(object):
                         alert("Задача не создана, " + msg + "!");
                     }'''))
 
-        self.menu_buttons = Row(self.menu_database_button, self.menu_task_button,
+        self.menu_buttons = Row(self.menu_labeling_button,
+                                self.menu_database_button, self.menu_task_button,
                                 self.menu_train_button, self.menu_history_button)
 
+    def on_click_labeling_menu(self, event):
+        print("Goto labeling interface")
+        self.activate_labeling_interface()
+    
     def on_click_database_menu(self, event):
         print("Goto database interface")
         self.activate_database_interface()
