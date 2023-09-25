@@ -20,3 +20,6 @@ bokeh==2.4.3
 holoviews
 
 psutil
+
+qsl
+yolov5
