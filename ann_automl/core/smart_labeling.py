@@ -6,7 +6,14 @@ from datetime import datetime, date
 
 
 def make_labeling_info():
-    labeling_info = {}
+    """
+        Заполняет словарь информации, необходимой для разметки датасета. Необходима только для тестов,  в будущем
+        подразумевается, что словарь будет заполнятся информацией от пользователя.
+        upload_type - способ добавления изображений
+        dataset_name - название добавляемого датасета
+        nn - нейросеть, используемая для предварительной разметки датасета
+    """
+    labeling_info = dict()
     labeling_info["upload_type"] = input(
         "Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
         "2) Загрузить изображения zip-архивом")
@@ -23,6 +30,13 @@ def make_labeling_info():
 
 
 def upload_images(upload_type, dst_dir):
+    """
+        Добавляет изображения в котолог, находящийся по пути dst_dit
+
+        Args:
+            dst_dir (str): путь к каталогу, в котором будут храниться изображения
+            upload_type (str): способ добавления изобрадений
+    """
     if upload_type == "1":
         upload_from_folder(dst_dir)
         return 0
@@ -34,6 +48,12 @@ def upload_images(upload_type, dst_dir):
 
 
 def labeling(dst_dir=""):
+    """
+        Выполняет разметку изображений при помощи qsl Media labeler с последующей записью аннотаций в файл
+        annotations.json.
+        Args:
+            dst_dir (str): путь к каталогу, в котором хранятся изображения
+    """
     dst_dir = os.path.join(dst_dir, "data", "datasets")
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
@@ -50,6 +70,12 @@ def labeling(dst_dir=""):
 
 
 def make_dict_for_labeler(dst_dir, labeling_info):
+    """
+        Запускает функции для загрузки изображений и создания словаря для разметчика.
+        Args:
+            dst_dir (str): путь к каталогу, в котором хранятся изображения
+            labeling_info (dict): словарь, содержащий основную информацию о добавляемом датасете
+    """
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
     dst_dir = dst_dir + "/" + labeling_info["dataset_name"]
@@ -64,6 +90,12 @@ def make_dict_for_labeler(dst_dir, labeling_info):
 
 
 def make_anno_with_yolo(dst_dir, network):
+    """
+        Создает словарь в формате, пригодном для использования разметчиком qsl.
+        Args:
+            dst_dir (str): путь к каталогу, в котором хранятся изображения
+            network (str): нейросеть, используемая для предварительной разметки изображений
+    """
     data_dir = dst_dir + "/images"
     model = yolov5.load(network)
     list_of_images = []
@@ -72,7 +104,7 @@ def make_anno_with_yolo(dst_dir, network):
             if filename.endswith(".jpeg") or filename.endswith(".jpg"):
                 jpgfile = os.path.join(data_dir, filename).replace("\\", "/")
                 list_of_images.append(jpgfile)
-    result_dict = {}
+    result_dict = dict()
     result_dict["items"] = []
     regions = []
     for filename in list_of_images:
@@ -109,14 +141,19 @@ def make_anno_with_yolo(dst_dir, network):
     result_dict["batchSize"] = 1
     result_dict["allowConfigChange"] = True
     result_dict["advanceOnSave"] = True
-    return (result_dict)
+    return result_dict
 
 
 def make_final_anno(labels_dir):
+    """
+        Создает словарь аннотаций в формате COCO.
+        Args:
+            labels_dir (str): путь к каталогу, в котором хранится json файл, содержащий разметку.
+    """
     with open(labels_dir + "/labels.json", "r") as file:
         labels = json.load(file)
 
-    anno_dict = {}
+    anno_dict = dict()
     anno_dict["info"] = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                          "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     anno_dict["licenses"] = {"url": "", "id": 1, "name": ""}
@@ -163,6 +200,11 @@ def make_final_anno(labels_dir):
 
 
 def upload_from_folder(dst_dir):
+    """
+        Добавляет в каталог, находящийся по пути dst_dir все изобрвжения, находящиеся в пользовательском каталоге.
+        Args:
+            dst_dir (str): путь к каталогу, в котором будут храниться изображения
+    """
     from os.path import isfile, join
     import shutil
     # print("Введите путь директории с изображениями")
@@ -175,6 +217,14 @@ def upload_from_folder(dst_dir):
 
 
 def upload_from_server(dst_dir):
+    """
+    Добавляет в каталог, находящийся по пути dst_dir изобрвжения,скаченные с указанного ресурса.
+    Args:
+        dst_dir (str): путь к каталогу, в котором будут храниться изображения
+
+    TODO:
+        дописать
+    """
     import requests
     list_of_names = ["1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg"]
     print("Введите путь до файла с url")
@@ -194,6 +244,11 @@ def upload_from_server(dst_dir):
 
 
 def upload_from_zip(dst_dir):
+    """
+    Добавляет в каталог, находящийся по пути dst_dir изобрвжения, находящиеся в zip-архиве.
+    Args:
+        dst_dir (str): путь к каталогу, в котором будут храниться изображения
+    """
     import shutil
     print("Введите путь архива с изображениями")
     filename = input()
