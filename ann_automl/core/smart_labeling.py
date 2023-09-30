@@ -14,9 +14,11 @@ def make_labeling_info():
         nn - нейросеть, используемая для предварительной разметки датасета
     """
     labeling_info = dict()
-    labeling_info["upload_type"] = input(
+    images_zip = input(
         "Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
         "2) Загрузить изображения zip-архивом")
+    labeling_info["images_path"] = input("Введите путь до директории с изображениями")
+    labeling_info["images_zip"] = False
     labeling_info["dataset_name"] = input("Введите название датасета:")
     dict_of_nn = {"yolov5s": 'yolov5s.pt', "yolov5n": 'yolov5n.pt', "yolov5m": 'yolov5m.pt', "yolov5l": 'yolov5l.pt',
                   "yolov5x": 'yolov5x.pt'}
@@ -25,11 +27,11 @@ def make_labeling_info():
         i = i + 1
         print(i, ")", key)
     nn_var = input("Выберите, какую нейросеть использовать для разметки: ")
-    labeling_info["nn"] = dict_of_nn[nn_var]
+    labeling_info["nn_core"] = dict_of_nn[nn_var]
     return labeling_info
 
 
-def upload_images(upload_type, dst_dir):
+def upload_images(upload_type, image_dir, dst_dir):
     """
         Добавляет изображения в котолог, находящийся по пути dst_dit
 
@@ -37,14 +39,12 @@ def upload_images(upload_type, dst_dir):
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
             upload_type (str): способ добавления изобрадений
     """
-    if upload_type == "1":
-        upload_from_folder(dst_dir)
-        return 0
-    elif upload_type == "2":
-        upload_from_zip(dst_dir)
+    if not upload_type:
+        upload_from_folder(image_dir, dst_dir)
         return 0
     else:
-        return 101
+        upload_from_zip(image_dir, dst_dir)
+        return 0
 
 
 def labeling(dst_dir=""):
@@ -54,22 +54,24 @@ def labeling(dst_dir=""):
         Args:
             dst_dir (str): путь к каталогу, в котором хранятся изображения
     """
-    dst_dir = os.path.join(dst_dir, "data", "datasets")
-    if not os.path.exists(dst_dir):
-        os.makedirs(dst_dir)
-    labeling_info = make_labeling_info()
-    result_dict, dst_dir = make_dict_for_labeler(dst_dir, labeling_info)
+    #labeling_info = make_labeling_info()
+    labeling_args = {"images_path" : "C:/Users/Alexander/Documents/tests/pictures",
+                     "images_zip" : False,
+                     "nn_core" : "yolov5x",
+                     "images_name" : "microtest"}
+    dst_dir = os.path.join(dst_dir, "data", "datasets", labeling_args["images_name"]).strip()
+    labels_dict = pre_processing(labeling_args, dst_dir)
     with open(dst_dir + "/labels.json", "w") as outfile:
-        json.dump(result_dict, outfile)
+        json.dump(labels_dict, outfile)
     command = "qsl label " + dst_dir + "/labels.json"
     os.system(command)
-    final_anno = make_final_anno(dst_dir)
-    with open(dst_dir + "/annotations/annotations.json", "w") as outfile:
+    final_anno = post_processing(dst_dir)
+    with open(dst_dir + "/annotations/annotations_file.json", "w") as outfile:
         json.dump(final_anno, outfile)
     return dst_dir
 
 
-def make_dict_for_labeler(dst_dir, labeling_info):
+def pre_processing(labeling_info, dst_dir):
     """
         Запускает функции для загрузки изображений и создания словаря для разметчика.
         Args:
@@ -78,15 +80,13 @@ def make_dict_for_labeler(dst_dir, labeling_info):
     """
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
-    dst_dir = dst_dir + "/" + labeling_info["dataset_name"]
     os.makedirs(dst_dir + "/images")
     os.makedirs(dst_dir + "/annotations")
-    upload_type = labeling_info["upload_type"]
-    error = upload_images(upload_type, dst_dir + "/images")
+    error = upload_images(labeling_info["images_zip"], labeling_info["images_path"], dst_dir + "/images")
     if (error == 101):
-        print("Введено неверное значение")
-    labeling_dict = make_anno_with_yolo(dst_dir, labeling_info["nn"])
-    return labeling_dict, dst_dir.strip()
+        raise ValueError("Invalid value of image_dir value")
+    labeling_dict = make_anno_with_yolo(dst_dir, labeling_info["nn_core"] + ".pt")
+    return labeling_dict
 
 
 def make_anno_with_yolo(dst_dir, network):
@@ -97,6 +97,7 @@ def make_anno_with_yolo(dst_dir, network):
             network (str): нейросеть, используемая для предварительной разметки изображений
     """
     data_dir = dst_dir + "/images"
+    print("\n network = ", network, "\n")
     model = yolov5.load(network)
     list_of_images = []
     for filename in os.listdir(data_dir):
@@ -144,12 +145,14 @@ def make_anno_with_yolo(dst_dir, network):
     return result_dict
 
 
-def make_final_anno(labels_dir):
+def post_processing(labels_dir):
     """
         Создает словарь аннотаций в формате COCO.
         Args:
             labels_dir (str): путь к каталогу, в котором хранится json файл, содержащий разметку.
     """
+    if not os.path.isfile(labels_dir + "/labels.json"):
+        raise FileNotFoundError('Error: no labels file found in', labels_dir + "/labels.json", 'directory')
     with open(labels_dir + "/labels.json", "r") as file:
         labels = json.load(file)
 
@@ -199,7 +202,7 @@ def make_final_anno(labels_dir):
     return anno_dict
 
 
-def upload_from_folder(dst_dir):
+def upload_from_folder(image_dir, dst_dir):
     """
         Добавляет в каталог, находящийся по пути dst_dir все изобрвжения, находящиеся в пользовательском каталоге.
         Args:
@@ -208,11 +211,12 @@ def upload_from_folder(dst_dir):
     from os.path import isfile, join
     import shutil
     # print("Введите путь директории с изображениями")
-    src_dir = input("Введите путь директории с изображениями")
-    for filename in os.listdir(src_dir):
-        if isfile(join(src_dir, filename)):
+    if len(os.listdir(image_dir)) == 0:
+        raise FileNotFoundError('No image files in', image_dir, 'directory')
+    for filename in os.listdir(image_dir):
+        if isfile(join(image_dir, filename)):
             if filename.endswith(".jpeg") or filename.endswith(".jpg"):
-                jpgfile = join(src_dir, filename)
+                jpgfile = join(image_dir, filename)
                 shutil.copy(jpgfile, dst_dir)
 
 
@@ -243,13 +247,13 @@ def upload_from_server(dst_dir):
             i = i + 1
 
 
-def upload_from_zip(dst_dir):
+def upload_from_zip(image_dir, dst_dir):
     """
     Добавляет в каталог, находящийся по пути dst_dir изобрвжения, находящиеся в zip-архиве.
     Args:
         dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
     import shutil
-    print("Введите путь архива с изображениями")
-    filename = input()
-    shutil.unpack_archive(filename, dst_dir)
+    if not os.path.isfile(image_dir):
+        raise FileNotFoundError('Error: no annotation file', image_dir, 'found')
+    shutil.unpack_archive(image_dir, dst_dir)
