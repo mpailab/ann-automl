@@ -80,8 +80,10 @@ def pre_processing(labeling_info, dst_dir):
     """
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
-    os.makedirs(dst_dir + "/images")
-    os.makedirs(dst_dir + "/annotations")
+    if not os.path.exists(dst_dir + "/images"):
+        os.makedirs(dst_dir + "/images")
+    if not os.path.exists(dst_dir + "/annotations"):
+        os.makedirs(dst_dir + "/annotations")
     error = upload_images(labeling_info["images_zip"], labeling_info["images_path"], dst_dir + "/images")
     if (error == 101):
         raise ValueError("Invalid value of image_dir value")
@@ -97,7 +99,7 @@ def make_anno_with_yolo(dst_dir, network):
             network (str): нейросеть, используемая для предварительной разметки изображений
     """
     data_dir = dst_dir + "/images"
-    print("\n network = ", network, "\n")
+    #print("\n network = ", network, "\n")
     model = yolov5.load(network)
     list_of_images = []
     for filename in os.listdir(data_dir):
