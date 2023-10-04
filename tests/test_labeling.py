@@ -31,16 +31,22 @@ def test_fill_in_coco_format(db_dir, monkeypatch):
     assert os.path.isfile(db_dir + '/test.sqlite')
 
     path_to_images = "C:/Users/Alexander/Documents/tests/pictures"
-    input_data = iter(["1", "My_dataset", "yolov5x", path_to_images])
+    input_data = iter(["1", path_to_images, "My_dataset", "yolov5s", "1", path_to_images, "My_dataset_2", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
     dataset_dir = labeling(db_dir)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
-    mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations.json',
+    mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
                              file_prefix=dataset_dir + '/images/', ds_info=dataset_info)
 
-    assert len(mydb.get_all_datasets()) == 1
+    dataset_dir = labeling(db_dir)
+    dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
+                    "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
+    mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
+                             file_prefix=dataset_dir + '/images/', ds_info=dataset_info)
+
+    assert len(mydb.get_all_datasets()) == 2
     print(f'Categories: {list(mydb.get_all_categories()["name"])}')
     assert len(mydb.get_all_categories()['name']) != 0
     assert set(mydb.get_all_categories()['name']) == {'bird', 'truck', 'stop sign', 'cat', 'suitcase', 'car', 'bed',
