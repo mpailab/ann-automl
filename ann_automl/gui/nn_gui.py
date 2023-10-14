@@ -23,7 +23,7 @@ from random import randint, random, sample
 from ..utils.process import process
 from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tensorboard
-import ann_automl.gui.qsl as qsl
+import ann_automl.gui.qsl_label as qsl_label
 import ann_automl.core.smart_labeling as labeling
 from ..core.nn_task import loss_target, metric_target, NNTask
 from ..core.nnfuncs import cur_db, StopFlag, train, tune, param_values, tensorboard_logdir, params_from_history
@@ -32,11 +32,13 @@ from ..core.nn_recommend import recommend_hparams
 Callback = Callable[[Any, Any, Any], None]
 Params = Optional[Dict[str, Any]]
 
+HOST = "0.0.0.0"
+#HOST = "localhost"
+
 # Launch TensorBoard
 tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
                   logdir=tensorboard_logdir(),
-                  host="0.0.0.0",
-                #   host="localhost",
+                  host=HOST,
                   port="6006"))
 
 shadow_border_css = '''
@@ -184,6 +186,7 @@ def Toggle(label, on_click_func, *args, **kwargs):
 
 
 js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
+js_open_qsl_label = CustomJS(code='window.open("http://localhost:8080");')
 
 
 class ParamWidget(object):
@@ -482,22 +485,35 @@ class NNGui(object):
                         "images_path": self.labeling_images_path.value,
                         "nn_core": self.labeling_nn_core.value}
         
-        working_dir = os.path.join(self.labeling_save_path.value, labeling_args['images_name'])
+        self.labeling_working_dir = os.path.join(self.labeling_save_path.value, labeling_args['images_name'])
+        
+        for widget in self.labeling_params:
+            widget.disable()
+        self.labeling_start_button.disabled = True
+
         print(f"smart_labeling.pre_processing... ", end='')
-        labels_dict = labeling.pre_processing(labeling_args, working_dir)
+        labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
         print("ok")
 
-        labels_file = f"{working_dir}/labels.json"
+        labels_file = f"{self.labeling_working_dir}/labels.json"
         with open(labels_file, "w") as outfile:
             json.dump(labels_dict, outfile)
-        qsl.start(f"label {labels_file}")
-        #os.system(f"qsl label {labels_file}")
-
+        #js_open_qsl_label()
+        self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port =8080)
+        self.labeling_finish_button.visible = True
+    
+    def on_click_labeling_finish(self):
+        self.qsl_label_proc.kill()
         print(f"smart_labeling.post_processing... ", end='')
-        annotations_dict = labeling.post_processing(working_dir)
+        annotations_dict = labeling.post_processing(self.labeling_working_dir)
         print("ok")
-        with open(f"{working_dir}/annotations/annotations.json", "w") as outfile:
+        with open(f"{self.labeling_working_dir}/annotations/annotations.json", "w") as outfile:
             json.dump(annotations_dict, outfile)
+        
+        self.labeling_finish_button.visible = False
+        self.labeling_start_button.disabled = False
+        for widget in self.labeling_params:
+            widget.enable()
 
     def init_labeling_interface(self):
         self.labeling_logs = Div(align="start", visible=False)
@@ -505,7 +521,9 @@ class NNGui(object):
 
         self.labeling_start_button = Button('Запустить разметчик',
                                          self.on_click_labeling_start)
-        self.labeling_buttons = [self.labeling_start_button, self.labeling_error]
+        self.labeling_finish_button = Button('Завершить разметку',
+                                         self.on_click_labeling_finish, visible=False)
+        self.labeling_buttons = [self.labeling_start_button, self.labeling_finish_button, self.labeling_error]
 
         self.labeling_interfaces = [
             Column(self.labeling_images_name.interface,
