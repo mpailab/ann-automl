@@ -16,6 +16,7 @@ from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, \
                          DatePicker, TextInput, TextAreaInput, Spacer, \
                          ColumnDataSource, DataTable, TableColumn, Dropdown, \
                          NumberFormatter, Widget
+from bokeh.events import ButtonClick
 import bokeh.plotting.figure as Figure
 from datetime import date
 from random import randint, random, sample
@@ -34,6 +35,7 @@ Params = Optional[Dict[str, Any]]
 
 HOST = "0.0.0.0"
 #HOST = "localhost"
+PORT_QSL = 8080
 
 # Launch TensorBoard
 tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
@@ -186,7 +188,7 @@ def Toggle(label, on_click_func, *args, **kwargs):
 
 
 js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
-js_open_qsl_label = CustomJS(code='window.open("http://localhost:8080");')
+js_open_qsl_label = CustomJS(code=f'window.open("http://localhost:{PORT_QSL}");')
 
 
 class ParamWidget(object):
@@ -499,7 +501,7 @@ class NNGui(object):
         with open(labels_file, "w") as outfile:
             json.dump(labels_dict, outfile)
         #js_open_qsl_label()
-        self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port =8080)
+        self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port = PORT_QSL)
         self.labeling_finish_button.visible = True
     
     def on_click_labeling_finish(self):
@@ -521,6 +523,8 @@ class NNGui(object):
 
         self.labeling_start_button = Button('Запустить разметчик',
                                          self.on_click_labeling_start)
+        #self.labeling_start_button.js_on_change('disabled', js_open_qsl_label)
+        self.labeling_start_button.js_on_event(ButtonClick, js_open_qsl_label)
         self.labeling_finish_button = Button('Завершить разметку',
                                          self.on_click_labeling_finish, visible=False)
         self.labeling_buttons = [self.labeling_start_button, self.labeling_finish_button, self.labeling_error]
