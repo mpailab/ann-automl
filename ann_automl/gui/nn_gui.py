@@ -11,7 +11,7 @@ import datetime as dt
 import numpy as np
 import bokeh
 from typing import Any, Callable, Dict, Optional
-from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, \
+from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, RadioGroup,\
                          MultiChoice, MultiSelect, CheckboxGroup, CheckboxButtonGroup, \
                          DatePicker, TextInput, TextAreaInput, Spacer, \
                          ColumnDataSource, DataTable, TableColumn, Dropdown, \
@@ -493,25 +493,34 @@ class NNGui(object):
             widget.disable()
         self.labeling_start_button.disabled = True
 
+        self.labeling_logs.visible = True
+        self.labeling_logs.text = "<b>Выполняется загрузка изображения и автоматическая разметка</b>"
         print(f"smart_labeling.pre_processing... ", end='')
         labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
         print("ok")
-
         labels_file = f"{self.labeling_working_dir}/labels.json"
         with open(labels_file, "w") as outfile:
             json.dump(labels_dict, outfile)
-        #js_open_qsl_label()
+        
+        self.labeling_logs.text = f"""<b>Автоматическая разметка завершена.
+        Ручная доразметка может быть произведена
+        <a href="https://{HOST}:{PORT_QSL}">здесь</a>.</b>"""
         self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port = PORT_QSL)
+        self.labeling_open_qsl_tab.active = 1 #Open tab
         self.labeling_finish_button.visible = True
     
     def on_click_labeling_finish(self):
+        self.labeling_logs.text = ""
+        self.labeling_logs.visible = False
         self.qsl_label_proc.kill()
+        self.labeling_open_qsl_tab.active = 0
+
         print(f"smart_labeling.post_processing... ", end='')
         annotations_dict = labeling.post_processing(self.labeling_working_dir)
         print("ok")
         with open(f"{self.labeling_working_dir}/annotations/annotations.json", "w") as outfile:
             json.dump(annotations_dict, outfile)
-        
+
         self.labeling_finish_button.visible = False
         self.labeling_start_button.disabled = False
         for widget in self.labeling_params:
@@ -523,11 +532,22 @@ class NNGui(object):
 
         self.labeling_start_button = Button('Запустить разметчик',
                                          self.on_click_labeling_start)
-        #self.labeling_start_button.js_on_change('disabled', js_open_qsl_label)
-        self.labeling_start_button.js_on_event(ButtonClick, js_open_qsl_label)
+        #self.labeling_start_button.js_on_event(ButtonClick, js_open_qsl_label)
         self.labeling_finish_button = Button('Завершить разметку',
                                          self.on_click_labeling_finish, visible=False)
         self.labeling_buttons = [self.labeling_start_button, self.labeling_finish_button, self.labeling_error]
+
+        # Фиктивный виджет. Открытие вкладки для qsl label при установки поля active в значение 1.
+        self.labeling_open_qsl_tab = RadioGroup(labels=["Passive state", "Open the tab"],
+                                                active=0, visible = False)
+        js_conditional_open_qsl_label = CustomJS(
+            code=f"""
+            const value = cb_obj.active
+            if (value == "1")
+                window.open("http://localhost:{PORT_QSL}");
+            """
+            )                                                
+        self.labeling_open_qsl_tab.js_on_change("active", js_conditional_open_qsl_label)
 
         self.labeling_interfaces = [
             Column(self.labeling_images_name.interface,
@@ -535,6 +555,7 @@ class NNGui(object):
                    self.labeling_images_zip.interface,
                    self.labeling_nn_core.interface,
                    self.labeling_save_path.interface,
+                   self.labeling_open_qsl_tab,
                    sizing_mode='stretch_both') ]
 
     def activate_labeling_interface(self):
