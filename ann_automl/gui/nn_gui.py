@@ -106,6 +106,9 @@ labeling_params = {
     'images_name': { 'title': 'Название базы изображений', 'type': 'str', 'default': 'microtest' },
     'images_path': { 'title': 'Путь к базе изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
     'images_zip': { 'title': 'База изображений запакована в zip-архив?', 'type': 'bool', 'default': True },
+    'images_source_type': { 'title': 'Источник для базы изображений',
+                 'type': 'str', 'default': 'zip_archive',
+                 'values': ['directory', 'zip_archive', 'google_drive'] },
     'nn_core': { 'title': 'Ядро разметчика (используемая нейросеть)',
                  'type': 'str', 'default': 'yolov5s',
                  'values': ['yolov5s', 'yolov5n', 'yolov5m', 'yolov5l', 'yolov5x'] },
@@ -482,7 +485,8 @@ class NNGui(object):
             self.labeling_error.visible = True
             return
         
-        labeling_args = {"images_zip" : self.labeling_images_zip.value,
+        labeling_args = {"images_zip" : self.labeling_images_source_type.value == "zip_archive",
+                        "images_source_type": self.labeling_images_source_type.value,
                         "images_name": self.labeling_images_name.value,
                         "images_path": self.labeling_images_path.value,
                         "nn_core": self.labeling_nn_core.value}
@@ -551,8 +555,8 @@ class NNGui(object):
 
         self.labeling_interfaces = [
             Column(self.labeling_images_name.interface,
+                   self.labeling_images_source_type.interface,
                    self.labeling_images_path.interface,
-                   self.labeling_images_zip.interface,
                    self.labeling_nn_core.interface,
                    self.labeling_save_path.interface,
                    self.labeling_open_qsl_tab,
