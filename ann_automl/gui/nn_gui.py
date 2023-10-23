@@ -38,10 +38,10 @@ HOST = "0.0.0.0"
 PORT_QSL = 8080
 
 # Launch TensorBoard
-tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
-                  logdir=tensorboard_logdir(),
-                  host=HOST,
-                  port="6006"))
+# tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
+#                   logdir=tensorboard_logdir(),
+#                   host=HOST,
+#                   port="6006"))
 
 shadow_border_css = '''
 .bk.ann-automl-shadow-border {
@@ -102,6 +102,12 @@ task_params = {
                   'default': False }
 }
 
+chatbot_params = {
+    'langmodel' : { 'title': 'Используемая чат-ботом языковая модель',
+                 'type': 'str', 'default': 'Lama_1',
+                 'values': ['Lama_1', 'Lama_2', 'Lama_3'] },
+}
+
 labeling_params = {
     'images_name': { 'title': 'Название базы изображений', 'type': 'str', 'default': 'microtest' },
     'images_path': { 'title': 'Путь к базе изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
@@ -145,6 +151,10 @@ gui_params = {
     **{
         f'labeling_{k}': {**v, 'gui': {'group': 'labeling', 'widget': widget_type(v)}}
         for k,v in labeling_params.items()
+    },
+    **{
+        f'chatbot_{k}': {**v, 'gui': {'group': 'chatbot', 'widget': widget_type(v)}}
+        for k,v in chatbot_params.items()
     },
     **hyperparameters
 }
@@ -439,17 +449,18 @@ class NNGui(object):
         self.hparams_desc = hparams
 
         self.make_params_widgets(gui_params)
+        self.init_chatbot_interface()
         self.init_labeling_interface()
         self.init_database_interface()
         self.init_task_interface()
         self.init_train_interface()
         self.init_history_interface()
         self.init_interface()
-        #self.activate_database_interface()
-        self.activate_labeling_interface()
+        self.activate_chatbot_interface()
 
     def make_params_widgets(self, params: Dict[str, Any]):
         self.general_params = []
+        self.chatbot_params = []
         self.labeling_params = []
         self.task_params = []
         self.dataset_params = []
@@ -471,6 +482,41 @@ class NNGui(object):
             })
         return res
     
+    def on_click_advanced_mode(self):
+        pass
+
+    def on_click_send_button(self):
+        request = self.chatbot_inputline.value
+        self.chatbot_inputline.value = ""
+        self.chatbot_output.value += request
+
+    def init_chatbot_interface(self):
+        self.chatbot_logs = Div(align="start", visible=False)
+        self.chatbot_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
+
+        self.advanced_mode_button = Button('Расширенный режим', self.on_click_advanced_mode)
+        self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
+        self.chatbot_buttons = [self.advanced_mode_button, self.chatbot_send_button, self.chatbot_error]
+        self.chatbot_output = TextAreaInput(value = "",
+                                          min_width=500, rows = 10,
+                                          sizing_mode='stretch_both',
+                                          disabled=True)
+        self.chatbot_inputline = TextAreaInput(value = "", title = "Введите Ваш запрос:",
+                                          min_width=500,
+                                          sizing_mode='stretch_both',
+                                          disabled=False)
+        self.chatbot_interfaces = [
+            Column(self.chatbot_langmodel.interface,
+                   self.chatbot_inputline,
+                   self.chatbot_output,
+                   sizing_mode='stretch_both') ]
+                   
+    def activate_chatbot_interface(self):
+        self.menu_button.label = "Чат-бот"
+        self.buttons_interface.children = self.chatbot_buttons
+        self.window_interface.children = self.chatbot_interfaces
+        self.logs_interface.children = [self.chatbot_logs]
+
     def on_click_labeling_start(self):
         err = ""
         if self.labeling_images_name.value == "":
@@ -1249,6 +1295,7 @@ class NNGui(object):
             setattr(self, f'{field}_info', widget)
 
         menu = [
+            ("Чат-бот", "chatbot"),
             ("Разметка", "labeling"),
             ("База данных", "database"),
             ("Задача", "task"),
@@ -1294,6 +1341,9 @@ class NNGui(object):
                        margin=(-10, 5, -5, 5)),
                    self.buttons_interface, self.window_interface, self.logs_interface, spacing=5)
 
+        self.menu_chatbot_button = Button("Чат-бот", self.on_click_chatbot_menu,
+                                           button_type='default',
+                                           css_classes=['ann-active-head-btn'])
         self.menu_labeling_button = Button("Разметка", self.on_click_labeling_menu,
                                            button_type='default',
                                            css_classes=['ann-active-head-btn'])
@@ -1332,9 +1382,13 @@ class NNGui(object):
                         alert("Задача не создана, " + msg + "!");
                     }'''))
 
-        self.menu_buttons = Row(self.menu_labeling_button,
+        self.menu_buttons = Row(self.menu_chatbot_button, self.menu_labeling_button,
                                 self.menu_database_button, self.menu_task_button,
                                 self.menu_train_button, self.menu_history_button)
+
+    def on_click_chatbot_menu(self, event):
+        print("Goto chatbot interface")
+        self.activate_chatbot_interface()
 
     def on_click_labeling_menu(self, event):
         print("Goto labeling interface")
