@@ -495,29 +495,36 @@ class NNGui(object):
         return res
 
     def on_click_send_button(self):
-        request = self.chatbot_inputline.value
+        request = self.chatbot_inputline.value.strip()
         self.chatbot_inputline.value = ""
-        self.chatbot_output.value += request
+        self.chatbot_output.value += request + "\n"
 
     def init_chatbot_interface(self):
         self.chatbot_logs = Div(align="start", visible=False)
         self.chatbot_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
 
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
-        self.chatbot_buttons = [self.chatbot_send_button, self.chatbot_error]
+        self.chatbot_buttons = [self.chatbot_error]
+
         self.chatbot_output = TextAreaInput(value = "",
-                                          min_width=500, rows = 10,
+                                          min_width=700, rows = 20,
                                           sizing_mode='stretch_both',
                                           disabled=True)
-        self.chatbot_inputline = TextAreaInput(value = "", title = "Введите Ваш запрос:",
-                                          min_width=500,
+        self.chatbot_inputline = TextAreaInput(value = "",
+                                          min_width=700,
                                           sizing_mode='stretch_both',
                                           disabled=False)
         self.chatbot_interfaces = [
-            Column(self.chatbot_langmodel.interface,
-                   self.chatbot_inputline,
-                   self.chatbot_output,
-                   sizing_mode='stretch_both') ]
+            Column(Row(Column(self.chatbot_langmodel.interface),
+                       Column(self.chatbot_output,
+                              Row(self.chatbot_inputline, self.chatbot_send_button,
+                              width_policy = 'max'
+                              )
+                       )
+                   ),
+            sizing_mode='stretch_both'
+            )
+        ]
                    
     def activate_chatbot_interface(self):
         self.menu_button.label = "Чат-бот"
