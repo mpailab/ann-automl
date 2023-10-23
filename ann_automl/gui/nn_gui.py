@@ -82,9 +82,21 @@ inactive_header_button_css = '''
 }
 '''
 
+mode_header_button_css = '''
+.bk.ann-mode-head-btn button.bk.bk-btn.bk-btn-default {
+    color: black;
+    font-size: 16pt;
+    background-color: #f57c00;
+    border-color: #f57c00;
+    min-height: 64px;
+    max-width: max-content;
+    border-radius: 0px;
+}
+'''
+
 pn.extension(raw_css=[
     shadow_border_css, scroll_css,
-    active_header_button_css, inactive_header_button_css
+    active_header_button_css, inactive_header_button_css, mode_header_button_css
 ])
 pn.config.sizing_mode = 'stretch_width'
 
@@ -481,9 +493,6 @@ class NNGui(object):
                 for w in [*self.train_params, *self.optimizer_params]
             })
         return res
-    
-    def on_click_advanced_mode(self):
-        pass
 
     def on_click_send_button(self):
         request = self.chatbot_inputline.value
@@ -494,9 +503,8 @@ class NNGui(object):
         self.chatbot_logs = Div(align="start", visible=False)
         self.chatbot_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
 
-        self.advanced_mode_button = Button('Расширенный режим', self.on_click_advanced_mode)
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
-        self.chatbot_buttons = [self.advanced_mode_button, self.chatbot_send_button, self.chatbot_error]
+        self.chatbot_buttons = [self.chatbot_send_button, self.chatbot_error]
         self.chatbot_output = TextAreaInput(value = "",
                                           min_width=500, rows = 10,
                                           sizing_mode='stretch_both',
@@ -1382,9 +1390,29 @@ class NNGui(object):
                         alert("Задача не создана, " + msg + "!");
                     }'''))
 
-        self.menu_buttons = Row(self.menu_chatbot_button, self.menu_labeling_button,
-                                self.menu_database_button, self.menu_task_button,
-                                self.menu_train_button, self.menu_history_button)
+        self.select_advanced_mode_button = Button('Расширенный режим', self.on_click_select_advanced_mode,
+                                                  button_type='default',
+                                                  css_classes=['ann-mode-head-btn'])
+        self.select_simple_mode_button = Button('Простой режим', self.on_click_select_simple_mode,
+                                                button_type='default',
+                                                css_classes=['ann-mode-head-btn'])
+        self.advanced_mode_buttons = Row(self.menu_chatbot_button, self.menu_labeling_button,
+                                         self.menu_database_button, self.menu_task_button,
+                                         self.menu_train_button, self.menu_history_button,
+                                         self.select_simple_mode_button)
+        self.simple_mode_buttons = Row(self.select_advanced_mode_button)
+        self.menu_buttons = Row()
+        self.on_click_select_simple_mode()
+    
+    def on_click_select_simple_mode(self):
+        print("Goto simple_mode interface")
+        self.menu_buttons.children = [self.simple_mode_buttons]
+        self.activate_chatbot_interface()
+
+    def on_click_select_advanced_mode(self):
+        print("Goto advanced_mode interface")
+        self.menu_buttons.children = [self.advanced_mode_buttons]
+        self.activate_database_interface()
 
     def on_click_chatbot_menu(self, event):
         print("Goto chatbot interface")
