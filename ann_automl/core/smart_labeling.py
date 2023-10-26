@@ -16,12 +16,14 @@ def make_labeling_info():
     labeling_info = dict()
     images_zip = input(
         "Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
-        "2) Загрузить изображения zip-архивом")
+        "2) Загрузить изображения zip-архивом \n 3) Загрузить изображения из Гугл Диска")
     labeling_info["images_path"] = input("Введите путь до директории с изображениями")
     if images_zip == "1":
-        labeling_info["images_zip"] = False
-    else:
-        labeling_info["images_zip"] = True
+        labeling_info["images_zip"] = "directory"
+    elif images_zip == "2":
+        labeling_info["images_zip"] = "zip-archive"
+    elif images_zip == "3":
+        labeling_info["images_zip"] = "google_drive"
     labeling_info["images_name"] = input("Введите название датасета:")
     dict_of_nn = {"yolov5s": 'yolov5s', "yolov5n": 'yolov5n', "yolov5m": 'yolov5m', "yolov5l": 'yolov5l',
                   "yolov5x": 'yolov5x'}
@@ -42,14 +44,21 @@ def upload_images(upload_type, image_dir, dst_dir):
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
             upload_type (str): способ добавления изобрадений
     """
-    if not os.listdir(image_dir):
-        raise FileNotFoundError(f'Reference to empty directory ({image_dir})')
-    if not upload_type:
+    #if not os.listdir(image_dir):
+        #raise FileNotFoundError(f'Reference to empty directory ({image_dir})')
+    if upload_type == "google_drive":
+
+        #upload_from_server(image_dir, dst_dir)
+        download_from_drive_folder(image_dir, dst_dir)
+        return 0
+    elif upload_type == "zip-archive":
+        upload_from_zip(image_dir, dst_dir)
+        return 0
+    elif upload_type == "directory":
         upload_from_folder(image_dir, dst_dir)
         return 0
     else:
-        upload_from_zip(image_dir, dst_dir)
-        return 0
+        raise ValueError("Incorrect upload_images value")
 
 
 def labeling(dst_dir=""):
@@ -228,7 +237,7 @@ def upload_from_folder(image_dir, dst_dir):
                 shutil.copy(jpgfile, dst_dir)
 
 
-def upload_from_server(dst_dir):
+def upload_from_server(shared_url, dst_dir):
     """
     Добавляет в каталог, находящийся по пути dst_dir изобрвжения,скаченные с указанного ресурса.
     Args:
@@ -238,22 +247,115 @@ def upload_from_server(dst_dir):
         дописать
     """
     import requests
-    list_of_names = ["1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg"]
-    print("Введите путь до файла с url")
-    url_file = input()
-    with open(url_file) as file:
-        i = 0
-        for line in file:
-            print(i)
-            if line == '':
-                break
-            else:
-                img_data = requests.get(line).content
-                print(dst_dir + '/' + list_of_names[i])
-                with open(dst_dir + '/' + list_of_names[i], 'wb') as handler:
-                    handler.write(img_data)
-            i = i + 1
 
+    URL = "https://docs.google.com/uc?export=download&confirm=1"
+    file_id = extract_id(shared_url)
+    session = requests.Session()
+
+    response = session.get(URL, params={"id": file_id}, stream=True)
+    token = get_confirm_token(response)
+
+    if token:
+        params = {"id": file_id, "confirm": token}
+        response = session.get(URL, params=params, stream=True)
+
+    save_response_content(response, dst_dir)
+    upload_from_zip(os.path.join(dst_dir, 'pictures.zip'), dst_dir)
+    os.remove(os.path.join(dst_dir, 'pictures.zip'))
+
+def get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            return value
+
+    return None
+
+def download_from_drive_folder(folder_url, dst_dir):
+    from pydrive.auth import GoogleAuth
+    from pydrive.drive import GoogleDrive
+    import requests
+
+    URL = "https://docs.google.com/uc?export=download&confirm=1"
+
+    gauth = GoogleAuth()
+    gauth.LocalWebserverAuth()
+    drive = GoogleDrive(gauth)
+
+    parent_folder_id = extract_id(folder_url)
+
+    wget_text = '"wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download&amp;confirm=$(wget --quiet --save-cookies /tmp/cookies.txt --keep-session-cookies --no-check-certificate \'https://docs.google.com/uc?export=download&amp;id=FILE_ID\' -O- | sed -rn \'s/.*confirm=([0-9A-Za-z_]+).*/\\1\\n/p\')&id=FILE_ID" -O FILE_NAME && rm -rf /tmp/cookies.txt"'.replace(
+        '&amp;', '&')
+
+    file_dict = dict()
+    folder_queue = [parent_folder_id]
+    cnt = 0
+    while len(folder_queue) != 0:
+        current_folder_id = folder_queue.pop(0)
+        file_list = drive.ListFile({'q': "'{}' in parents and trashed=false".format(current_folder_id)}).GetList()
+        for file1 in file_list:
+            file_dict[cnt] = dict()
+            file_dict[cnt]['id'] = file1['id']
+            file_dict[cnt]['title'] = file1['title']
+            if file1['mimeType'] == 'application/vnd.google-apps.folder':
+                file_dict[cnt]['type'] = 'folder'
+                folder_queue.append(file1['id'])
+            else:
+                file_dict[cnt]['type'] = 'file'
+            cnt += 1
+
+    for key in file_dict.keys():
+        if (file_dict[key]['type'] == 'file') and (file_dict[key]['title'].endswith(".jpg")):
+            file_id = file_dict[key]['id']
+            session = requests.Session()
+
+            response = session.get(URL, params={"id": file_id}, stream=True)
+            token = get_confirm_token(response)
+
+            if token:
+                params = {"id": file_id, "confirm": token}
+                response = session.get(URL, params=params, stream=True)
+
+            download_from_drive_by_id(response, file_dict[key]['type'], file_dict[key]['title'], dst_dir)
+
+def download_from_drive_by_id(response, type, title, destination):
+    import shutil
+    CHUNK_SIZE = 32768
+    if not os.path.exists(destination):
+        os.makedirs(destination)
+
+    if type == ".zip":
+        shutil.make_archive(title, 'zip', destination)
+        with open(os.path.join(destination, "pictures.zip"), "wb") as f:
+            for chunk in response.iter_content(CHUNK_SIZE):
+                if chunk:  # filter out keep-alive new chunks
+                    f.write(chunk)
+    else:
+        with open(os.path.join(destination, title), "wb") as f:
+            for chunk in response.iter_content(CHUNK_SIZE):
+                if chunk:  # filter out keep-alive new chunks
+                    f.write(chunk)
+
+def save_response_content(response, destination):
+    CHUNK_SIZE = 32768
+
+    if not os.path.exists(destination):
+        os.makedirs(destination)
+
+    import shutil
+    shutil.make_archive("pictures", 'zip', destination)
+
+    with open(os.path.join(destination, "pictures.zip"), "wb") as f:
+        for chunk in response.iter_content(CHUNK_SIZE):
+            if chunk:  # filter out keep-alive new chunks
+                f.write(chunk)
+
+def extract_id(url):
+    import re
+
+    m = re.search(r'([01A-Z])(?=[\w-]*[A-Za-z])[\w-]+', url)
+    if m is None:
+        raise ValueError(f"Can't extract id from url {url}")
+    return m.group(0)
 
 def upload_from_zip(image_dir, dst_dir):
     """
