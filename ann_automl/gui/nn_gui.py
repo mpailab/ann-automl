@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 import time
 import traceback
 import json
@@ -36,6 +37,7 @@ Params = Optional[Dict[str, Any]]
 HOST = "0.0.0.0"
 #HOST = "localhost"
 PORT_QSL = 8080
+DATABASES_DIR = Path('./datasets')
 
 # Launch TensorBoard
 # tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
@@ -121,8 +123,7 @@ chatbot_params = {
 }
 
 labeling_params = {
-    'images_name': { 'title': 'Название базы изображений', 'type': 'str', 'default': 'microtest' },
-    'images_path': { 'title': 'Путь к базе изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
+    'images_path': { 'title': 'Путь/Ссылка к каталогу/zip-архиву изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
     'images_zip': { 'title': 'База изображений запакована в zip-архив?', 'type': 'bool', 'default': True },
     'images_source_type': { 'title': 'Источник для базы изображений',
                  'type': 'str', 'default': 'zip_archive',
@@ -130,11 +131,10 @@ labeling_params = {
     'nn_core': { 'title': 'Ядро разметчика (используемая нейросеть)',
                  'type': 'str', 'default': 'yolov5s',
                  'values': ['yolov5s', 'yolov5n', 'yolov5m', 'yolov5l', 'yolov5x'] },
-    'save_path': { 'title': 'Каталог для сохранения размеченного датасета', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1//tmpdir1' },
 }
 
 dataset_params = {
-    'description': { 'title': 'Название', 'type': 'str', 'default': '' },
+    'description': { 'title': 'Название датасета', 'type': 'str', 'default': '' },
     'url': { 'title': 'Url', 'type': 'str', 'default': '' },
     'contributor': { 'title': 'Создатель', 'type': 'str', 'default': '' },
     'date_created': { 'title': 'Дата создания', 'type': 'date', 'default': None },
@@ -462,7 +462,6 @@ class NNGui(object):
 
         self.make_params_widgets(gui_params)
         self.init_chatbot_interface()
-        self.init_labeling_interface()
         self.init_database_interface()
         self.init_task_interface()
         self.init_train_interface()
@@ -534,100 +533,70 @@ class NNGui(object):
 
     def on_click_labeling_start(self):
         err = ""
-        if self.labeling_images_name.value == "":
+        if self.dataset_description.value == "":
             err = "Название сета изображений не может быть пустым"
         elif not os.path.exists(self.labeling_images_path.value):
             err = "Каталог с изображениями не найден"
-        elif self.labeling_save_path.value == "":
-            err = "Каталог для сохранения данных не указан"
 
         if err:
-            self.labeling_error.text = f'<font color=red>{err}</font>'
-            self.labeling_error.visible = True
+            self.dataset_error.text = f'<font color=red>{err}</font>'
+            self.dataset_error.visible = True
             return
         
         labeling_args = {"images_zip" : self.labeling_images_source_type.value == "zip_archive",
                         "images_source_type": self.labeling_images_source_type.value,
-                        "images_name": self.labeling_images_name.value,
+                        "images_name": self.dataset_description.value,
                         "images_path": self.labeling_images_path.value,
                         "nn_core": self.labeling_nn_core.value}
         
-        self.labeling_working_dir = os.path.join(self.labeling_save_path.value, labeling_args['images_name'])
+        self.labeling_working_dir = os.path.join(DATABASES_DIR, labeling_args['images_name'])
         
-        for widget in self.labeling_params:
+        for widget in self.dataset_labeling_widgets:
             widget.disable()
         self.labeling_start_button.disabled = True
+        self.dataset_cancel_button.visible = False
 
-        self.labeling_logs.visible = True
-        self.labeling_logs.text = "<b>Выполняется загрузка изображения и автоматическая разметка</b>"
+        self.database_logs.visible = True
+        self.database_logs.text = "<b>Выполняется загрузка изображения и автоматическая разметка</b>"
         print(f"smart_labeling.pre_processing... ", end='')
         labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
         print("ok")
-        labels_file = f"{self.labeling_working_dir}/labels.json"
+        labels_file = os.path.join(self.labeling_working_dir, "labels.json")
         with open(labels_file, "w") as outfile:
             json.dump(labels_dict, outfile)
         
-        self.labeling_logs.text = f"""<b>Автоматическая разметка завершена.
-        Ручная доразметка может быть произведена
-        <a href="https://{HOST}:{PORT_QSL}">здесь</a>.</b>"""
+        self.database_logs.text = f"""<b>Автоматическая разметка завершена.</b>
+        Произведите ручную доразметку (если требуется) по ссылке
+        <a href="https://{HOST}:{PORT_QSL}">здесь</a>.
+        По завершению ручной доразметки нажмите кнопку 'Завершить разметку'"""
         self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port = PORT_QSL)
         self.labeling_open_qsl_tab.active = 1 #Open tab
         self.labeling_finish_button.visible = True
     
     def on_click_labeling_finish(self):
-        self.labeling_logs.text = ""
-        self.labeling_logs.visible = False
+        self.database_logs.text = ""
+        self.database_logs.visible = False
         self.qsl_label_proc.kill()
         self.labeling_open_qsl_tab.active = 0
 
         print(f"smart_labeling.post_processing... ", end='')
         annotations_dict = labeling.post_processing(self.labeling_working_dir)
         print("ok")
-        with open(f"{self.labeling_working_dir}/annotations/annotations.json", "w") as outfile:
+        annotations_path = os.path.join(self.labeling_working_dir, 'annotations', 'annotations.json')
+        with open(annotations_path, "w") as outfile:
             json.dump(annotations_dict, outfile)
 
         self.labeling_finish_button.visible = False
         self.labeling_start_button.disabled = False
-        for widget in self.labeling_params:
+
+        self.labeling_start_button.visible = False
+        self.dataset_load_button.visible = True
+        self.dataset_cancel_button.visible = True
+        self.dataset_params_panel.children = self.dataset_load_interface
+        for widget in self.dataset_load_widgets:
             widget.enable()
-
-    def init_labeling_interface(self):
-        self.labeling_logs = Div(align="start", visible=False)
-        self.labeling_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
-
-        self.labeling_start_button = Button('Запустить разметчик',
-                                         self.on_click_labeling_start)
-        #self.labeling_start_button.js_on_event(ButtonClick, js_open_qsl_label)
-        self.labeling_finish_button = Button('Завершить разметку',
-                                         self.on_click_labeling_finish, visible=False)
-        self.labeling_buttons = [self.labeling_start_button, self.labeling_finish_button, self.labeling_error]
-
-        # Фиктивный виджет. Открытие вкладки для qsl label при установки поля active в значение 1.
-        self.labeling_open_qsl_tab = RadioGroup(labels=["Passive state", "Open the tab"],
-                                                active=0, visible = False)
-        js_conditional_open_qsl_label = CustomJS(
-            code=f"""
-            const value = cb_obj.active
-            if (value == "1")
-                window.open("http://localhost:{PORT_QSL}");
-            """
-            )                                                
-        self.labeling_open_qsl_tab.js_on_change("active", js_conditional_open_qsl_label)
-
-        self.labeling_interfaces = [
-            Column(self.labeling_images_name.interface,
-                   self.labeling_images_source_type.interface,
-                   self.labeling_images_path.interface,
-                   self.labeling_nn_core.interface,
-                   self.labeling_save_path.interface,
-                   self.labeling_open_qsl_tab,
-                   sizing_mode='stretch_both') ]
-
-    def activate_labeling_interface(self):
-        self.menu_button.label = "Разметка"
-        self.buttons_interface.children = self.labeling_buttons
-        self.window_interface.children = self.labeling_interfaces
-        self.logs_interface.children = [self.labeling_logs]
+        self.dataset_anno_file.value = annotations_path
+        self.dataset_dir.value = os.path.join(self.labeling_working_dir, 'images')
 
     def get_dataset_supercategories(self, ds):
         return list(self.database[ds]['categories'].keys())
@@ -642,13 +611,26 @@ class NNGui(object):
               "изображение"
         return f"{str(n)} {suf}"
 
-    def on_click_dataset_add(self, event):
-        for widget in self.dataset_params:
+    def on_click_dataset_create(self, event):
+        for widget in self.dataset_info_widgets:
             widget.clear()
+        self.dataset_params_panel.children = self.dataset_labeling_interface
+        for widget in self.dataset_labeling_widgets:
             widget.enable()
-        self.dataset_anno_file.activate()
-        self.dataset_dir.activate()
         self.dataset_add_button.disabled = True
+        self.dataset_create_button.disabled = True
+        self.dataset_select_button.disabled = True
+        self.labeling_start_button.visible = True
+        self.dataset_cancel_button.visible = True
+    
+    def on_click_dataset_add(self, event):
+        for widget in self.dataset_info_widgets:
+            widget.clear()
+        self.dataset_params_panel.children = self.dataset_load_interface
+        for widget in self.dataset_load_widgets:
+            widget.enable()
+        self.dataset_add_button.disabled = True
+        self.dataset_create_button.disabled = True
         self.dataset_select_button.disabled = True
         self.dataset_load_button.visible = True
         self.dataset_cancel_button.visible = True
@@ -668,48 +650,49 @@ class NNGui(object):
         elif not os.path.exists(self.dataset_dir.value):
             err = "Каталог с изображениями не найден"
 
-        if err:
-            self.dataset_error.text = f'<font color=red>{err}</font>'
-            self.dataset_error.visible = True
-            return
+        # if err:
+        #     self.dataset_error.text = f'<font color=red>{err}</font>'
+        #     self.dataset_error.visible = True
+        #     return
 
-        try:
-            cur_db().fill_in_coco_format(
-                self.dataset_anno_file.value,
-                self.dataset_dir.value,
-                ds_info={
-                        "description": self.dataset_description.value,
-                        "url": self.dataset_url.value,
-                        "version": self.dataset_version.value,
-                        "year": self.dataset_year.value,
-                        "contributor": self.dataset_contributor.value,
-                        "date_created": self.dataset_year.value
-                    }
-            )
-            self.database = {
-                ds['description'] : ds
-                for db in [cur_db().get_all_datasets_info(full_info=True)]
-                for ds in db.values()
-            }
+        # try:
+        #     cur_db().fill_in_coco_format(
+        #         self.dataset_anno_file.value,
+        #         self.dataset_dir.value,
+        #         ds_info={
+        #                 "description": self.dataset_description.value,
+        #                 "url": self.dataset_url.value,
+        #                 "version": self.dataset_version.value,
+        #                 "year": self.dataset_year.value,
+        #                 "contributor": self.dataset_contributor.value,
+        #                 "date_created": self.dataset_year.value
+        #             }
+        #     )
+        #     self.database = {
+        #         ds['description'] : ds
+        #         for db in [cur_db().get_all_datasets_info(full_info=True)]
+        #         for ds in db.values()
+        #     }
 
-        except Exception as e:
-            self.dataset_error.text = \
-                '<font color=red>Не удалось загрузить датасет</font>'
-            self.dataset_error.visible = True
-            stack = traceback.format_exc()
-            self.database_logs.value = '<br>'.join(stack.split('\n') + [str(e)])
-            self.database_logs.visible = True
-            return
+        # except Exception as e:
+        #     self.dataset_error.text = \
+        #         '<font color=red>Не удалось загрузить датасет</font>'
+        #     self.dataset_error.visible = True
+        #     stack = traceback.format_exc()
+        #     self.database_logs.value = '<br>'.join(stack.split('\n') + [str(e)])
+        #     self.database_logs.visible = True
+        #     return
 
-        dataset = self.dataset_description.value
-        self.dataset_selector.value = [dataset]
-        self.setup_dataset(dataset, update_params=False)
-        for widget in self.dataset_params:
+        # dataset = self.dataset_description.value
+        # self.dataset_selector.value = [dataset]
+        # self.setup_dataset(dataset, update_params=False)
+        self.dataset_params_panel.children = self.dataset_info_interface
+        for widget in self.dataset_info_widgets:
             widget.disable()
-        self.dataset_anno_file.hide()
-        self.dataset_dir.hide()
-        self.dataset_add_button.disabled = False
+            widget.clear()
         self.dataset_select_button.disabled = False
+        self.dataset_add_button.disabled = False
+        self.dataset_create_button.disabled = False
         self.dataset_load_button.visible = False
         self.dataset_cancel_button.visible = False
 
@@ -721,13 +704,15 @@ class NNGui(object):
         if self.dataset is not None:
             self.dataset_selector.value = [self.dataset]
             self.setup_dataset(self.dataset)
-        for widget in self.dataset_params:
+        self.dataset_params_panel.children = self.dataset_info_interface
+        for widget in self.dataset_info_widgets:
             widget.disable()
-        self.dataset_anno_file.hide()
-        self.dataset_dir.hide()
+            widget.clear()
         self.dataset_add_button.disabled = False
+        self.dataset_create_button.disabled = False
         self.dataset_select_button.disabled = False
         self.dataset_load_button.visible = False
+        self.labeling_start_button.visible = False
         self.dataset_cancel_button.visible = False
 
     def on_click_dataset_select(self, event):
@@ -803,6 +788,8 @@ class NNGui(object):
 
         self.dataset_add_button = Button('Добавить новый датасет',
                                          self.on_click_dataset_add)
+        self.dataset_create_button = Button('Создать новый датасет',
+                                         self.on_click_dataset_create)
         self.dataset_load_button = Button('Загрузить', self.on_click_dataset_load,
                                           visible=False)
         self.dataset_cancel_button = Button('Отменить', self.on_click_dataset_cancel,
@@ -810,29 +797,59 @@ class NNGui(object):
         self.dataset_select_button = Button('Использовать выбранные датасеты',
                                             self.on_click_dataset_select,
                                             disabled=True)
+        self.labeling_start_button = Button('Создать файл аннотаций',
+                                         self.on_click_labeling_start, visible=False)
+        self.labeling_finish_button = Button('Завершить разметку',
+                                         self.on_click_labeling_finish, visible=False)
+        # Фиктивный виджет. Открытие вкладки для qsl label при установки поля active в значение 1.
+        self.labeling_open_qsl_tab = RadioGroup(labels=["Init state", "Open the tab"],
+                                                active=0, visible = False)
+        js_conditional_open_qsl_label = CustomJS(
+            code=f"""
+            const value = cb_obj.active
+            if (value == "1")
+                window.open("http://localhost:{PORT_QSL}");
+            """
+            )                                                
+        self.labeling_open_qsl_tab.js_on_change("active", js_conditional_open_qsl_label)
 
-        self.database_buttons = [self.dataset_select_button, self.dataset_add_button,
+        self.database_buttons = [self.dataset_select_button,
+                                 self.dataset_add_button, self.dataset_create_button,
+                                 self.labeling_start_button, self.labeling_finish_button,
                                  self.dataset_cancel_button, self.dataset_load_button,
                                  self.dataset_error]
+
+        self.dataset_params_panel = Column(sizing_mode = 'stretch_both')
+        self.dataset_info_widgets = [self.dataset_description,
+                                     self.dataset_url,
+                                     self.dataset_contributor,
+                                     self.dataset_date_created,
+                                     self.dataset_version
+        ]
+        self.dataset_info_interface = list(map(lambda x: x.interface, self.dataset_info_widgets))
+        self.dataset_load_widgets = [self.dataset_description,
+                                     self.dataset_anno_file,
+                                     self.dataset_dir
+        ]
+        self.dataset_load_interface = list(map(lambda x: x.interface, self.dataset_load_widgets))
+        self.dataset_labeling_widgets = [self.dataset_description,
+                                         self.labeling_images_source_type,
+                                         self.labeling_images_path,
+                                         self.labeling_nn_core,
+        ]
+        self.dataset_labeling_interface = list(map(lambda x: x.interface, self.dataset_labeling_widgets))
+        self.dataset_labeling_interface.append(self.labeling_open_qsl_tab)
+        self.dataset_params_panel.children = self.dataset_info_interface
 
         self.database_interfaces = [
             Column(Div(text="<b>Доступные датасеты:</b>"),
                    self.dataset_selector, self.dataset_categories, margin=(0, 0, 0, 5)),
-            Column(self.dataset_description.interface,
-                   self.dataset_url.interface,
-                   self.dataset_contributor.interface,
-                   self.dataset_date_created.interface,
-                   self.dataset_version.interface,
-                   self.dataset_anno_file.interface,
-                   self.dataset_dir.interface,
-                   sizing_mode='stretch_both') ]
+            self.dataset_params_panel ]
 
         if len(datasets) > 0:
             self.setup_dataset(datasets[0])
         for widget in self.dataset_params:
             widget.disable()
-        self.dataset_anno_file.hide()
-        self.dataset_dir.hide()
 
         self.database_interface_init = True
 
@@ -1311,7 +1328,6 @@ class NNGui(object):
 
         menu = [
             ("Чат-бот", "chatbot"),
-            ("Разметка", "labeling"),
             ("База данных", "database"),
             ("Задача", "task"),
             ("Обучение", "train"),
@@ -1359,9 +1375,6 @@ class NNGui(object):
         self.menu_chatbot_button = Button("Чат-бот", self.on_click_chatbot_menu,
                                            button_type='default',
                                            css_classes=['ann-active-head-btn'])
-        self.menu_labeling_button = Button("Разметка", self.on_click_labeling_menu,
-                                           button_type='default',
-                                           css_classes=['ann-active-head-btn'])
         self.menu_database_button = Button("База данных", self.on_click_database_menu,
                                            button_type='default',
                                            css_classes=['ann-active-head-btn'])
@@ -1403,7 +1416,7 @@ class NNGui(object):
         self.select_simple_mode_button = Button('Простой режим', self.on_click_select_simple_mode,
                                                 button_type='default',
                                                 css_classes=['ann-mode-head-btn'])
-        self.advanced_mode_buttons = Row(self.menu_chatbot_button, self.menu_labeling_button,
+        self.advanced_mode_buttons = Row(self.menu_chatbot_button,
                                          self.menu_database_button, self.menu_task_button,
                                          self.menu_train_button, self.menu_history_button,
                                          self.select_simple_mode_button)
@@ -1424,10 +1437,6 @@ class NNGui(object):
     def on_click_chatbot_menu(self, event):
         print("Goto chatbot interface")
         self.activate_chatbot_interface()
-
-    def on_click_labeling_menu(self, event):
-        print("Goto labeling interface")
-        self.activate_labeling_interface()
     
     def on_click_database_menu(self, event):
         print("Goto database interface")
