@@ -39,11 +39,11 @@ HOST = "0.0.0.0"
 PORT_QSL = 8080
 DATABASES_DIR = Path('./datasets')
 
-# Launch TensorBoard
-# tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
-#                   logdir=tensorboard_logdir(),
-#                   host=HOST,
-#                   port="6006"))
+#Launch TensorBoard
+tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
+                  logdir=tensorboard_logdir(),
+                  host=HOST,
+                  port="6006"))
 
 shadow_border_css = '''
 .bk.ann-automl-shadow-border {
@@ -650,42 +650,42 @@ class NNGui(object):
         elif not os.path.exists(self.dataset_dir.value):
             err = "Каталог с изображениями не найден"
 
-        # if err:
-        #     self.dataset_error.text = f'<font color=red>{err}</font>'
-        #     self.dataset_error.visible = True
-        #     return
+        if err:
+            self.dataset_error.text = f'<font color=red>{err}</font>'
+            self.dataset_error.visible = True
+            return
 
-        # try:
-        #     cur_db().fill_in_coco_format(
-        #         self.dataset_anno_file.value,
-        #         self.dataset_dir.value,
-        #         ds_info={
-        #                 "description": self.dataset_description.value,
-        #                 "url": self.dataset_url.value,
-        #                 "version": self.dataset_version.value,
-        #                 "year": self.dataset_year.value,
-        #                 "contributor": self.dataset_contributor.value,
-        #                 "date_created": self.dataset_year.value
-        #             }
-        #     )
-        #     self.database = {
-        #         ds['description'] : ds
-        #         for db in [cur_db().get_all_datasets_info(full_info=True)]
-        #         for ds in db.values()
-        #     }
+        try:
+            cur_db().fill_in_coco_format(
+                self.dataset_anno_file.value,
+                self.dataset_dir.value,
+                ds_info={
+                        "description": self.dataset_description.value,
+                        "url": self.dataset_url.value,
+                        "version": self.dataset_version.value,
+                        "year": self.dataset_year.value,
+                        "contributor": self.dataset_contributor.value,
+                        "date_created": self.dataset_year.value
+                    }
+            )
+            self.database = {
+                ds['description'] : ds
+                for db in [cur_db().get_all_datasets_info(full_info=True)]
+                for ds in db.values()
+            }
 
-        # except Exception as e:
-        #     self.dataset_error.text = \
-        #         '<font color=red>Не удалось загрузить датасет</font>'
-        #     self.dataset_error.visible = True
-        #     stack = traceback.format_exc()
-        #     self.database_logs.value = '<br>'.join(stack.split('\n') + [str(e)])
-        #     self.database_logs.visible = True
-        #     return
+        except Exception as e:
+            self.dataset_error.text = \
+                '<font color=red>Не удалось загрузить датасет</font>'
+            self.dataset_error.visible = True
+            stack = traceback.format_exc()
+            self.database_logs.value = '<br>'.join(stack.split('\n') + [str(e)])
+            self.database_logs.visible = True
+            return
 
-        # dataset = self.dataset_description.value
-        # self.dataset_selector.value = [dataset]
-        # self.setup_dataset(dataset, update_params=False)
+        dataset = self.dataset_description.value
+        self.dataset_selector.value = [dataset]
+        self.setup_dataset(dataset, update_params=False)
         self.dataset_params_panel.children = self.dataset_info_interface
         for widget in self.dataset_info_widgets:
             widget.disable()
