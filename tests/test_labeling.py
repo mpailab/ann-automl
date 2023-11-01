@@ -30,7 +30,7 @@ def test_upload_from_drive(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    path_to_images = "https://drive.google.com/drive/folders/1alcvmLCCnM_tJ8iLkT5tzpBxIVUS8XJS?usp=drive_link"
+    path_to_images = "https://drive.google.com/file/d/1aDlgJaDw4RPNxySbrluWJMsc5XHJ_JiA/view?usp=sharing"
     input_data = iter(["3", path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
@@ -138,7 +138,7 @@ def test_mixed_upload(db_dir, monkeypatch):
 
     local_path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\pictures"
     local_path_to_zip = "C:\\Users\\Alexander\\Documents\\tests\\Image_examples.zip"
-    google_drive_path = "https://drive.google.com/drive/folders/1alcvmLCCnM_tJ8iLkT5tzpBxIVUS8XJS?usp=drive_link"
+    google_drive_path = "https://drive.google.com/file/d/1aDlgJaDw4RPNxySbrluWJMsc5XHJ_JiA/view?usp=sharing"
     input_data = iter(["2", local_path_to_zip, "My_dataset", "yolov5x",
                        "1", local_path_to_images, "My_dataset_2", "yolov5x",
                        "3", google_drive_path, "My_dataset_3", "yolov5x"])
@@ -227,3 +227,51 @@ def test_different_nn(db_dir, monkeypatch):
                                                       'motorcycle', 'dog', 'person', 'traffic light', 'handbag',
                                                       'backpack'}
     mydb.close()
+
+@pytest.mark.usefixtures('db_dir')
+def test_presented_dataset(db_dir, monkeypatch):
+    mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
+    mydb.create_sqlite_file()
+    assert os.path.isfile(db_dir + '/test.sqlite')
+
+    path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\Image_examples.zip"
+    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x", "2", path_to_images, "My_dataset", "yolov5x"])
+    monkeypatch.setattr('builtins.input', lambda _: next(input_data))
+
+    dataset_dir = labeling(db_dir)
+
+    with pytest.raises(FileNotFoundError, match='The dataset My_dataset being added is already presented'):
+        dataset_dir = labeling(db_dir)
+    mydb.close()
+
+@pytest.mark.usefixtures('db_dir')
+def test_empty_folder(db_dir, monkeypatch):
+    mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
+    mydb.create_sqlite_file()
+    assert os.path.isfile(db_dir + '/test.sqlite')
+
+    path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\empty_folder"
+    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x"])
+    monkeypatch.setattr('builtins.input', lambda _: next(input_data))
+
+    error = "No image files in C:\\Users\\Alexander\\Documents\\tests\\empty_folder directory"
+    with pytest.raises(FileNotFoundError, match=error):
+        dataset_dir = labeling(db_dir)
+    mydb.close()
+
+@pytest.mark.usefixtures('db_dir')
+def test_incorrect_path(db_dir, monkeypatch):
+    mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
+    mydb.create_sqlite_file()
+    assert os.path.isfile(db_dir + '/test.sqlite')
+
+    path_to_images = "D"
+    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x"])
+    monkeypatch.setattr('builtins.input', lambda _: next(input_data))
+
+    error = 'No image files in ' + path_to_images + ' directory'
+    with pytest.raises(ValueError, match=f"Incorrect path {path_to_images} to images"):
+        dataset_dir = labeling(db_dir)
+    mydb.close()
+
+

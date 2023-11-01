@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import yolov5
 from PIL import Image
@@ -36,29 +37,32 @@ def make_labeling_info():
     return labeling_info
 
 
-def upload_images(upload_type, image_dir, dst_dir):
+def upload_images(image_dir, dst_dir):
     """
         Добавляет изображения в котолог, находящийся по пути dst_dit
 
         Args:
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
-            upload_type (str): способ добавления изобрадений
     """
-    #if not os.listdir(image_dir):
-        #raise FileNotFoundError(f'Reference to empty directory ({image_dir})')
-    if upload_type == "google_drive":
-
-        #upload_from_server(image_dir, dst_dir)
-        download_from_drive_folder(image_dir, dst_dir)
-        return 0
-    elif upload_type == "zip-archive":
-        upload_from_zip(image_dir, dst_dir)
-        return 0
-    elif upload_type == "directory":
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    if os.path.isdir(image_dir):
         upload_from_folder(image_dir, dst_dir)
         return 0
+    elif os.path.isfile(image_dir):
+        upload_from_zip(image_dir, dst_dir)
+        return 0
+    elif re.match(regex, image_dir) is not None:
+        upload_from_server(image_dir, dst_dir)
+        return 0
     else:
-        raise ValueError("Incorrect upload_images value")
+        raise ValueError(f"Incorrect path {image_dir} to images")
+
 
 
 def labeling(dst_dir=""):
@@ -100,7 +104,7 @@ def pre_processing(labeling_info, dst_dir):
         os.makedirs(dst_dir)
     os.makedirs(dst_dir + "/images")
     os.makedirs(dst_dir + "/annotations")
-    error = upload_images(labeling_info["images_zip"], labeling_info["images_path"], dst_dir + "/images")
+    error = upload_images(labeling_info["images_path"], dst_dir + "/images")
     if error != 0:
         raise ValueError(f'Error downloading images in {labeling_info["images_name"]} dataset')
     labeling_dict = make_anno_with_yolo(dst_dir, labeling_info["nn_core"] + ".pt")
@@ -225,15 +229,14 @@ def upload_from_folder(image_dir, dst_dir):
         Args:
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
-    from os.path import isfile, join
     import shutil
     # print("Введите путь директории с изображениями")
     if len(os.listdir(image_dir)) == 0:
-        raise FileNotFoundError('No image files in', image_dir, 'directory')
-    for filename in os.listdir(image_dir):
-        if isfile(join(image_dir, filename)):
-            if filename.endswith(".jpeg") or filename.endswith(".jpg"):
-                jpgfile = join(image_dir, filename)
+        raise FileNotFoundError(f'No image files in {image_dir} directory')
+    for dp, dn, filenames in os.walk(image_dir):
+        for f in filenames:
+            if (os.path.splitext(f)[1] == '.jpg') or (os.path.splitext(f)[1] == '.jpeg'):
+                jpgfile = os.path.join(dp, f)
                 shutil.copy(jpgfile, dst_dir)
 
 
@@ -270,71 +273,6 @@ def get_confirm_token(response):
 
     return None
 
-def download_from_drive_folder(folder_url, dst_dir):
-    from pydrive.auth import GoogleAuth
-    from pydrive.drive import GoogleDrive
-    import requests
-
-    URL = "https://docs.google.com/uc?export=download&confirm=1"
-
-    gauth = GoogleAuth()
-    gauth.LocalWebserverAuth()
-    drive = GoogleDrive(gauth)
-
-    parent_folder_id = extract_id(folder_url)
-
-    wget_text = '"wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download&amp;confirm=$(wget --quiet --save-cookies /tmp/cookies.txt --keep-session-cookies --no-check-certificate \'https://docs.google.com/uc?export=download&amp;id=FILE_ID\' -O- | sed -rn \'s/.*confirm=([0-9A-Za-z_]+).*/\\1\\n/p\')&id=FILE_ID" -O FILE_NAME && rm -rf /tmp/cookies.txt"'.replace(
-        '&amp;', '&')
-
-    file_dict = dict()
-    folder_queue = [parent_folder_id]
-    cnt = 0
-    while len(folder_queue) != 0:
-        current_folder_id = folder_queue.pop(0)
-        file_list = drive.ListFile({'q': "'{}' in parents and trashed=false".format(current_folder_id)}).GetList()
-        for file1 in file_list:
-            file_dict[cnt] = dict()
-            file_dict[cnt]['id'] = file1['id']
-            file_dict[cnt]['title'] = file1['title']
-            if file1['mimeType'] == 'application/vnd.google-apps.folder':
-                file_dict[cnt]['type'] = 'folder'
-                folder_queue.append(file1['id'])
-            else:
-                file_dict[cnt]['type'] = 'file'
-            cnt += 1
-
-    for key in file_dict.keys():
-        if (file_dict[key]['type'] == 'file') and (file_dict[key]['title'].endswith(".jpg")):
-            file_id = file_dict[key]['id']
-            session = requests.Session()
-
-            response = session.get(URL, params={"id": file_id}, stream=True)
-            token = get_confirm_token(response)
-
-            if token:
-                params = {"id": file_id, "confirm": token}
-                response = session.get(URL, params=params, stream=True)
-
-            download_from_drive_by_id(response, file_dict[key]['type'], file_dict[key]['title'], dst_dir)
-
-def download_from_drive_by_id(response, type, title, destination):
-    import shutil
-    CHUNK_SIZE = 32768
-    if not os.path.exists(destination):
-        os.makedirs(destination)
-
-    if type == ".zip":
-        shutil.make_archive(title, 'zip', destination)
-        with open(os.path.join(destination, "pictures.zip"), "wb") as f:
-            for chunk in response.iter_content(CHUNK_SIZE):
-                if chunk:  # filter out keep-alive new chunks
-                    f.write(chunk)
-    else:
-        with open(os.path.join(destination, title), "wb") as f:
-            for chunk in response.iter_content(CHUNK_SIZE):
-                if chunk:  # filter out keep-alive new chunks
-                    f.write(chunk)
-
 def save_response_content(response, destination):
     CHUNK_SIZE = 32768
 
@@ -365,5 +303,5 @@ def upload_from_zip(image_dir, dst_dir):
     """
     import shutil
     if not os.path.isfile(image_dir):
-        raise FileNotFoundError('Error: no annotation file', image_dir, 'found')
+        raise FileNotFoundError(f'Error: no such file or directory: {image_dir}')
     shutil.unpack_archive(image_dir, dst_dir)
