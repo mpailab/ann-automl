@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import yolov5
 from PIL import Image
@@ -16,12 +17,17 @@ def make_labeling_info():
     labeling_info = dict()
     images_zip = input(
         "Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
-        "2) Загрузить изображения zip-архивом")
+        "2) Загрузить изображения zip-архивом \n 3) Загрузить изображения из Гугл Диска")
     labeling_info["images_path"] = input("Введите путь до директории с изображениями")
-    labeling_info["images_zip"] = False
-    labeling_info["dataset_name"] = input("Введите название датасета:")
-    dict_of_nn = {"yolov5s": 'yolov5s.pt', "yolov5n": 'yolov5n.pt', "yolov5m": 'yolov5m.pt', "yolov5l": 'yolov5l.pt',
-                  "yolov5x": 'yolov5x.pt'}
+    if images_zip == "1":
+        labeling_info["images_zip"] = "directory"
+    elif images_zip == "2":
+        labeling_info["images_zip"] = "zip-archive"
+    elif images_zip == "3":
+        labeling_info["images_zip"] = "google_drive"
+    labeling_info["images_name"] = input("Введите название датасета:")
+    dict_of_nn = {"yolov5s": 'yolov5s', "yolov5n": 'yolov5n', "yolov5m": 'yolov5m', "yolov5l": 'yolov5l',
+                  "yolov5x": 'yolov5x'}
     i = 0
     for key in dict_of_nn.keys():
         i = i + 1
@@ -31,20 +37,32 @@ def make_labeling_info():
     return labeling_info
 
 
-def upload_images(upload_type, image_dir, dst_dir):
+def upload_images(image_dir, dst_dir):
     """
         Добавляет изображения в котолог, находящийся по пути dst_dit
 
         Args:
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
-            upload_type (str): способ добавления изобрадений
     """
-    if not upload_type:
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    if os.path.isdir(image_dir):
         upload_from_folder(image_dir, dst_dir)
         return 0
-    else:
+    elif os.path.isfile(image_dir):
         upload_from_zip(image_dir, dst_dir)
         return 0
+    elif re.match(regex, image_dir) is not None:
+        upload_from_server(image_dir, dst_dir)
+        return 0
+    else:
+        raise ValueError(f"Incorrect path {image_dir} to images")
+
 
 
 def labeling(dst_dir=""):
@@ -54,11 +72,13 @@ def labeling(dst_dir=""):
         Args:
             dst_dir (str): путь к каталогу, в котором хранятся изображения
     """
-    #labeling_info = make_labeling_info()
+    labeling_args = make_labeling_info()
+    '''
     labeling_args = {"images_path" : "C:/Users/Alexander/Documents/tests/pictures",
                      "images_zip" : False,
                      "nn_core" : "yolov5x",
                      "images_name" : "microtest"}
+    '''
     dst_dir = os.path.join(dst_dir, "data", "datasets", labeling_args["images_name"]).strip()
     labels_dict = pre_processing(labeling_args, dst_dir)
     with open(dst_dir + "/labels.json", "w") as outfile:
@@ -78,15 +98,15 @@ def pre_processing(labeling_info, dst_dir):
             dst_dir (str): путь к каталогу, в котором хранятся изображения
             labeling_info (dict): словарь, содержащий основную информацию о добавляемом датасете
     """
-    if not os.path.exists(dst_dir):
+    if os.path.exists(dst_dir):
+        raise FileNotFoundError(f'The dataset {labeling_info["images_name"]} being added is already presented')
+    else:
         os.makedirs(dst_dir)
-    if not os.path.exists(dst_dir + "/images"):
-        os.makedirs(dst_dir + "/images")
-    if not os.path.exists(dst_dir + "/annotations"):
-        os.makedirs(dst_dir + "/annotations")
-    error = upload_images(labeling_info["images_zip"], labeling_info["images_path"], dst_dir + "/images")
-    if (error == 101):
-        raise ValueError("Invalid value of image_dir value")
+    os.makedirs(dst_dir + "/images")
+    os.makedirs(dst_dir + "/annotations")
+    error = upload_images(labeling_info["images_path"], dst_dir + "/images")
+    if error != 0:
+        raise ValueError(f'Error downloading images in {labeling_info["images_name"]} dataset')
     labeling_dict = make_anno_with_yolo(dst_dir, labeling_info["nn_core"] + ".pt")
     return labeling_dict
 
@@ -99,7 +119,6 @@ def make_anno_with_yolo(dst_dir, network):
             network (str): нейросеть, используемая для предварительной разметки изображений
     """
     data_dir = dst_dir + "/images"
-    #print("\n network = ", network, "\n")
     model = yolov5.load(network)
     list_of_images = []
     for filename in os.listdir(data_dir):
@@ -210,19 +229,18 @@ def upload_from_folder(image_dir, dst_dir):
         Args:
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
-    from os.path import isfile, join
     import shutil
     # print("Введите путь директории с изображениями")
     if len(os.listdir(image_dir)) == 0:
-        raise FileNotFoundError('No image files in', image_dir, 'directory')
-    for filename in os.listdir(image_dir):
-        if isfile(join(image_dir, filename)):
-            if filename.endswith(".jpeg") or filename.endswith(".jpg"):
-                jpgfile = join(image_dir, filename)
+        raise FileNotFoundError(f'No image files in {image_dir} directory')
+    for dp, dn, filenames in os.walk(image_dir):
+        for f in filenames:
+            if (os.path.splitext(f)[1] == '.jpg') or (os.path.splitext(f)[1] == '.jpeg'):
+                jpgfile = os.path.join(dp, f)
                 shutil.copy(jpgfile, dst_dir)
 
 
-def upload_from_server(dst_dir):
+def upload_from_server(shared_url, dst_dir):
     """
     Добавляет в каталог, находящийся по пути dst_dir изобрвжения,скаченные с указанного ресурса.
     Args:
@@ -232,22 +250,50 @@ def upload_from_server(dst_dir):
         дописать
     """
     import requests
-    list_of_names = ["1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg"]
-    print("Введите путь до файла с url")
-    url_file = input()
-    with open(url_file) as file:
-        i = 0
-        for line in file:
-            print(i)
-            if line == '':
-                break
-            else:
-                img_data = requests.get(line).content
-                print(dst_dir + '/' + list_of_names[i])
-                with open(dst_dir + '/' + list_of_names[i], 'wb') as handler:
-                    handler.write(img_data)
-            i = i + 1
 
+    URL = "https://docs.google.com/uc?export=download&confirm=1"
+    file_id = extract_id(shared_url)
+    session = requests.Session()
+
+    response = session.get(URL, params={"id": file_id}, stream=True)
+    token = get_confirm_token(response)
+
+    if token:
+        params = {"id": file_id, "confirm": token}
+        response = session.get(URL, params=params, stream=True)
+
+    save_response_content(response, dst_dir)
+    upload_from_zip(os.path.join(dst_dir, 'pictures.zip'), dst_dir)
+    os.remove(os.path.join(dst_dir, 'pictures.zip'))
+
+def get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            return value
+
+    return None
+
+def save_response_content(response, destination):
+    CHUNK_SIZE = 32768
+
+    if not os.path.exists(destination):
+        os.makedirs(destination)
+
+    import shutil
+    shutil.make_archive("pictures", 'zip', destination)
+
+    with open(os.path.join(destination, "pictures.zip"), "wb") as f:
+        for chunk in response.iter_content(CHUNK_SIZE):
+            if chunk:  # filter out keep-alive new chunks
+                f.write(chunk)
+
+def extract_id(url):
+    import re
+
+    m = re.search(r'([01A-Z])(?=[\w-]*[A-Za-z])[\w-]+', url)
+    if m is None:
+        raise ValueError(f"Can't extract id from url {url}")
+    return m.group(0)
 
 def upload_from_zip(image_dir, dst_dir):
     """
@@ -257,5 +303,5 @@ def upload_from_zip(image_dir, dst_dir):
     """
     import shutil
     if not os.path.isfile(image_dir):
-        raise FileNotFoundError('Error: no annotation file', image_dir, 'found')
+        raise FileNotFoundError(f'Error: no such file or directory: {image_dir}')
     shutil.unpack_archive(image_dir, dst_dir)
