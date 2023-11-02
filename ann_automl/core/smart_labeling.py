@@ -91,19 +91,21 @@ def labeling(dst_dir=""):
     return dst_dir
 
 
-def pre_processing(labeling_info, dst_dir):
+def pre_processing(labeling_info, dst_dir, exist_ok = True):
     """
         Запускает функции для загрузки изображений и создания словаря для разметчика.
         Args:
             dst_dir (str): путь к каталогу, в котором хранятся изображения
+            exist_ok (bool): допустимость того, что каталог dst_dir уже существует
             labeling_info (dict): словарь, содержащий основную информацию о добавляемом датасете
     """
     if os.path.exists(dst_dir):
-        raise FileNotFoundError(f'The dataset {labeling_info["images_name"]} being added is already presented')
+        if not exist_ok:
+            raise FileNotFoundError(f'The dataset {labeling_info["images_name"]} being added is already presented')
     else:
         os.makedirs(dst_dir)
-    os.makedirs(dst_dir + "/images")
-    os.makedirs(dst_dir + "/annotations")
+    os.makedirs(dst_dir + "/images", exist_ok=exist_ok)
+    os.makedirs(dst_dir + "/annotations", exist_ok=exist_ok)
     error = upload_images(labeling_info["images_path"], dst_dir + "/images")
     if error != 0:
         raise ValueError(f'Error downloading images in {labeling_info["images_name"]} dataset')
