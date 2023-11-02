@@ -48,3 +48,24 @@ mode_header_button_css = '''
     border-radius: 0px;
 }
 '''
+
+request_shadowbox_css = '''
+.bk.request-shadowbox {
+  width: 15em;
+  font-weight: bolder;
+  border: 1px solid #333;
+  box-shadow: 8px 8px 5px #444;
+  padding: 8px 12px;
+  background-image: linear-gradient(180deg, #3f87a6, #ddd 40%, #3f87a6);
+}
+'''
+
+answer_shadowbox_css = '''
+.bk.answer-shadowbox {
+  width: 15em;
+  border: 1px solid #333;
+  box-shadow: 8px 8px 5px #444;
+  padding: 8px 12px;
+  background-image: linear-gradient(180deg, #fff, #ddd 40%, #ccc);
+}
+'''

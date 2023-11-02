@@ -25,10 +25,9 @@ from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tensorboard
 import ann_automl.gui.qsl_label as qsl_label
 import ann_automl.core.smart_labeling as labeling
-from .css_settings import shadow_border_css, scroll_css, active_header_button_css,\
-                               inactive_header_button_css, mode_header_button_css
+from .css_settings import *
 from .gui_params import gui_params
-from .modified_widgets import Box, Button, Delimiter, Table
+from .modified_widgets import Box, Button, Delimiter, Table, AnswerBox, RequestBox
 from .param_widget import ParamWidget
 
 HOST = "0.0.0.0"
@@ -45,7 +44,8 @@ js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars
 
 pn.extension(raw_css=[
     shadow_border_css, scroll_css,
-    active_header_button_css, inactive_header_button_css, mode_header_button_css
+    active_header_button_css, inactive_header_button_css, mode_header_button_css,
+    request_shadowbox_css, answer_shadowbox_css
 ])
 pn.config.sizing_mode = 'stretch_width'
 
@@ -101,7 +101,12 @@ class NNGui(object):
     def on_click_send_button(self):
         request = self.chatbot_inputline.value.strip()
         self.chatbot_inputline.value = ""
-        self.chatbot_output.value += request + "\n"
+        answer = "Я внимательно Вас слушаю!"
+
+        request_box = RequestBox(text = request)
+        self.chatbot_output_area.children.append(request_box)
+        answer_box = AnswerBox(text = answer)
+        self.chatbot_output_area.children.append(answer_box)
 
     def init_chatbot_interface(self):
         self.chatbot_logs = Div(align="start", visible=False)
@@ -110,23 +115,25 @@ class NNGui(object):
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
 
-        self.chatbot_output = TextAreaInput(value = "",
-                                          min_width=700, rows = 20,
-                                          sizing_mode='stretch_both',
-                                          disabled=True)
-        self.chatbot_inputline = TextAreaInput(value = "",
-                                          min_width=700,
-                                          sizing_mode='stretch_both',
-                                          disabled=False)
-        self.chatbot_interfaces = [
-            Column(Row(Column(self.chatbot_langmodel.interface),
-                       Column(self.chatbot_output,
+        self.chatbot_helpmessage = '''Вас приветствует чатбот Бла-бла-бла.
+        Я пока ничего не умею делать, но Вас не должно это беспокоить.'''
+        self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_helpmessage), spacing=10,
+                                            height=400, height_policy='fixed',
+                                            width_policy = 'max',
+                                            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
+                                            margin=(10, 10, 10, 10))
+                                        
+        self.chatbot_inputline = TextAreaInput(value = "", min_width=700, sizing_mode='stretch_both')
+        self.chatbot_left_panel = Column(self.chatbot_langmodel.interface)
+        self.chatbot_right_panel = Column(self.chatbot_output_area,
                               Row(self.chatbot_inputline, self.chatbot_send_button,
                               width_policy = 'max'
                               )
-                       )
-                   ),
-            sizing_mode='stretch_both'
+        )
+        self.chatbot_interfaces = [
+            Column(Row(self.chatbot_left_panel,
+                       self.chatbot_right_panel),
+                    sizing_mode='stretch_both'
             )
         ]
                    
