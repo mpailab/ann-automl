@@ -148,9 +148,7 @@ class NNGui(object):
             self.dataset_error.visible = True
             return
         
-        labeling_args = {"images_zip" : self.labeling_images_source_type.value == "zip_archive",
-                        "images_source_type": self.labeling_images_source_type.value,
-                        "images_name": self.dataset_description.value,
+        labeling_args = {"images_name": self.dataset_description.value,
                         "images_path": self.labeling_images_path.value,
                         "nn_core": self.labeling_nn_core.value}
         
@@ -438,7 +436,6 @@ class NNGui(object):
         ]
         self.dataset_load_interface = list(map(lambda x: x.interface, self.dataset_load_widgets))
         self.dataset_labeling_widgets = [self.dataset_description,
-                                         self.labeling_images_source_type,
                                          self.labeling_images_path,
                                          self.labeling_nn_core,
         ]

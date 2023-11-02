@@ -21,10 +21,6 @@ chatbot_params = {
 
 labeling_params = {
     'images_path': { 'title': 'Путь/Ссылка к каталогу/zip-архиву изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
-    'images_zip': { 'title': 'База изображений запакована в zip-архив?', 'type': 'bool', 'default': True },
-    'images_source_type': { 'title': 'Источник для базы изображений',
-                 'type': 'str', 'default': 'zip_archive',
-                 'values': ['directory', 'zip_archive', 'google_drive'] },
     'nn_core': { 'title': 'Ядро разметчика (используемая нейросеть)',
                  'type': 'str', 'default': 'yolov5s',
                  'values': ['yolov5s', 'yolov5n', 'yolov5m', 'yolov5l', 'yolov5x'] },
