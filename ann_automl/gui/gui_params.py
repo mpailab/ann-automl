@@ -20,8 +20,8 @@ chatbot_params = {
 }
 
 labeling_params = {
-    'images_path': { 'title': 'Путь/Ссылка к каталогу/zip-архиву изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
-    'nn_core': { 'title': 'Ядро разметчика (используемая нейросеть)',
+    'images_path': { 'title': 'Путь/cсылка к каталогу/архиву изображений', 'type': 'str', 'default': '' },
+    'nn_core': { 'title': 'Ядро разметчика изображений',
                  'type': 'str', 'default': 'yolov5s',
                  'values': ['yolov5s', 'yolov5n', 'yolov5m', 'yolov5l', 'yolov5x'] },
 }

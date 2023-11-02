@@ -162,6 +162,7 @@ class NNGui(object):
         self.database_logs.visible = True
         self.database_logs.text = "<b>Выполняется загрузка изображения и автоматическая разметка</b>"
         print(f"smart_labeling.pre_processing... ", end='')
+        #TODO Сделать обработку исключений при вызове labeling
         labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
         print("ok")
         labels_file = os.path.join(self.labeling_working_dir, "labels.json")
@@ -169,8 +170,7 @@ class NNGui(object):
             json.dump(labels_dict, outfile)
         
         self.database_logs.text = f"""<b>Автоматическая разметка завершена.</b>
-        Произведите ручную доразметку (если требуется) по ссылке
-        <a href="https://{HOST}:{PORT_QSL}">здесь</a>.
+        Произведите ручную доразметку (если требуется).
         По завершению ручной доразметки нажмите кнопку 'Завершить разметку'"""
         self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port = PORT_QSL)
         self.labeling_open_qsl_tab.active = 1 #Open tab
@@ -232,6 +232,9 @@ class NNGui(object):
         self.dataset_params_panel.children = self.dataset_load_interface
         for widget in self.dataset_load_widgets:
             widget.enable()
+        #self.dataset_description.value = "microtest"
+        #self.dataset_anno_file.value = os.path.join(DATABASES_DIR, self.dataset_description.value, "annotations", "annotations.json")
+        #self.dataset_dir.value = os.path.join(DATABASES_DIR, self.dataset_description.value, "images")
         self.dataset_add_button.disabled = True
         self.dataset_create_button.disabled = True
         self.dataset_select_button.disabled = True
@@ -264,11 +267,11 @@ class NNGui(object):
                 self.dataset_dir.value,
                 ds_info={
                         "description": self.dataset_description.value,
-                        "url": self.dataset_url.value,
-                        "version": self.dataset_version.value,
-                        "year": self.dataset_year.value,
-                        "contributor": self.dataset_contributor.value,
-                        "date_created": self.dataset_year.value
+                        "url": "",
+                        "version": "",
+                        "year": "",
+                        "contributor": "",
+                        "date_created": ""
                     }
             )
             self.database = {
@@ -286,9 +289,11 @@ class NNGui(object):
             self.database_logs.visible = True
             return
 
+        self.dataset_selector.options = list(self.database.keys())
         dataset = self.dataset_description.value
         self.dataset_selector.value = [dataset]
         self.setup_dataset(dataset, update_params=False)
+
         self.dataset_params_panel.children = self.dataset_info_interface
         for widget in self.dataset_info_widgets:
             widget.disable()
@@ -400,7 +405,7 @@ class NNGui(object):
         self.dataset_select_button = Button('Использовать выбранные датасеты',
                                             self.on_click_dataset_select,
                                             disabled=True)
-        self.labeling_start_button = Button('Создать файл аннотаций',
+        self.labeling_start_button = Button('Запустить разметчик',
                                          self.on_click_labeling_start, visible=False)
         self.labeling_finish_button = Button('Завершить разметку',
                                          self.on_click_labeling_finish, visible=False)
