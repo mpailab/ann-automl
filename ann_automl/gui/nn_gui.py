@@ -1,448 +1,53 @@
 import os
 import sys
-from pathlib import Path
 import time
 import traceback
 import json
-
 import panel as pn
-import param
 import pandas as pd
 import datetime as dt
-import numpy as np
 import bokeh
 from typing import Any, Callable, Dict, Optional
 from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, RadioGroup,\
                          MultiChoice, MultiSelect, CheckboxGroup, CheckboxButtonGroup, \
                          DatePicker, TextInput, TextAreaInput, Spacer, \
                          ColumnDataSource, DataTable, TableColumn, Dropdown, \
-                         NumberFormatter, Widget
+                         NumberFormatter, Widget, FuncTickFormatter
 from bokeh.events import ButtonClick
 import bokeh.plotting.figure as Figure
-from datetime import date
 from random import randint, random, sample
 
+from ..core.nn_task import loss_target, metric_target, NNTask
+from ..core.nnfuncs import cur_db, StopFlag, train, tune, tensorboard_logdir, params_from_history
+from ..core.nn_recommend import recommend_hparams
 from ..utils.process import process
 from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tensorboard
 import ann_automl.gui.qsl_label as qsl_label
 import ann_automl.core.smart_labeling as labeling
-from ..core.nn_task import loss_target, metric_target, NNTask
-from ..core.nnfuncs import cur_db, StopFlag, train, tune, param_values, tensorboard_logdir, params_from_history
-from ..core.nn_recommend import recommend_hparams
-
-Callback = Callable[[Any, Any, Any], None]
-Params = Optional[Dict[str, Any]]
+from .css_settings import shadow_border_css, scroll_css, active_header_button_css,\
+                               inactive_header_button_css, mode_header_button_css
+from .gui_params import gui_params
+from .modified_widgets import Box, Button, Delimiter, Table
+from .param_widget import ParamWidget
 
 HOST = "0.0.0.0"
 #HOST = "localhost"
 PORT_QSL = 8080
-DATABASES_DIR = Path('./datasets')
+DATABASES_DIR = 'datasets'
 
 #Launch TensorBoard
 tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
                   logdir=tensorboard_logdir(),
                   host=HOST,
                   port="6006"))
-
-shadow_border_css = '''
-.bk.ann-automl-shadow-border {
-    border-radius: 0px;
-    border: none;
-    box-shadow: 0 1px 5px grey;
-}
-'''
-
-scroll_css = '''
-.bk.ann-automl-scroll {
-    overflow-x: visible !important;
-    overflow-y: auto !important;
-}
-'''
-
-active_header_button_css = '''
-.bk.ann-active-head-btn button.bk.bk-btn.bk-btn-default {
-    color: white;
-    font-size: 16pt;
-    background-color: #f57c00;
-    border-color: #f57c00;
-    min-height: 64px;
-    max-width: max-content;
-    border-radius: 0px;
-}
-'''
-
-inactive_header_button_css = '''
-.bk.ann-inactive-head-btn button.bk.bk-btn.bk-btn-default {
-    color: #ffffffa3;
-    font-size: 16pt;
-    background-color: #f57c00;
-    border-color: #f57c00;
-    min-height: 64px;
-    max-width: max-content;
-    border-radius: 0px;
-}
-'''
-
-mode_header_button_css = '''
-.bk.ann-mode-head-btn button.bk.bk-btn.bk-btn-default {
-    color: black;
-    font-size: 16pt;
-    background-color: #f57c00;
-    border-color: #f57c00;
-    min-height: 64px;
-    max-width: max-content;
-    border-radius: 0px;
-}
-'''
+js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
 
 pn.extension(raw_css=[
     shadow_border_css, scroll_css,
     active_header_button_css, inactive_header_button_css, mode_header_button_css
 ])
 pn.config.sizing_mode = 'stretch_width'
-
-
-task_params = {
-    'type': { 'title': 'Тип задачи', 'type': 'str', 'default': 'classification',
-              'values': ['classification', 'segmentation', 'detection'] },
-    'objects': { 'title': 'Категории изображений', 'type': 'list',
-                 'values': [], 'default': [] },
-    'func': { 'title': 'Целевой функционал', 'type': 'str',
-              'values': ['Метрика'], 'default': 'Метрика' },
-    'value': { 'title': 'Значение целевого функционала', 'type':
-               'float', 'range': [0, 1], 'step': 0.01, 'scale': 'lin', 'default': 0.9 },
-    'maximize': { 'title': 'Продолжать оптимизацию после достижения целевого значения', 'type': 'bool',
-                  'default': False }
-}
-
-chatbot_params = {
-    'langmodel' : { 'title': 'Используемая чат-ботом языковая модель',
-                 'type': 'str', 'default': 'Lama_1',
-                 'values': ['Lama_1', 'Lama_2', 'Lama_3'] },
-}
-
-labeling_params = {
-    'images_path': { 'title': 'Путь/Ссылка к каталогу/zip-архиву изображений', 'type': 'str', 'default': '/auto/projects/brain/ann-automl-gui/datasets/test1/Images example.zip' },
-    'images_zip': { 'title': 'База изображений запакована в zip-архив?', 'type': 'bool', 'default': True },
-    'images_source_type': { 'title': 'Источник для базы изображений',
-                 'type': 'str', 'default': 'zip_archive',
-                 'values': ['directory', 'zip_archive', 'google_drive'] },
-    'nn_core': { 'title': 'Ядро разметчика (используемая нейросеть)',
-                 'type': 'str', 'default': 'yolov5s',
-                 'values': ['yolov5s', 'yolov5n', 'yolov5m', 'yolov5l', 'yolov5x'] },
-}
-
-dataset_params = {
-    'description': { 'title': 'Название датасета', 'type': 'str', 'default': '' },
-    'url': { 'title': 'Url', 'type': 'str', 'default': '' },
-    'contributor': { 'title': 'Создатель', 'type': 'str', 'default': '' },
-    'date_created': { 'title': 'Дата создания', 'type': 'date', 'default': None },
-    'version': { 'title': 'Версия', 'type': 'str', 'default': '' },
-    'anno_file': { 'title': 'Файл с аннотациями', 'type': 'str', 'default': '' },
-    'dir': { 'title': 'Каталог с изображениями', 'type': 'str', 'default': '' },
-}
-
-general_params = {
-    'tune': { 'title': 'Оптимизировать гиперпараметры', 'type': 'bool','default': False }
-}
-
-gui_params = {
-    **{
-        k: {**v, 'gui': {'group': 'general', 'widget': widget_type(v)}}
-        for k,v in general_params.items()
-    },
-    **{
-        f'task_{k}': {**v, 'gui': {'group': 'task', 'widget': widget_type(v)}}
-        for k,v in task_params.items()
-    },
-    **{
-        f'dataset_{k}': {**v, 'gui': {'group': 'dataset', 'widget': widget_type(v)}}
-        for k,v in dataset_params.items()
-    },
-    **{
-        f'labeling_{k}': {**v, 'gui': {'group': 'labeling', 'widget': widget_type(v)}}
-        for k,v in labeling_params.items()
-    },
-    **{
-        f'chatbot_{k}': {**v, 'gui': {'group': 'chatbot', 'widget': widget_type(v)}}
-        for k,v in chatbot_params.items()
-    },
-    **hyperparameters
-}
-
-
-def Box(*args, **kwargs):
-    return Column(*args, **kwargs, spacing=10, height=700, height_policy='fixed',
-                  css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
-                  margin=(10, 10, 10, 10))
-
-
-def Button(label, on_click_func, *args, js=False, **kwargs):
-    assert 'label' not in kwargs
-    if 'button_type' not in kwargs:
-        kwargs['button_type'] = 'primary'
-    if 'width' not in kwargs:
-        kwargs['width'] = 8*len(label) + 50
-    button = bokeh.models.Button(*args, **kwargs, label=label)
-    if js:
-        button.js_on_click(on_click_func)
-    else:
-        button.on_click(on_click_func)
-    return button
-
-
-def Delimiter(*args, **kwargs, ):
-    return Spacer(*args, **kwargs, height=3, background="#b8b8b8",
-                  margin=(10, 30, 10, 15))
-
-
-def Table(source, columns, *args, **kwargs):
-    return DataTable(*args, **kwargs, source=source, columns=columns,
-                     index_position=None, autosize_mode='fit_columns',
-                     sizing_mode='stretch_both',
-                     css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
-                     margin=(10, 10, 10, 10))
-
-
-def Toggle(label, on_click_func, *args, **kwargs):
-    button = bokeh.models.Toggle(*args, **kwargs, label=label,
-                                 button_type='primary', width=8*len(label) + 50)
-    button.on_click(on_click_func)
-    return button
-
-
-js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
-js_open_qsl_label = CustomJS(code=f'window.open("http://localhost:{PORT_QSL}");')
-
-
-class ParamWidget(object):
-
-    _widgets = {}
-
-    def __init__(self, name: str, desc: Dict[str, Any]):
-
-        assert 'gui' in desc and 'default' in desc and 'title' in desc and \
-               'group' in desc['gui'] and 'widget' in desc['gui'] and \
-                name not in self._widgets
-
-        title = f"{desc['title']}"
-        if desc['gui']['widget'] != 'Checkbox':
-            title += ':'
-        value = desc['default']
-        kwargs = {
-            'name': name,
-            'tags': [desc['gui']['group']],
-            'css_classes': ['ann-automl-align'],
-            'min_height': 50,
-            'sizing_mode': 'stretch_width',
-            'margin': (5, 35, 5, 20)
-        }
-
-        prefix = name.split('_')[0]
-
-        def default_getter():
-            return self._obj.value
-
-        def default_setter(value):
-            self._obj.value = value
-
-        def get_values():
-            return self._obj.options
-
-        def set_values(values):
-            self._obj.options = values
-
-        self._attr = 'value'
-        self._title = title
-        self._value = value
-        self._default_value = value
-        self._clear_value = None
-        self._getter = default_getter
-        self._setter = default_setter
-        self._values_getter = None
-        self._values_setter = None
-        self._conditions = {}
-        self._dependencies = []
-
-        if desc['gui']['widget'] == 'Select':
-            self._obj = Select(title=title, value=value,
-                               options=[x for x in desc['values']], **kwargs)
-            self._values_getter = get_values
-            self._values_setter = set_values
-
-        elif desc['gui']['widget'] == 'MultiChoice':
-            self._obj = MultiChoice(title=title, value=value,
-                                    options=[x for x in desc['values']], **kwargs)
-            self._values_getter = get_values
-            self._values_setter = set_values
-
-        elif desc['gui']['widget'] == 'Slider':
-
-            str_values, cur_index = param_values(
-                return_str=True, **{**desc, 'default': value})
-            self._values, _ = param_values(**desc)
-
-            try:
-                formatter = bokeh.models.FuncTickFormatter(
-                    code=f"const labels = {str_values};\nreturn labels[tick];")
-            except Exception:
-                traceback.print_exc()
-                raise
-
-            kwargs['min_height'] = 40
-            self._obj = Slider(title=title, value=cur_index,
-                               start=0, end=len(self._values)-1,
-                               step=1, format=formatter, **kwargs)
-
-            def slicer_getter():
-                return self._values[max(0,min(self._obj.value,len(self._values)-1))]
-
-            def slicer_setter(value):
-                self._obj.value = np.argmin(np.abs(np.array(self._values) - value))
-
-            self._getter = slicer_getter
-            self._setter = slicer_setter
-
-        elif desc['gui']['widget'] == 'Checkbox':
-            kwargs['min_height'] = 20
-            self._obj = CheckboxGroup(labels=[title],
-                                      active=[0] if value else [], **kwargs)
-
-            def checkbox_getter() -> bool:
-                return len(self._obj.active) > 0
-
-            def checkbox_setter(value: bool):
-                self._obj.active = [0] if value else []
-
-            self._attr = 'active'
-            self._getter = checkbox_getter
-            self._setter = checkbox_setter
-
-        elif desc['gui']['widget'] == 'Text':
-            self._obj = TextInput(title=title, value=value, **kwargs)
-            self._clear_value = ""
-
-        elif desc['gui']['widget'] == 'Date':
-            if value is None:
-                self._value = date.today()
-                self._default_value = self._value
-                self._obj = DatePicker(title=title, value=date.today(), **kwargs)
-            else:
-                self._obj = DatePicker(title=title, value=value, **kwargs)
-
-            def date_setter(value):
-                try:
-                    self._obj.value = value
-                except ValueError:
-                    self._obj.value = date.today()
-
-            self._setter = date_setter
-            self._clear_value = date.today()
-
-        else:
-            raise ValueError(f'Unsupported widget type {desc["gui"]["widget"]}')
-
-        self._widgets[name] = self
-
-        if 'cond' in desc:
-            for p, vs in desc['cond']:
-                widget = self._widgets[p]
-                self._conditions[widget] = vs
-                widget.add_dependence(self)
-
-        def default_callback(attr, old, new):
-            for widget in self._dependencies:
-                if widget.active():
-                    widget.activate()
-                else:
-                    widget.hide()
-
-        self._callbacks = [default_callback]
-
-    def __hash__(self):
-        return hash(self.name)
-
-    def __eq__(self, other):
-        return self.name == other.name
-
-    def __ne__(self, other):
-        return self.name != other.name
-
-    def add_dependence(self, widget):
-        self._dependencies.append(widget)
-
-    @property
-    def name(self):
-        return self._obj.name
-
-    @property
-    def group(self):
-        return self._obj.tags[0]
-
-    @property
-    def title(self):
-        return self._title
-
-    @property
-    def value(self):
-        return self._getter()
-
-    @value.setter
-    def value(self, value):
-        self._setter(value)
-
-    @property
-    def values(self):
-        assert self._values_getter is not None
-        return self._values_getter()
-
-    @values.setter
-    def values(self, values):
-        assert self._values_setter is not None
-        self._values_setter(values)
-
-    def active(self):
-        return all (w.value in vs for w,vs in self._conditions)
-
-    def activate(self):
-        self._obj.visible = True
-
-    def hide(self):
-        self._obj.visible = False
-
-    def enable(self):
-        self._obj.disabled = False
-
-    def disable(self):
-        self._obj.disabled = True
-
-    def on_change(self, *callbacks: Callback):
-        self._callbacks.extend(callbacks)
-        self._obj.on_change(self._attr, *self._callbacks)
-
-    def clear(self):
-        assert self._clear_value is not None
-        self.value = self._clear_value
-
-    def reset(self):
-        self.value = self._value
-
-    def default(self):
-        self.value = self._default_value
-
-    def set_default(self, value):
-        self._default_value = value
-        self._value = value
-        self.value = value
-
-    def update(self):
-        self._value = self.value
-
-    @property
-    def interface(self):
-        return self._obj
-
 
 class NNGui(object):
 
