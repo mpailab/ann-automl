@@ -31,10 +31,10 @@ def test_upload_from_drive(db_dir, monkeypatch):
     assert os.path.isfile(db_dir + '/test.sqlite')
 
     path_to_images = "https://drive.google.com/file/d/1aDlgJaDw4RPNxySbrluWJMsc5XHJ_JiA/view?usp=sharing"
-    input_data = iter(["3", path_to_images, "My_dataset", "yolov5x"])
+    input_data = iter([path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -65,11 +65,11 @@ def test_upload_from_folder(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\pictures"
-    input_data = iter(["1", path_to_images, "My_dataset", "yolov5x"])
+    path_to_images = "C:/Users/droby/Documents/tests/pictures"
+    input_data = iter([path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -101,11 +101,11 @@ def test_upload_from_zip_archive(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\Image_examples.zip"
-    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x"])
+    path_to_images = "C:/Users/droby/Documents/tests/pictures/pictures.zip"
+    input_data = iter([path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -136,27 +136,27 @@ def test_mixed_upload(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    local_path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\pictures"
-    local_path_to_zip = "C:\\Users\\Alexander\\Documents\\tests\\Image_examples.zip"
+    local_path_to_images = "C:/Users/droby/Documents/tests/pictures"
+    local_path_to_zip = "C:/Users/droby/Documents/tests/pictures/pictures.zip"
     google_drive_path = "https://drive.google.com/file/d/1aDlgJaDw4RPNxySbrluWJMsc5XHJ_JiA/view?usp=sharing"
-    input_data = iter(["2", local_path_to_zip, "My_dataset", "yolov5x",
-                       "1", local_path_to_images, "My_dataset_2", "yolov5x",
-                       "3", google_drive_path, "My_dataset_3", "yolov5x"])
+    input_data = iter([local_path_to_zip, "My_dataset", "yolov5x",
+                       local_path_to_images, "My_dataset_2", "yolov5x",
+                       google_drive_path, "My_dataset_3", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
                              file_prefix=dataset_dir + '/images/', ds_info=dataset_info)
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
                              file_prefix=dataset_dir + '/images/', ds_info=dataset_info)
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -186,13 +186,13 @@ def test_different_nn(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    local_path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\pictures"
-    input_data = iter(["1", local_path_to_images, "My_dataset", "yolov5s",
-                       "1", local_path_to_images, "My_dataset_2", "yolov5l",
-                       "1", local_path_to_images, "My_dataset_3", "yolov5x"])
+    local_path_to_images = "C:/Users/droby/Documents/tests/pictures"
+    input_data = iter([local_path_to_images, "My_dataset", "yolov5s",
+                       local_path_to_images, "My_dataset_2", "yolov5l",
+                       local_path_to_images, "My_dataset_3", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -202,7 +202,7 @@ def test_different_nn(db_dir, monkeypatch):
     len_one_dataset = len(mydb.get_all_categories()['name'])
     assert  len_one_dataset != 0
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -213,7 +213,7 @@ def test_different_nn(db_dir, monkeypatch):
     assert len_two_datasets != 0
     assert len_two_datasets > len_one_dataset
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
     dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
                     "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
     mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
@@ -234,14 +234,14 @@ def test_presented_dataset(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\Image_examples.zip"
-    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x", "2", path_to_images, "My_dataset", "yolov5x"])
+    path_to_images = "C:/Users/droby/Documents/tests/pictures/pictures.zip"
+    input_data = iter([path_to_images, "My_dataset", "yolov5x", path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    dataset_dir = labeling(db_dir)
+    dataset_dir = labeling(db_dir, test = True)
 
     with pytest.raises(FileNotFoundError, match='The dataset My_dataset being added is already presented'):
-        dataset_dir = labeling(db_dir)
+        dataset_dir = labeling(db_dir, test = True)
     mydb.close()
 
 @pytest.mark.usefixtures('db_dir')
@@ -250,13 +250,13 @@ def test_empty_folder(db_dir, monkeypatch):
     mydb.create_sqlite_file()
     assert os.path.isfile(db_dir + '/test.sqlite')
 
-    path_to_images = "C:\\Users\\Alexander\\Documents\\tests\\empty_folder"
-    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x"])
+    path_to_images = "C:/Users/droby/Documents/tests/empty_folder"
+    input_data = iter([path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
-    error = "No image files in C:\\Users\\Alexander\\Documents\\tests\\empty_folder directory"
+    error = f"No image files in {path_to_images} directory"
     with pytest.raises(FileNotFoundError, match=error):
-        dataset_dir = labeling(db_dir)
+        dataset_dir = labeling(db_dir, test = True)
     mydb.close()
 
 @pytest.mark.usefixtures('db_dir')
@@ -266,12 +266,12 @@ def test_incorrect_path(db_dir, monkeypatch):
     assert os.path.isfile(db_dir + '/test.sqlite')
 
     path_to_images = "D"
-    input_data = iter(["2", path_to_images, "My_dataset", "yolov5x"])
+    input_data = iter([path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
     error = 'No image files in ' + path_to_images + ' directory'
     with pytest.raises(ValueError, match=f"Incorrect path {path_to_images} to images"):
-        dataset_dir = labeling(db_dir)
+        dataset_dir = labeling(db_dir, test = True)
     mydb.close()
 
 

@@ -15,16 +15,7 @@ def make_labeling_info():
         nn - нейросеть, используемая для предварительной разметки датасета
     """
     labeling_info = dict()
-    images_zip = input(
-        "Выберите, каким образом добавить изображения: \n 1) Загрузить изображения из Директории \n "
-        "2) Загрузить изображения zip-архивом \n 3) Загрузить изображения из Гугл Диска")
     labeling_info["images_path"] = input("Введите путь до директории с изображениями")
-    if images_zip == "1":
-        labeling_info["images_zip"] = "directory"
-    elif images_zip == "2":
-        labeling_info["images_zip"] = "zip-archive"
-    elif images_zip == "3":
-        labeling_info["images_zip"] = "google_drive"
     labeling_info["images_name"] = input("Введите название датасета:")
     dict_of_nn = {"yolov5s": 'yolov5s', "yolov5n": 'yolov5n', "yolov5m": 'yolov5m', "yolov5l": 'yolov5l',
                   "yolov5x": 'yolov5x'}
@@ -44,7 +35,7 @@ def upload_images(image_dir, dst_dir):
         Args:
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
-    regex = re.compile(
+    url_regex = re.compile(
         r'^(?:http|ftp)s?://'  # http:// or https://
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
         r'localhost|'  # localhost...
@@ -57,7 +48,7 @@ def upload_images(image_dir, dst_dir):
     elif os.path.isfile(image_dir):
         upload_from_zip(image_dir, dst_dir)
         return 0
-    elif re.match(regex, image_dir) is not None:
+    elif re.match(url_regex, image_dir) is not None:
         upload_from_server(image_dir, dst_dir)
         return 0
     else:
@@ -65,7 +56,7 @@ def upload_images(image_dir, dst_dir):
 
 
 
-def labeling(dst_dir=""):
+def labeling(dst_dir="", test = False):
     """
         Выполняет разметку изображений при помощи qsl Media labeler с последующей записью аннотаций в файл
         annotations.json.
@@ -84,7 +75,8 @@ def labeling(dst_dir=""):
     with open(dst_dir + "/labels.json", "w") as outfile:
         json.dump(labels_dict, outfile)
     command = "qsl label " + dst_dir + "/labels.json"
-    os.system(command)
+    if not(test):
+        os.system(command)
     final_anno = post_processing(dst_dir)
     with open(dst_dir + "/annotations/annotations_file.json", "w") as outfile:
         json.dump(final_anno, outfile)
