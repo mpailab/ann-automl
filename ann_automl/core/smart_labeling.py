@@ -4,6 +4,7 @@ import json
 import yolov5
 from PIL import Image
 from datetime import datetime, date
+from tqdm import tqdm
 
 
 def make_labeling_info():
@@ -121,7 +122,7 @@ def make_anno_with_yolo(dst_dir, network):
     result_dict = dict()
     result_dict["items"] = []
     regions = []
-    for filename in list_of_images:
+    for filename in tqdm(list_of_images):
         result = model(filename)
         im = Image.open(filename)
         image_size = im.size
@@ -296,4 +297,10 @@ def upload_from_zip(image_dir, dst_dir):
     import shutil
     if not os.path.isfile(image_dir):
         raise FileNotFoundError(f'Error: no such file or directory: {image_dir}')
-    shutil.unpack_archive(image_dir, dst_dir)
+    shutil.unpack_archive(image_dir, dst_dir + "/pictures")
+    for dp, dn, filenames in os.walk( dst_dir + "/pictures"):
+        for f in filenames:
+            if (os.path.splitext(f)[1] == '.jpg') or (os.path.splitext(f)[1] == '.jpeg'):
+                jpgfile = os.path.join(dp, f)
+                shutil.copy(jpgfile, dst_dir)
+    shutil.rmtree(dst_dir + "/pictures")
