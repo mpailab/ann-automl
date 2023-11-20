@@ -6,6 +6,7 @@ from ann_automl.core.smart_labeling import labeling, upload_images, extract_id, 
 import tempfile
 import os
 import requests
+import shutil
 from datetime import datetime, date
 import pytest
 
@@ -58,7 +59,7 @@ def test_check(db_dir):
 
 
 @pytest.mark.usefixtures('db_dir')
-def test_upload_from_drive(db_dir, monkeypatch):
+def test_upload_from_google_drive(db_dir, monkeypatch):
     """
             Создает словарь в формате, пригодном для использования разметчиком qsl.
             Args:
@@ -76,6 +77,41 @@ def test_upload_from_drive(db_dir, monkeypatch):
     assert os.path.isfile(db_dir + '/test.sqlite')
 
     path_to_images = "https://drive.google.com/file/d/1aDlgJaDw4RPNxySbrluWJMsc5XHJ_JiA/view?usp=sharing"
+    input_data = iter([path_to_images, "My_dataset", "yolov5x"])
+    monkeypatch.setattr('builtins.input', lambda _: next(input_data))
+
+    dataset_dir = labeling(db_dir, test = True)
+    dataset_info = {"description": "", "url": "", "version": "", "year": datetime.now().year,
+                    "contributor": "", "date_created": date.today().strftime("%B %d, %Y")}
+    mydb.fill_in_coco_format(dataset_dir + '/annotations/annotations_file.json',
+                             file_prefix=dataset_dir + '/images/', ds_info=dataset_info)
+
+    assert len(mydb.get_all_datasets()) == 1
+    print(f'Categories: {list(mydb.get_all_categories()["name"])}')
+    assert len(mydb.get_all_categories()['name']) != 0
+    assert set(mydb.get_all_categories()['name']) == {'bird', 'truck', 'stop sign', 'cat', 'suitcase', 'car', 'bed',
+                                                      'motorcycle', 'dog', 'person', 'traffic light', 'handbag'}
+    mydb.close()
+
+@pytest.mark.usefixtures('db_dir')
+def test_upload_from_yandex_drive(db_dir, monkeypatch):
+    """
+            Создает словарь в формате, пригодном для использования разметчиком qsl.
+            Args:
+                db_dir (str): путь к временному каталогу, в котором хранится база данных
+                monkeypatch: необходим для передачи в тест параметров, вместо входного потока
+
+            В path_to_images указывается путь до директории с добавляемыми изображениями. В качестве итерируемого
+            объекта подается список параметров: 1) способ добавления изображений
+                                                2) Название датасета
+                                                3) Нейросеть, используемая для разметки
+                                                4) Путь до директории с изображениями
+    """
+    mydb = db.DBModule(f"sqlite:///{db_dir}/test.sqlite")
+    mydb.create_sqlite_file()
+    assert os.path.isfile(db_dir + '/test.sqlite')
+
+    path_to_images = "https://disk.yandex.ru/d/nevI0LHz3nwsfg"
     input_data = iter([path_to_images, "My_dataset", "yolov5x"])
     monkeypatch.setattr('builtins.input', lambda _: next(input_data))
 
@@ -338,4 +374,22 @@ def test_big_dataset(db_dir, monkeypatch):
 
     assert len(mydb.get_all_datasets()) == 1
     mydb.close()
+
+if __name__ == '__main__':
+    if os.path.isdir('tmp/lbl'):
+        shutil.rmtree('tmp/lbl')
+    os.makedirs('tmp/lbl', exist_ok=True)
+    test_check('tmp/lbl')
+    test_upload_from_google_drive('tmp/lbl')
+    test_upload_from_yandex_drive('tmp/lbl')
+    test_upload_from_folder('tmp/lbl')
+    test_upload_from_zip_archive('tmp/lbl')
+    test_mixed_upload('tmp/lbl')
+    test_different_nn('tmp/lbl')
+    test_presented_dataset('tmp/lbl')
+    test_empty_folder('tmp/lbl')
+    test_incorrect_path('tmp/lbl')
+    test_incorrect_path('tmp/lbl')
+    test_big_dataset('tmp/lbl')
+    test_big_dataset('tmp/lbl')
 

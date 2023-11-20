@@ -32,8 +32,8 @@ def make_labeling_info():
 def upload_images(image_dir, dst_dir):
     """
         Добавляет изображения в котолог, находящийся по пути dst_dit
-
         Args:
+            image_dir (str): путь/url к файлу/папке с изображениями
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
     url_regex = re.compile(
@@ -63,6 +63,7 @@ def labeling(dst_dir="", test = False):
         annotations.json.
         Args:
             dst_dir (str): путь к каталогу, в котором хранятся изображения
+            test (bool): флаг для запуска в режиме тестирования
     """
     labeling_args = make_labeling_info()
     '''
@@ -71,15 +72,16 @@ def labeling(dst_dir="", test = False):
                      "nn_core" : "yolov5x",
                      "images_name" : "microtest"}
     '''
+    dst_dir = os.path.normpath(dst_dir)
     dst_dir = os.path.join(dst_dir, "data", "datasets", labeling_args["images_name"]).strip()
     labels_dict = pre_processing(labeling_args, dst_dir)
-    with open(dst_dir + "/labels.json", "w") as outfile:
+    with open(os.path.join(dst_dir, "labels.json"), "w") as outfile:
         json.dump(labels_dict, outfile)
-    command = "qsl label " + dst_dir + "/labels.json"
+    command = "qsl label " + os.path.join(dst_dir, "labels.json")
     if not(test):
         os.system(command)
     final_anno = post_processing(dst_dir)
-    with open(dst_dir + "/annotations/annotations_file.json", "w") as outfile:
+    with open(os.path.join(dst_dir, "annotations", "annotations_file.json"), "w") as outfile:
         json.dump(final_anno, outfile)
     return dst_dir
 
@@ -111,14 +113,13 @@ def make_anno_with_yolo(dst_dir, network):
             dst_dir (str): путь к каталогу, в котором хранятся изображения
             network (str): нейросеть, используемая для предварительной разметки изображений
     """
-    data_dir = dst_dir + "/images"
+    data_dir = os.path.join(dst_dir, "images")
     model = yolov5.load(network)
     list_of_images = []
-    for filename in os.listdir(data_dir):
-        if os.path.isfile(os.path.join(data_dir, filename)):
-            if filename.endswith(".jpeg") or filename.endswith(".jpg"):
-                jpgfile = os.path.join(data_dir, filename).replace("\\", "/")
-                list_of_images.append(jpgfile)
+    for dp, dn, filenames in os.walk(data_dir):
+        for f in filenames:
+            if (os.path.splitext(f)[1] == '.jpg') or (os.path.splitext(f)[1] == '.jpeg'):
+                list_of_images.append(os.path.join(dp, f))
     result_dict = dict()
     result_dict["items"] = []
     regions = []
@@ -127,7 +128,7 @@ def make_anno_with_yolo(dst_dir, network):
         im = Image.open(filename)
         image_size = im.size
         picture_dict = {}
-        picture_dict["target"] = filename
+        picture_dict["target"] = filename.replace("\\", "/")
         picture_dict["labels"] = {}
         picture_dict["labels"]["polygons"] = []
         picture_dict["labels"]["masks"] = []
@@ -165,9 +166,9 @@ def post_processing(labels_dir):
         Args:
             labels_dir (str): путь к каталогу, в котором хранится json файл, содержащий разметку.
     """
-    if not os.path.isfile(labels_dir + "/labels.json"):
-        raise FileNotFoundError('Error: no labels file found in', labels_dir + "/labels.json", 'directory')
-    with open(labels_dir + "/labels.json", "r") as file:
+    if not os.path.isfile(os.path.join(labels_dir, "labels.json")):
+        raise FileNotFoundError('Error: no labels file found in', os.path.join(labels_dir, "labels.json"), 'directory')
+    with open(os.path.join(labels_dir, "labels.json"), "r") as file:
         labels = json.load(file)
 
     anno_dict = dict()
@@ -218,8 +219,9 @@ def post_processing(labels_dir):
 
 def upload_from_folder(image_dir, dst_dir):
     """
-        Добавляет в каталог, находящийся по пути dst_dir все изобрвжения, находящиеся в пользовательском каталоге.
+        Добавляет в каталог, находящийся по пути dst_dir все изображения, находящиеся в пользовательском каталоге.
         Args:
+            image_dir (str): путь к пользовательскому каталогу сс изображениями
             dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
     import shutil
@@ -234,13 +236,40 @@ def upload_from_folder(image_dir, dst_dir):
 
 
 def upload_from_server(shared_url, dst_dir):
-    """
-    Добавляет в каталог, находящийся по пути dst_dir изобрвжения,скаченные с указанного ресурса.
-    Args:
-        dst_dir (str): путь к каталогу, в котором будут храниться изображения
+    from urllib.parse import urlparse
 
-    TODO:
-        дописать
+    parse_object = urlparse(shared_url)
+    if parse_object.netloc == 'disk.yandex.ru':
+        upload_from_yandex(shared_url, dst_dir)
+    elif parse_object.netloc == 'drive.google.com':
+        upload_from_google(shared_url, dst_dir)
+
+def upload_from_yandex(shared_url, dst_dir):
+    """
+        Добавляет в каталог, находящийся по пути dst_dir изображения, скачанные с Яндекс Диска.
+        Args:
+            shared_url (str): ссылка на архив, хранящийся на Яндекс диске
+            dst_dir (str): путь к каталогу, в котором будут храниться изображения
+    """
+    from urllib.parse import urlencode
+    import requests
+
+    URL = 'https://cloud-api.yandex.net/v1/disk/public/resources/download?'
+    final_url = URL + urlencode(dict(public_key=shared_url))
+    response = requests.get(final_url)
+    download_url = response.json()['href']
+    download_response = requests.get(download_url)
+    save_response_content(download_response, dst_dir)
+    upload_from_zip(os.path.join(dst_dir, 'pictures.zip'), dst_dir)
+    os.remove(os.path.join(dst_dir, 'pictures.zip'))
+
+
+def upload_from_google(shared_url, dst_dir):
+    """
+        Добавляет в каталог, находящийся по пути dst_dir изображения, скачанные с Google Drive.
+        Args:
+            shared_url (str): ссылка на архив, хранящийся на Google Drive
+            dst_dir (str): путь к каталогу, в котором будут храниться изображения
     """
     import requests
 
@@ -267,6 +296,12 @@ def get_confirm_token(response):
     return None
 
 def save_response_content(response, destination):
+    """
+        Сохраняет скачанные данные в файл.
+        Args:
+            response (Request object): объект, хранящий ответ с сервера
+            destination (str): директория, в которой будет сохранен файл, скачанный с диска
+    """
     CHUNK_SIZE = 32768
 
     if not os.path.exists(destination):
@@ -281,6 +316,13 @@ def save_response_content(response, destination):
                 f.write(chunk)
 
 def extract_id(url):
+    """
+        Извлекает из ссылки на Google Drive id файла для скачивания.
+        Args:
+            url (str): ссылка на архив с изображениями, хранящийся на $Google Drive$
+        Return:
+            id файла в Google Drive
+    """
     import re
 
     m = re.search(r'([01A-Z])(?=[\w-]*[A-Za-z])[\w-]+', url)
@@ -290,17 +332,18 @@ def extract_id(url):
 
 def upload_from_zip(image_dir, dst_dir):
     """
-    Добавляет в каталог, находящийся по пути dst_dir изобрвжения, находящиеся в zip-архиве.
-    Args:
-        dst_dir (str): путь к каталогу, в котором будут храниться изображения
+        Добавляет в каталог, находящийся по пути dst_dir, изображения, находящиеся в zip-архиве.
+        Args:
+            image_dir (str): путь к каталогу с архивом изображений.
+            dst_dir (str): путь к каталогу, в котором будут храниться изображения.
     """
     import shutil
     if not os.path.isfile(image_dir):
         raise FileNotFoundError(f'Error: no such file or directory: {image_dir}')
-    shutil.unpack_archive(image_dir, dst_dir + "/pictures")
-    for dp, dn, filenames in os.walk( dst_dir + "/pictures"):
+    shutil.unpack_archive(image_dir, os.path.join(dst_dir, "pictures"))
+    for dp, dn, filenames in os.walk(os.path.join(dst_dir, "pictures")):
         for f in filenames:
             if (os.path.splitext(f)[1] == '.jpg') or (os.path.splitext(f)[1] == '.jpeg'):
                 jpgfile = os.path.join(dp, f)
                 shutil.copy(jpgfile, dst_dir)
-    shutil.rmtree(dst_dir + "/pictures")
+    shutil.rmtree(os.path.join(dst_dir, "pictures"))
