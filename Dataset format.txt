@@ -1,0 +1,22 @@
+KerasCV has a predefined format for bounding boxes. To comply with this, you should package your bounding boxes into a dictionary matching the specification below:
+
+bounding_boxes = {
+    # num_boxes may be a Ragged dimension
+    'boxes': Tensor(shape=[batch, num_boxes, 4]),
+    'classes': Tensor(shape=[batch, num_boxes])
+}
+
+bounding_boxes['boxes'] contains the coordinates of your bounding box in a KerasCV supported bounding_box_format. 
+
+To match the KerasCV API style ,
+it is recommended that when writing a custom data loader, you also support a bounding_box_format argument. 
+This makes it clear to those invoking your data loader what format the bounding boxes are in. In this example, we format our boxes to xywh format.
+
+For example:
+
+train_ds, ds_info = your_data_loader.load(
+    split='train', bounding_box_format='xywh', batch_size=8
+)
+This clearly yields bounding boxes in the format xywh. You can read more about KerasCV bounding box formats in the API docs (https://keras.io/api/keras_cv/bounding_box/formats/).
+
+Our data comes loaded into the format {"images": images, "bounding_boxes": bounding_boxes}. This format is supported in all KerasCV preprocessing components.
