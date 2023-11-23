@@ -145,10 +145,11 @@ class NNGui(object):
 
     def on_click_labeling_start(self):
         err = ""
+        self.dataset_error.visible = False
         if self.dataset_description.value == "":
             err = "Название сета изображений не может быть пустым"
-        elif not os.path.exists(self.labeling_images_path.value):
-            err = "Каталог с изображениями не найден"
+        elif self.labeling_images_path.value == "":
+            err = "Поле для пути/ссылки к изображениям не может быть пустым"
 
         if err:
             self.dataset_error.text = f'<font color=red>{err}</font>'
@@ -169,12 +170,27 @@ class NNGui(object):
         self.database_logs.visible = True
         self.database_logs.text = "<b>Выполняется загрузка изображения и автоматическая разметка</b>"
         print(f"smart_labeling.pre_processing... ", end='')
-        #TODO Сделать обработку исключений при вызове labeling
-        labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
-        print("ok")
-        labels_file = os.path.join(self.labeling_working_dir, "labels.json")
-        with open(labels_file, "w") as outfile:
-            json.dump(labels_dict, outfile)
+        try:
+            labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
+            labels_file = os.path.join(self.labeling_working_dir, "labels.json")
+            with open(labels_file, "w") as outfile:
+                json.dump(labels_dict, outfile)
+            print("ok")
+        except ValueError:
+            err = "Ошибка при загрузки изображений"
+        except FileNotFoundError:
+            err = "Ошибка при загрузки изображений"
+        
+        if err:
+            self.dataset_error.text = f'<font color=red>{err}</font>'
+            self.dataset_error.visible = True
+            for widget in self.dataset_labeling_widgets:
+                widget.enable()
+            self.labeling_start_button.disabled = False
+            self.dataset_cancel_button.visible = True
+            self.database_logs.visible = False
+            self.database_logs.text = ""
+            return
         
         self.database_logs.text = f"""<b>Автоматическая разметка завершена.</b>
         Произведите ручную доразметку (если требуется).
