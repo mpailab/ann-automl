@@ -2,401 +2,52 @@ import os
 import sys
 import time
 import traceback
-
+import json
 import panel as pn
-import param
 import pandas as pd
 import datetime as dt
-import numpy as np
 import bokeh
 from typing import Any, Callable, Dict, Optional
-from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, \
+from bokeh.models import CustomJS, Div, Row, Column, Select, Slider, RadioGroup,\
                          MultiChoice, MultiSelect, CheckboxGroup, CheckboxButtonGroup, \
                          DatePicker, TextInput, TextAreaInput, Spacer, \
                          ColumnDataSource, DataTable, TableColumn, Dropdown, \
-                         NumberFormatter, Widget
+                         NumberFormatter, Widget, FuncTickFormatter
+from bokeh.events import ButtonClick
 import bokeh.plotting.figure as Figure
-from datetime import date
 from random import randint, random, sample
 
+from ..core.nn_task import loss_target, metric_target, NNTask
+from ..core.nnfuncs import cur_db, StopFlag, train, tune, tensorboard_logdir, params_from_history
+from ..core.nn_recommend import recommend_hparams
 from ..utils.process import process
 from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tensorboard
-from ..core.nn_task import loss_target, metric_target, NNTask
-from ..core.nnfuncs import cur_db, StopFlag, train, tune, param_values, tensorboard_logdir, params_from_history
-from ..core.nn_recommend import recommend_hparams
+import ann_automl.gui.qsl_label as qsl_label
+import ann_automl.core.smart_labeling as labeling
+from .css_settings import *
+from .gui_params import gui_params
+from .modified_widgets import Box, Button, Delimiter, Table, AnswerBox, RequestBox
+from .param_widget import ParamWidget
 
-Callback = Callable[[Any, Any, Any], None]
-Params = Optional[Dict[str, Any]]
+HOST = "0.0.0.0"
+#HOST = "localhost"
+PORT_QSL = 8080
+DATABASES_DIR = 'datasets'
 
-# Launch TensorBoard
+#Launch TensorBoard
 tensorboard.start("--logdir {logdir} --host {host} --port {port}".format(
                   logdir=tensorboard_logdir(),
-                  host="0.0.0.0",
-                #   host="localhost",
+                  host=HOST,
                   port="6006"))
-
-shadow_border_css = '''
-.bk.ann-automl-shadow-border {
-    border-radius: 0px;
-    border: none;
-    box-shadow: 0 1px 5px grey;
-}
-'''
-
-scroll_css = '''
-.bk.ann-automl-scroll {
-    overflow-x: visible !important;
-    overflow-y: auto !important;
-}
-'''
-
-active_header_button_css = '''
-.bk.ann-active-head-btn button.bk.bk-btn.bk-btn-default {
-    color: white;
-    font-size: 16pt;
-    background-color: #f57c00;
-    border-color: #f57c00;
-    min-height: 64px;
-    max-width: max-content;
-    border-radius: 0px;
-}
-'''
-
-inactive_header_button_css = '''
-.bk.ann-inactive-head-btn button.bk.bk-btn.bk-btn-default {
-    color: #ffffffa3;
-    font-size: 16pt;
-    background-color: #f57c00;
-    border-color: #f57c00;
-    min-height: 64px;
-    max-width: max-content;
-    border-radius: 0px;
-}
-'''
+js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
 
 pn.extension(raw_css=[
     shadow_border_css, scroll_css,
-    active_header_button_css, inactive_header_button_css
+    active_header_button_css, inactive_header_button_css, mode_header_button_css,
+    request_shadowbox_css, answer_shadowbox_css
 ])
 pn.config.sizing_mode = 'stretch_width'
-
-
-task_params = {
-    'type': { 'title': 'Тип задачи', 'type': 'str', 'default': 'classification',
-              'values': ['classification', 'segmentation', 'detection'] },
-    'objects': { 'title': 'Категории изображений', 'type': 'list',
-                 'values': [], 'default': [] },
-    'func': { 'title': 'Целевой функционал', 'type': 'str',
-              'values': ['Метрика'], 'default': 'Метрика' },
-    'value': { 'title': 'Значение целевого функционала', 'type':
-               'float', 'range': [0, 1], 'step': 0.01, 'scale': 'lin', 'default': 0.9 },
-    'maximize': { 'title': 'Продолжать оптимизацию после достижения целевого значения', 'type': 'bool',
-                  'default': False }
-}
-
-
-dataset_params = {
-    'description': { 'title': 'Название', 'type': 'str', 'default': '' },
-    'url': { 'title': 'Url', 'type': 'str', 'default': '' },
-    'contributor': { 'title': 'Создатель', 'type': 'str', 'default': '' },
-    'date_created': { 'title': 'Дата создания', 'type': 'date', 'default': None },
-    'version': { 'title': 'Версия', 'type': 'str', 'default': '' },
-    'anno_file': { 'title': 'Файл с аннотациями', 'type': 'str', 'default': '' },
-    'dir': { 'title': 'Каталог с изображениями', 'type': 'str', 'default': '' },
-}
-
-general_params = {
-    'tune': { 'title': 'Оптимизировать гиперпараметры', 'type': 'bool','default': False }
-}
-
-gui_params = {
-    **{
-        k: {**v, 'gui': {'group': 'general', 'widget': widget_type(v)}}
-        for k,v in general_params.items()
-    },
-    **{
-        f'task_{k}': {**v, 'gui': {'group': 'task', 'widget': widget_type(v)}}
-        for k,v in task_params.items()
-    },
-    **{
-        f'dataset_{k}': {**v, 'gui': {'group': 'dataset', 'widget': widget_type(v)}}
-        for k,v in dataset_params.items()
-    },
-    **hyperparameters
-}
-
-
-def Box(*args, **kwargs):
-    return Column(*args, **kwargs, spacing=10, height=700, height_policy='fixed',
-                  css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
-                  margin=(10, 10, 10, 10))
-
-
-def Button(label, on_click_func, *args, js=False, **kwargs):
-    assert 'label' not in kwargs
-    if 'button_type' not in kwargs:
-        kwargs['button_type'] = 'primary'
-    if 'width' not in kwargs:
-        kwargs['width'] = 8*len(label) + 50
-    button = bokeh.models.Button(*args, **kwargs, label=label)
-    if js:
-        button.js_on_click(on_click_func)
-    else:
-        button.on_click(on_click_func)
-    return button
-
-
-def Delimiter(*args, **kwargs, ):
-    return Spacer(*args, **kwargs, height=3, background="#b8b8b8",
-                  margin=(10, 30, 10, 15))
-
-
-def Table(source, columns, *args, **kwargs):
-    return DataTable(*args, **kwargs, source=source, columns=columns,
-                     index_position=None, autosize_mode='fit_columns',
-                     sizing_mode='stretch_both',
-                     css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
-                     margin=(10, 10, 10, 10))
-
-
-def Toggle(label, on_click_func, *args, **kwargs):
-    button = bokeh.models.Toggle(*args, **kwargs, label=label,
-                                 button_type='primary', width=8*len(label) + 50)
-    button.on_click(on_click_func)
-    return button
-
-
-js_open_tensorboard = CustomJS(code='window.open("http://localhost:6006/#scalars");')
-
-
-class ParamWidget(object):
-
-    _widgets = {}
-
-    def __init__(self, name: str, desc: Dict[str, Any]):
-
-        assert 'gui' in desc and 'default' in desc and 'title' in desc and \
-               'group' in desc['gui'] and 'widget' in desc['gui'] and \
-                name not in self._widgets
-
-        title = f"{desc['title']}"
-        if desc['gui']['widget'] != 'Checkbox':
-            title += ':'
-        value = desc['default']
-        kwargs = {
-            'name': name,
-            'tags': [desc['gui']['group']],
-            'css_classes': ['ann-automl-align'],
-            'min_height': 50,
-            'sizing_mode': 'stretch_width',
-            'margin': (5, 35, 5, 20)
-        }
-
-        prefix = name.split('_')[0]
-
-        def default_getter():
-            return self._obj.value
-
-        def default_setter(value):
-            self._obj.value = value
-
-        def get_values():
-            return self._obj.options
-
-        def set_values(values):
-            self._obj.options = values
-
-        self._attr = 'value'
-        self._title = title
-        self._value = value
-        self._default_value = value
-        self._clear_value = None
-        self._getter = default_getter
-        self._setter = default_setter
-        self._values_getter = None
-        self._values_setter = None
-        self._conditions = {}
-        self._dependencies = []
-
-        if desc['gui']['widget'] == 'Select':
-            self._obj = Select(title=title, value=value,
-                               options=[x for x in desc['values']], **kwargs)
-            self._values_getter = get_values
-            self._values_setter = set_values
-
-        elif desc['gui']['widget'] == 'MultiChoice':
-            self._obj = MultiChoice(title=title, value=value,
-                                    options=[x for x in desc['values']], **kwargs)
-            self._values_getter = get_values
-            self._values_setter = set_values
-
-        elif desc['gui']['widget'] == 'Slider':
-
-            str_values, cur_index = param_values(
-                return_str=True, **{**desc, 'default': value})
-            self._values, _ = param_values(**desc)
-
-            try:
-                formatter = bokeh.models.FuncTickFormatter(
-                    code=f"const labels = {str_values};\nreturn labels[tick];")
-            except Exception:
-                traceback.print_exc()
-                raise
-
-            kwargs['min_height'] = 40
-            self._obj = Slider(title=title, value=cur_index,
-                               start=0, end=len(self._values)-1,
-                               step=1, format=formatter, **kwargs)
-
-            def slicer_getter():
-                return self._values[max(0,min(self._obj.value,len(self._values)-1))]
-
-            def slicer_setter(value):
-                self._obj.value = np.argmin(np.abs(np.array(self._values) - value))
-
-            self._getter = slicer_getter
-            self._setter = slicer_setter
-
-        elif desc['gui']['widget'] == 'Checkbox':
-            kwargs['min_height'] = 20
-            self._obj = CheckboxGroup(labels=[title],
-                                      active=[0] if value else [], **kwargs)
-
-            def checkbox_getter() -> bool:
-                return len(self._obj.active) > 0
-
-            def checkbox_setter(value: bool):
-                self._obj.active = [0] if value else []
-
-            self._attr = 'active'
-            self._getter = checkbox_getter
-            self._setter = checkbox_setter
-
-        elif desc['gui']['widget'] == 'Text':
-            self._obj = TextInput(title=title, value=value, **kwargs)
-            self._clear_value = ""
-
-        elif desc['gui']['widget'] == 'Date':
-            if value is None:
-                self._value = date.today()
-                self._default_value = self._value
-                self._obj = DatePicker(title=title, value=date.today(), **kwargs)
-            else:
-                self._obj = DatePicker(title=title, value=value, **kwargs)
-
-            def date_setter(value):
-                try:
-                    self._obj.value = value
-                except ValueError:
-                    self._obj.value = date.today()
-
-            self._setter = date_setter
-            self._clear_value = date.today()
-
-        else:
-            raise ValueError(f'Unsupported widget type {desc["gui"]["widget"]}')
-
-        self._widgets[name] = self
-
-        if 'cond' in desc:
-            for p, vs in desc['cond']:
-                widget = self._widgets[p]
-                self._conditions[widget] = vs
-                widget.add_dependence(self)
-
-        def default_callback(attr, old, new):
-            for widget in self._dependencies:
-                if widget.active():
-                    widget.activate()
-                else:
-                    widget.hide()
-
-        self._callbacks = [default_callback]
-
-    def __hash__(self):
-        return hash(self.name)
-
-    def __eq__(self, other):
-        return self.name == other.name
-
-    def __ne__(self, other):
-        return self.name != other.name
-
-    def add_dependence(self, widget):
-        self._dependencies.append(widget)
-
-    @property
-    def name(self):
-        return self._obj.name
-
-    @property
-    def group(self):
-        return self._obj.tags[0]
-
-    @property
-    def title(self):
-        return self._title
-
-    @property
-    def value(self):
-        return self._getter()
-
-    @value.setter
-    def value(self, value):
-        self._setter(value)
-
-    @property
-    def values(self):
-        assert self._values_getter is not None
-        return self._values_getter()
-
-    @values.setter
-    def values(self, values):
-        assert self._values_setter is not None
-        self._values_setter(values)
-
-    def active(self):
-        return all (w.value in vs for w,vs in self._conditions)
-
-    def activate(self):
-        self._obj.visible = True
-
-    def hide(self):
-        self._obj.visible = False
-
-    def enable(self):
-        self._obj.disabled = False
-
-    def disable(self):
-        self._obj.disabled = True
-
-    def on_change(self, *callbacks: Callback):
-        self._callbacks.extend(callbacks)
-        self._obj.on_change(self._attr, *self._callbacks)
-
-    def clear(self):
-        assert self._clear_value is not None
-        self.value = self._clear_value
-
-    def reset(self):
-        self.value = self._value
-
-    def default(self):
-        self.value = self._default_value
-
-    def set_default(self, value):
-        self._default_value = value
-        self._value = value
-        self.value = value
-
-    def update(self):
-        self._value = self.value
-
-    @property
-    def interface(self):
-        return self._obj
-
 
 class NNGui(object):
 
@@ -415,15 +66,18 @@ class NNGui(object):
         self.hparams_desc = hparams
 
         self.make_params_widgets(gui_params)
+        self.init_chatbot_interface()
         self.init_database_interface()
         self.init_task_interface()
         self.init_train_interface()
         self.init_history_interface()
         self.init_interface()
-        self.activate_database_interface()
+        self.activate_chatbot_interface()
 
     def make_params_widgets(self, params: Dict[str, Any]):
         self.general_params = []
+        self.chatbot_params = []
+        self.labeling_params = []
         self.task_params = []
         self.dataset_params = []
         self.train_params = []
@@ -444,6 +98,132 @@ class NNGui(object):
             })
         return res
 
+    def on_click_send_button(self):
+        request = self.chatbot_inputline.value.strip()
+        self.chatbot_inputline.value = ""
+        answer = "Я внимательно Вас слушаю!"
+
+        request_box = RequestBox(text = request)
+        self.chatbot_output_area.children.append(request_box)
+        answer_box = AnswerBox(text = answer)
+        self.chatbot_output_area.children.append(answer_box)
+
+    def init_chatbot_interface(self):
+        self.chatbot_logs = Div(align="start", visible=False)
+        self.chatbot_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
+
+        self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
+        self.chatbot_buttons = [self.chatbot_error]
+
+        self.chatbot_helpmessage = '''Вас приветствует чатбот Бла-бла-бла.
+        Я пока ничего не умею делать, но Вас не должно это беспокоить.'''
+        self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_helpmessage), spacing=10,
+                                            height=400, height_policy='fixed',
+                                            width_policy = 'max',
+                                            css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
+                                            margin=(10, 10, 10, 10))
+                                        
+        self.chatbot_inputline = TextAreaInput(value = "", min_width=700, sizing_mode='stretch_both')
+        self.chatbot_left_panel = Column(self.chatbot_langmodel.interface)
+        self.chatbot_right_panel = Column(self.chatbot_output_area,
+                              Row(self.chatbot_inputline, self.chatbot_send_button,
+                              width_policy = 'max'
+                              )
+        )
+        self.chatbot_interfaces = [
+            Column(Row(self.chatbot_left_panel,
+                       self.chatbot_right_panel),
+                    sizing_mode='stretch_both'
+            )
+        ]
+                   
+    def activate_chatbot_interface(self):
+        self.menu_button.label = "Чат-бот"
+        self.buttons_interface.children = self.chatbot_buttons
+        self.window_interface.children = self.chatbot_interfaces
+        self.logs_interface.children = [self.chatbot_logs]
+
+    def on_click_labeling_start(self):
+        err = ""
+        self.dataset_error.visible = False
+        if self.dataset_description.value == "":
+            err = "Название сета изображений не может быть пустым"
+        elif self.labeling_images_path.value == "":
+            err = "Поле для пути/ссылки к изображениям не может быть пустым"
+
+        if err:
+            self.dataset_error.text = f'<font color=red>{err}</font>'
+            self.dataset_error.visible = True
+            return
+        
+        labeling_args = {"images_name": self.dataset_description.value,
+                        "images_path": self.labeling_images_path.value,
+                        "nn_core": self.labeling_nn_core.value}
+        
+        self.labeling_working_dir = os.path.join(DATABASES_DIR, labeling_args['images_name'])
+        
+        for widget in self.dataset_labeling_widgets:
+            widget.disable()
+        self.labeling_start_button.disabled = True
+        self.dataset_cancel_button.visible = False
+
+        self.database_logs.visible = True
+        self.database_logs.text = "<b>Выполняется загрузка изображения и автоматическая разметка</b>"
+        print(f"smart_labeling.pre_processing... ", end='')
+        try:
+            labels_dict = labeling.pre_processing(labeling_args, self.labeling_working_dir)
+            labels_file = os.path.join(self.labeling_working_dir, "labels.json")
+            with open(labels_file, "w") as outfile:
+                json.dump(labels_dict, outfile)
+            print("ok")
+        except ValueError:
+            err = "Ошибка при загрузки изображений"
+        except FileNotFoundError:
+            err = "Ошибка при загрузки изображений"
+        
+        if err:
+            self.dataset_error.text = f'<font color=red>{err}</font>'
+            self.dataset_error.visible = True
+            for widget in self.dataset_labeling_widgets:
+                widget.enable()
+            self.labeling_start_button.disabled = False
+            self.dataset_cancel_button.visible = True
+            self.database_logs.visible = False
+            self.database_logs.text = ""
+            return
+        
+        self.database_logs.text = f"""<b>Автоматическая разметка завершена.</b>
+        Произведите ручную доразметку (если требуется).
+        По завершению ручной доразметки нажмите кнопку 'Завершить разметку'"""
+        self.qsl_label_proc = qsl_label.launch(labels_file, host = HOST, port = PORT_QSL)
+        self.labeling_open_qsl_tab.active = 1 #Open tab
+        self.labeling_finish_button.visible = True
+    
+    def on_click_labeling_finish(self):
+        self.database_logs.text = ""
+        self.database_logs.visible = False
+        self.qsl_label_proc.kill()
+        self.labeling_open_qsl_tab.active = 0
+
+        print(f"smart_labeling.post_processing... ", end='')
+        annotations_dict = labeling.post_processing(self.labeling_working_dir)
+        print("ok")
+        annotations_path = os.path.join(self.labeling_working_dir, 'annotations', 'annotations.json')
+        with open(annotations_path, "w") as outfile:
+            json.dump(annotations_dict, outfile)
+
+        self.labeling_finish_button.visible = False
+        self.labeling_start_button.disabled = False
+
+        self.labeling_start_button.visible = False
+        self.dataset_load_button.visible = True
+        self.dataset_cancel_button.visible = True
+        self.dataset_params_panel.children = self.dataset_load_interface
+        for widget in self.dataset_load_widgets:
+            widget.enable()
+        self.dataset_anno_file.value = annotations_path
+        self.dataset_dir.value = os.path.join(self.labeling_working_dir, 'images')
+
     def get_dataset_supercategories(self, ds):
         return list(self.database[ds]['categories'].keys())
 
@@ -457,13 +237,29 @@ class NNGui(object):
               "изображение"
         return f"{str(n)} {suf}"
 
-    def on_click_dataset_add(self, event):
-        for widget in self.dataset_params:
+    def on_click_dataset_create(self, event):
+        for widget in self.dataset_info_widgets:
             widget.clear()
+        self.dataset_params_panel.children = self.dataset_labeling_interface
+        for widget in self.dataset_labeling_widgets:
             widget.enable()
-        self.dataset_anno_file.activate()
-        self.dataset_dir.activate()
         self.dataset_add_button.disabled = True
+        self.dataset_create_button.disabled = True
+        self.dataset_select_button.disabled = True
+        self.labeling_start_button.visible = True
+        self.dataset_cancel_button.visible = True
+    
+    def on_click_dataset_add(self, event):
+        for widget in self.dataset_info_widgets:
+            widget.clear()
+        self.dataset_params_panel.children = self.dataset_load_interface
+        for widget in self.dataset_load_widgets:
+            widget.enable()
+        #self.dataset_description.value = "microtest"
+        #self.dataset_anno_file.value = os.path.join(DATABASES_DIR, self.dataset_description.value, "annotations", "annotations.json")
+        #self.dataset_dir.value = os.path.join(DATABASES_DIR, self.dataset_description.value, "images")
+        self.dataset_add_button.disabled = True
+        self.dataset_create_button.disabled = True
         self.dataset_select_button.disabled = True
         self.dataset_load_button.visible = True
         self.dataset_cancel_button.visible = True
@@ -494,11 +290,11 @@ class NNGui(object):
                 self.dataset_dir.value,
                 ds_info={
                         "description": self.dataset_description.value,
-                        "url": self.dataset_url.value,
-                        "version": self.dataset_version.value,
-                        "year": self.dataset_year.value,
-                        "contributor": self.dataset_contributor.value,
-                        "date_created": self.dataset_year.value
+                        "url": "",
+                        "version": "",
+                        "year": "",
+                        "contributor": "",
+                        "date_created": ""
                     }
             )
             self.database = {
@@ -516,15 +312,18 @@ class NNGui(object):
             self.database_logs.visible = True
             return
 
+        self.dataset_selector.options = list(self.database.keys())
         dataset = self.dataset_description.value
         self.dataset_selector.value = [dataset]
         self.setup_dataset(dataset, update_params=False)
-        for widget in self.dataset_params:
+
+        self.dataset_params_panel.children = self.dataset_info_interface
+        for widget in self.dataset_info_widgets:
             widget.disable()
-        self.dataset_anno_file.hide()
-        self.dataset_dir.hide()
-        self.dataset_add_button.disabled = False
+            widget.clear()
         self.dataset_select_button.disabled = False
+        self.dataset_add_button.disabled = False
+        self.dataset_create_button.disabled = False
         self.dataset_load_button.visible = False
         self.dataset_cancel_button.visible = False
 
@@ -536,13 +335,15 @@ class NNGui(object):
         if self.dataset is not None:
             self.dataset_selector.value = [self.dataset]
             self.setup_dataset(self.dataset)
-        for widget in self.dataset_params:
+        self.dataset_params_panel.children = self.dataset_info_interface
+        for widget in self.dataset_info_widgets:
             widget.disable()
-        self.dataset_anno_file.hide()
-        self.dataset_dir.hide()
+            widget.clear()
         self.dataset_add_button.disabled = False
+        self.dataset_create_button.disabled = False
         self.dataset_select_button.disabled = False
         self.dataset_load_button.visible = False
+        self.labeling_start_button.visible = False
         self.dataset_cancel_button.visible = False
 
     def on_click_dataset_select(self, event):
@@ -616,8 +417,10 @@ class NNGui(object):
                 self.dataset_supercategory, self.dataset_category,
                 self.dataset_categories_num)
 
-        self.dataset_add_button = Button('Добавить датасет',
+        self.dataset_add_button = Button('Добавить новый датасет',
                                          self.on_click_dataset_add)
+        self.dataset_create_button = Button('Создать новый датасет',
+                                         self.on_click_dataset_create)
         self.dataset_load_button = Button('Загрузить', self.on_click_dataset_load,
                                           visible=False)
         self.dataset_cancel_button = Button('Отменить', self.on_click_dataset_cancel,
@@ -625,29 +428,58 @@ class NNGui(object):
         self.dataset_select_button = Button('Использовать выбранные датасеты',
                                             self.on_click_dataset_select,
                                             disabled=True)
+        self.labeling_start_button = Button('Запустить разметчик',
+                                         self.on_click_labeling_start, visible=False)
+        self.labeling_finish_button = Button('Завершить разметку',
+                                         self.on_click_labeling_finish, visible=False)
+        # Фиктивный виджет. Открытие вкладки для qsl label при установки поля active в значение 1.
+        self.labeling_open_qsl_tab = RadioGroup(labels=["Init state", "Open the tab"],
+                                                active=0, visible = False)
+        js_conditional_open_qsl_label = CustomJS(
+            code=f"""
+            const value = cb_obj.active
+            if (value == "1")
+                window.open("http://localhost:{PORT_QSL}");
+            """
+            )                                                
+        self.labeling_open_qsl_tab.js_on_change("active", js_conditional_open_qsl_label)
 
-        self.database_buttons = [self.dataset_select_button, self.dataset_add_button,
+        self.database_buttons = [self.dataset_select_button,
+                                 self.dataset_add_button, self.dataset_create_button,
+                                 self.labeling_start_button, self.labeling_finish_button,
                                  self.dataset_cancel_button, self.dataset_load_button,
                                  self.dataset_error]
+
+        self.dataset_params_panel = Column(sizing_mode = 'stretch_both')
+        self.dataset_info_widgets = [self.dataset_description,
+                                     self.dataset_url,
+                                     self.dataset_contributor,
+                                     self.dataset_date_created,
+                                     self.dataset_version
+        ]
+        self.dataset_info_interface = list(map(lambda x: x.interface, self.dataset_info_widgets))
+        self.dataset_load_widgets = [self.dataset_description,
+                                     self.dataset_anno_file,
+                                     self.dataset_dir
+        ]
+        self.dataset_load_interface = list(map(lambda x: x.interface, self.dataset_load_widgets))
+        self.dataset_labeling_widgets = [self.dataset_description,
+                                         self.labeling_images_path,
+                                         self.labeling_nn_core,
+        ]
+        self.dataset_labeling_interface = list(map(lambda x: x.interface, self.dataset_labeling_widgets))
+        self.dataset_labeling_interface.append(self.labeling_open_qsl_tab)
+        self.dataset_params_panel.children = self.dataset_info_interface
 
         self.database_interfaces = [
             Column(Div(text="<b>Доступные датасеты:</b>"),
                    self.dataset_selector, self.dataset_categories, margin=(0, 0, 0, 5)),
-            Column(self.dataset_description.interface,
-                   self.dataset_url.interface,
-                   self.dataset_contributor.interface,
-                   self.dataset_date_created.interface,
-                   self.dataset_version.interface,
-                   self.dataset_anno_file.interface,
-                   self.dataset_dir.interface,
-                   sizing_mode='stretch_both') ]
+            self.dataset_params_panel ]
 
         if len(datasets) > 0:
             self.setup_dataset(datasets[0])
         for widget in self.dataset_params:
             widget.disable()
-        self.dataset_anno_file.hide()
-        self.dataset_dir.hide()
 
         self.database_interface_init = True
 
@@ -1125,6 +957,7 @@ class NNGui(object):
             setattr(self, f'{field}_info', widget)
 
         menu = [
+            ("Чат-бот", "chatbot"),
             ("База данных", "database"),
             ("Задача", "task"),
             ("Обучение", "train"),
@@ -1169,6 +1002,9 @@ class NNGui(object):
                        margin=(-10, 5, -5, 5)),
                    self.buttons_interface, self.window_interface, self.logs_interface, spacing=5)
 
+        self.menu_chatbot_button = Button("Чат-бот", self.on_click_chatbot_menu,
+                                           button_type='default',
+                                           css_classes=['ann-active-head-btn'])
         self.menu_database_button = Button("База данных", self.on_click_database_menu,
                                            button_type='default',
                                            css_classes=['ann-active-head-btn'])
@@ -1204,9 +1040,34 @@ class NNGui(object):
                         alert("Задача не создана, " + msg + "!");
                     }'''))
 
-        self.menu_buttons = Row(self.menu_database_button, self.menu_task_button,
-                                self.menu_train_button, self.menu_history_button)
+        self.select_advanced_mode_button = Button('Расширенный режим', self.on_click_select_advanced_mode,
+                                                  button_type='default',
+                                                  css_classes=['ann-mode-head-btn'])
+        self.select_simple_mode_button = Button('Простой режим', self.on_click_select_simple_mode,
+                                                button_type='default',
+                                                css_classes=['ann-mode-head-btn'])
+        self.advanced_mode_buttons = Row(self.menu_chatbot_button,
+                                         self.menu_database_button, self.menu_task_button,
+                                         self.menu_train_button, self.menu_history_button,
+                                         self.select_simple_mode_button)
+        self.simple_mode_buttons = Row(self.select_advanced_mode_button)
+        self.menu_buttons = Row()
+        self.on_click_select_simple_mode()
+    
+    def on_click_select_simple_mode(self):
+        print("Goto simple_mode interface")
+        self.menu_buttons.children = [self.simple_mode_buttons]
+        self.activate_chatbot_interface()
 
+    def on_click_select_advanced_mode(self):
+        print("Goto advanced_mode interface")
+        self.menu_buttons.children = [self.advanced_mode_buttons]
+        self.activate_database_interface()
+
+    def on_click_chatbot_menu(self, event):
+        print("Goto chatbot interface")
+        self.activate_chatbot_interface()
+    
     def on_click_database_menu(self, event):
         print("Goto database interface")
         self.activate_database_interface()
