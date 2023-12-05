@@ -1,5 +1,8 @@
 import os
 import sys
+import socket
+import shlex
+import subprocess
 import time
 import traceback
 import json
@@ -48,6 +51,11 @@ pn.extension(raw_css=[
     request_shadowbox_css, answer_shadowbox_css
 ])
 pn.config.sizing_mode = 'stretch_width'
+
+parsed_args = shlex.split("ann_automl/gui/chatbot_server.py", comments=True, posix=True)
+chatbot_server_process = subprocess.Popen(
+    ["python3"] + parsed_args
+)
 
 class NNGui(object):
 
@@ -99,18 +107,35 @@ class NNGui(object):
         return res
 
     def on_click_send_button(self):
-        request = self.chatbot_inputline.value.strip()
+        self.to_chatbot_request = self.chatbot_inputline.value.strip()
         self.chatbot_inputline.value = ""
-        answer = "Я внимательно Вас слушаю!"
-
-        request_box = RequestBox(text = request)
+        request_box = RequestBox(text = self.to_chatbot_request)
         self.chatbot_output_area.children.append(request_box)
-        answer_box = AnswerBox(text = answer)
-        self.chatbot_output_area.children.append(answer_box)
+
+    def update_chatbot_server(self):
+        self.client_socket.send(self.to_chatbot_request.encode())
+        self.to_chatbot_request = self.CONNECTION_WORD
+        self.from_chatbot_answer = self.client_socket.recv(1024).decode()
+        if self.from_chatbot_answer != self.CONNECTION_WORD:
+            answer = self.from_chatbot_answer
+            answer_box = AnswerBox(text = answer)
+            self.chatbot_output_area.children.append(answer_box)
+            self.from_chatbot_answer = self.CONNECTION_WORD
 
     def init_chatbot_interface(self):
         self.chatbot_logs = Div(align="start", visible=False)
         self.chatbot_error = Div(align="center", visible=False, margin=(5, 5, 5, 25))
+
+        self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
+        self.chatbot_buttons = [self.chatbot_error]
+        
+        self.CONNECTION_WORD = "N"
+        self.to_chatbot_request = self.CONNECTION_WORD
+        self.from_chatbot_answer = self.CONNECTION_WORD
+        self.client_socket = socket.socket()
+        self.client_socket.connect((HOST, 5000))
+        print("Connection: success")
+        self.bokeh_timer = bokeh.io.curdoc().add_periodic_callback(self.update_chatbot_server, 1000)
 
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
