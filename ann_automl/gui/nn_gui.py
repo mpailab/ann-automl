@@ -32,6 +32,7 @@ from .css_settings import *
 from .gui_params import gui_params
 from .modified_widgets import Box, Button, Delimiter, Table, AnswerBox, RequestBox
 from .param_widget import ParamWidget
+from .chatbot_server import Message
 
 HOST = "0.0.0.0"
 #HOST = "localhost"
@@ -52,6 +53,9 @@ pn.extension(raw_css=[
 ])
 pn.config.sizing_mode = 'stretch_width'
 
+# Запуск сервера для чатбота
+CHATBOT_SERVER_PORT = 5000
+#TODO запускать сервер с флагами -h HOST -p CHATBOT_SERVER_PORT
 parsed_args = shlex.split("ann_automl/gui/chatbot_server.py", comments=True, posix=True)
 chatbot_server_process = subprocess.Popen(
     ["python3"] + parsed_args
@@ -107,20 +111,20 @@ class NNGui(object):
         return res
 
     def on_click_send_button(self):
-        self.to_chatbot_request = self.chatbot_inputline.value.strip()
+        to_chatbot = self.chatbot_inputline.value.strip()
         self.chatbot_inputline.value = ""
-        request_box = RequestBox(text = self.to_chatbot_request)
+        self.requests_to_chatbot.append(to_chatbot)
+        request_box = RequestBox(text = to_chatbot)
         self.chatbot_output_area.children.append(request_box)
 
     def update_chatbot_server(self):
-        self.client_socket.send(self.to_chatbot_request.encode())
-        self.to_chatbot_request = self.CONNECTION_WORD
-        self.from_chatbot_answer = self.client_socket.recv(1024).decode()
-        if self.from_chatbot_answer != self.CONNECTION_WORD:
-            answer = self.from_chatbot_answer
+        message_to = Message(self.requests_to_chatbot)
+        self.client_socket.send(str(message_to).encode())
+        self.requests_to_chatbot = []
+        message_from =  Message.unpack(self.client_socket.recv(1024).decode())
+        for answer in message_from.requests:
             answer_box = AnswerBox(text = answer)
             self.chatbot_output_area.children.append(answer_box)
-            self.from_chatbot_answer = self.CONNECTION_WORD
 
     def init_chatbot_interface(self):
         self.chatbot_logs = Div(align="start", visible=False)
@@ -129,19 +133,17 @@ class NNGui(object):
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
         
-        self.CONNECTION_WORD = "N"
-        self.to_chatbot_request = self.CONNECTION_WORD
-        self.from_chatbot_answer = self.CONNECTION_WORD
         self.client_socket = socket.socket()
-        self.client_socket.connect((HOST, 5000))
+        self.client_socket.connect((HOST, CHATBOT_SERVER_PORT))
         print("Connection: success")
+        self.requests_to_chatbot = []
         self.bokeh_timer = bokeh.io.curdoc().add_periodic_callback(self.update_chatbot_server, 1000)
 
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
 
         self.chatbot_helpmessage = '''Вас приветствует чатбот Бла-бла-бла.
-        Я пока ничего не умею делать, но Вас не должно это беспокоить.'''
+        Введите Ваш запрос.'''
         self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_helpmessage), spacing=10,
                                             height=400, height_policy='fixed',
                                             width_policy = 'max',
