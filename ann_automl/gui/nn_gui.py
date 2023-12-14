@@ -1,6 +1,7 @@
 import os
 import sys
 import socket
+import selectors
 import shlex
 import subprocess
 import time
@@ -37,6 +38,7 @@ from .chatbot_server import Message
 HOST = "0.0.0.0"
 #HOST = "localhost"
 PORT_QSL = 8080
+PORT_CHATBOT_SERVER = 5000
 DATABASES_DIR = 'datasets'
 
 #Launch TensorBoard
@@ -54,8 +56,7 @@ pn.extension(raw_css=[
 pn.config.sizing_mode = 'stretch_width'
 
 # Запуск сервера для чатбота
-CHATBOT_SERVER_PORT = 5000
-#TODO запускать сервер с флагами -h HOST -p CHATBOT_SERVER_PORT
+#TODO запускать сервер с флагами -h HOST -p PORT_CHATBOT_SERVER
 parsed_args = shlex.split("ann_automl/gui/chatbot_server.py", comments=True, posix=True)
 chatbot_server_process = subprocess.Popen(
     ["python3"] + parsed_args
@@ -113,18 +114,41 @@ class NNGui(object):
     def on_click_send_button(self):
         to_chatbot = self.chatbot_inputline.value.strip()
         self.chatbot_inputline.value = ""
-        self.requests_to_chatbot.append(to_chatbot)
-        request_box = RequestBox(text = to_chatbot)
-        self.chatbot_output_area.children.append(request_box)
+        if to_chatbot:
+            self.requests_to_chatbot.append(to_chatbot)
+            request_box = RequestBox(text = to_chatbot)
+            self.chatbot_output_area.children.append(request_box)
 
     def update_chatbot_server(self):
-        message_to = Message(self.requests_to_chatbot)
-        self.client_socket.send(str(message_to).encode())
-        self.requests_to_chatbot = []
-        message_from =  Message.unpack(self.client_socket.recv(1024).decode())
-        for answer in message_from.requests:
-            answer_box = AnswerBox(text = answer)
-            self.chatbot_output_area.children.append(answer_box)
+        events = self.sel.select()
+        for key, mask in events:
+            if mask & selectors.EVENT_WRITE:
+                message_to = Message(self.requests_to_chatbot)
+                self.client_socket.send(str(message_to).encode())
+                self.requests_to_chatbot = []
+            if mask & selectors.EVENT_READ:
+                message_from =  Message.unpack(self.client_socket.recv(1024).decode())
+                for answer in message_from.requests:
+                    answer_box = AnswerBox(text = answer)
+                    self.chatbot_output_area.children.append(answer_box)
+        # Альтернативный рабочий вариант
+        # self.client_socket.setblocking(False)
+        # message_to = Message(self.requests_to_chatbot)
+        # try:
+        #     self.client_socket.send(str(message_to).encode())
+        # except (BlockingIOError, BrokenPipeError):
+        #     pass
+        # else:
+        #     self.requests_to_chatbot = []
+
+        # try:
+        #     message_from =  Message.unpack(self.client_socket.recv(1024).decode())
+        # except (BlockingIOError, BrokenPipeError):
+        #     pass
+        # else:
+        #     for answer in message_from.requests:
+        #         answer_box = AnswerBox(text = answer)
+        #         self.chatbot_output_area.children.append(answer_box)
 
     def init_chatbot_interface(self):
         self.chatbot_logs = Div(align="start", visible=False)
@@ -134,8 +158,10 @@ class NNGui(object):
         self.chatbot_buttons = [self.chatbot_error]
         
         self.client_socket = socket.socket()
-        self.client_socket.connect((HOST, CHATBOT_SERVER_PORT))
+        self.client_socket.connect((HOST, PORT_CHATBOT_SERVER))
         print("Connection: success")
+        self.sel = selectors.DefaultSelector()
+        self.sel.register(self.client_socket, selectors.EVENT_READ | selectors.EVENT_WRITE)        
         self.requests_to_chatbot = []
         self.bokeh_timer = bokeh.io.curdoc().add_periodic_callback(self.update_chatbot_server, 1000)
 

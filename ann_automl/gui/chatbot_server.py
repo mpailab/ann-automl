@@ -1,26 +1,32 @@
 import socket
+import time
 import json
+from typing import List
 
-def lingvmodel(request):
-    return "Привет!"
+def my_test_lingvmodel(request):
+    res = f"Ответ на {request}!"
+    if request.isdigit():
+        time.sleep(int(request))
+        res += f" Задержка {request} сек."
+    return res
 
 class Message:
-    def __init__(self, requests = [], info = ''):
+    def __init__(self, requests : List[str] = []):
         self.requests = requests
-        self.info = info
 
     def __repr__(self):
         return json.dumps(vars(self), separators=(',', ':'))
     
     def __str__(self):
-        return json.dumps(vars(self), separators=(',', ':'))
+        return self.__repr__() + '\n'
 
     @staticmethod
     def unpack(string):
-        message = Message()
-        tmp_dict = json.loads(string)
-        message.__dict__.update(tmp_dict)
-        return message
+        requests = []
+        for line in string.split('\n')[:-1]:
+            tmp_dict = json.loads(line)
+            requests += tmp_dict['requests']
+        return Message(requests)
 
 def server_program(host, port):
 
@@ -34,7 +40,8 @@ def server_program(host, port):
     requests_to_client = []
     requests_from_client = []
     while True:
-        message_from_client = Message.unpack(conn.recv(1024).decode())
+        data = conn.recv(1024).decode()
+        message_from_client = Message.unpack(data)
         requests_from_client += message_from_client.requests
 
         message_to_client = Message(requests_to_client)
@@ -43,14 +50,13 @@ def server_program(host, port):
 
         if requests_from_client:
             request = requests_from_client.pop(0)
-
-            #TODO обработка запроса в отдельном подпроцессе
-            to_client = lingvmodel(request)
-
+            to_client = my_test_lingvmodel(request)
             requests_to_client.append(to_client)
 
     conn.close()  # close the connection
 
 if __name__ == '__main__':
     #TODO Интерфейс командной строки -h <host> -p <port>
-    server_program("0.0.0.0", 5000)
+    host = "0.0.0.0"
+    port = 5000
+    server_program(host, port)
