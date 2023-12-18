@@ -118,6 +118,10 @@ class NNGui(object):
             self.requests_to_chatbot.append(to_chatbot)
             request_box = RequestBox(text = to_chatbot)
             self.chatbot_output_area.children.append(request_box)
+    
+    def on_click_help_button(self):
+        answer_box = AnswerBox(text = self.chatbot_helpmessage)
+        self.chatbot_output_area.children.append(answer_box)
 
     def update_chatbot_server(self):
         events = self.sel.select()
@@ -168,25 +172,30 @@ class NNGui(object):
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
 
-        self.chatbot_helpmessage = '''Вас приветствует чатбот Бла-бла-бла.
-        Введите Ваш запрос.'''
+        self.chatbot_helpmessage = '''Я помогу Вам в режиме диалога сконструировать
+        нейронную сеть с нужными параметрами для имеющихся в базе датасетов изображений.
+
+        Если Вам трубуется загрузить в базу новый датасет и/или осуществить
+        более тонкую настройку параметров, пожалуйста, перейдите в Расширенный режим.
+        '''
         self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_helpmessage), spacing=10,
                                             height=400, height_policy='fixed',
                                             width_policy = 'max',
                                             css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
                                             margin=(10, 10, 10, 10))
-                                        
+        self.chatbot_help_button = Button('Помощь', self.on_click_help_button)
+
         self.chatbot_inputline = TextAreaInput(value = "", min_width=700, sizing_mode='stretch_both')
-        self.chatbot_left_panel = Column(self.chatbot_langmodel.interface)
+        #self.chatbot_left_panel = Column(self.chatbot_langmodel.interface)
+        self.chatbot_left_panel = Column(self.chatbot_help_button)
         self.chatbot_right_panel = Column(self.chatbot_output_area,
                               Row(self.chatbot_inputline, self.chatbot_send_button,
                               width_policy = 'max'
                               )
         )
         self.chatbot_interfaces = [
-            Column(Row(self.chatbot_left_panel,
-                       self.chatbot_right_panel),
-                    sizing_mode='stretch_both'
+            Column(Row(self.chatbot_left_panel, self.chatbot_right_panel),
+                   sizing_mode='stretch_both'
             )
         ]
                    
