@@ -24,3 +24,7 @@ psutil
 qsl
 yolov5
 eel
+pydot
+
+segmentation_models
+imagesize

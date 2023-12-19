@@ -452,8 +452,8 @@ class DBModule:
         print('Finished with Kaggle CatsVsDogs')
 
     def fill_coco(self, 
-                  anno_file_name='./datasets/COCO2017/annotations/instances_train2017.json', 
-                  file_prefix='./datasets/COCO2017/', ds_info=None):
+                  anno_file_name='./datasets/coco/annotations/instances_train2017.json', 
+                  file_prefix='./datasets/coco/', ds_info=None):
         """ Заполняет базу данных COCOdataset. Предполагается, что вызывается один раз.
 
         Для создания собственных аннотаций COCO используйте вспомогательные инструменты,
@@ -851,20 +851,26 @@ class DBModule:
         buf_df = pd.DataFrame(new_rows, columns=['file_name', 'category_id'])
         return buf_df
 
-    def _split_and_save(self, df, save_dir, split_points, headers_string):
+    def _split_and_save(self, df, save_dir, split_points, headers_string, by_files=False):
         """
         Helper for storing csv files with annotations returned
         """
         """ Вспомогательный метод для сохранения csv-файлов с аннотациями """
-        train_end = int(split_points[0] * len(df))
-        val_end = int(split_points[1] * len(df))
-        train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])  # we shuffle and split
-        np.savetxt(f'{save_dir}train.csv', train, delimiter=",", fmt='%s', header=headers_string, comments='')
-        np.savetxt(f'{save_dir}test.csv', test, delimiter=",", fmt='%s', header=headers_string, comments='')
-        np.savetxt(f'{save_dir}val.csv', validate, delimiter=",", fmt='%s', header=headers_string, comments='')
+        if by_files:
+            groups=df.groupby('images')
+            train_end = int(split_points[0] * len(groups))
+            val_end = int(split_points[1] * len(groups))
+            train, validate, test = np.split(groups.sample(frac=1), [train_end, val_end])  # we shuffle and split
+        else:
+            train_end = int(split_points[0] * len(df))
+            val_end = int(split_points[1] * len(df))
+            train, validate, test = np.split(df.sample(frac=1), [train_end, val_end])  # we shuffle and split
+        np.savetxt(f'{save_dir}train.csv', train, delimiter=";", fmt='%s', header=headers_string, comments='')
+        np.savetxt(f'{save_dir}test.csv', test, delimiter=";", fmt='%s', header=headers_string, comments='')
+        np.savetxt(f'{save_dir}val.csv', validate, delimiter=";", fmt='%s', header=headers_string, comments='')
         return {'train': f'{save_dir}train.csv', 'test': f'{save_dir}test.csv', 'validate': f'{save_dir}val.csv'}
 
-    def _process_query(self, query, cat_names, with_segmentation, crop_bbox=False, split_points=(0.6, 0.8),
+    def _process_query(self, query, cat_names, with_segmentation, with_bbox, crop_bbox=False, split_points=(0.6, 0.8),
                        normalize_cats=False, balance_by_min_category=False, balance_by_categories=None,
                        cur_experiment_dir='.', **kwargs):
         """ Вспомогательный метод для обработки SQL-запроса для аннотаций
@@ -873,6 +879,7 @@ class DBModule:
             query: запрос sqlalchemy
             cat_names: имена категорий
             with_segmentation: если True, будут возвращены только аннотации с сегментацией
+            with_bbox: если True, будут возвращены только аннотации с ограничивающим прямоугольником (bbox)
             crop_bbox: если True, будет выполнено вырезание объектов по bbox, заданным в аннотациях, и
                 сохранение их в отдельные файлы в директории cur_experiment_dir
             split_points: квантили для разделения на обучающую, тестовую и валидационную выборки (по умолчанию 0.6,0.8)
@@ -890,16 +897,19 @@ class DBModule:
             df = self._prepare_cropped_images(df, **kwargs)
         elif 'files_dir' in kwargs:
             df['file_name'] = df['file_name'].apply(lambda x: os.path.join(kwargs['files_dir'], x))
-
-        if with_segmentation is False:
-            df_new = pd.DataFrame(columns=['images', 'target'], 
-                                  data=df[['file_name', 'category_id']].values)
-            headers_string = 'images,target'
-        else:
-            df_new = pd.DataFrame(columns=['images', 'target', 'segmentation'], 
-                                  data=df[['file_name', 'category_id', 'segmentation']].values)
-            df_new.dropna(subset=['segmentation'], inplace=True)
-            headers_string = 'images,target,segmentation'
+        origin=['file_name', 'category_id']
+        columns=['images', 'target']
+        headers_string = 'images;target'
+        if with_segmentation: 
+            columns+=['segmentation']
+            origin+=['segmentation']
+            headers_string+=';segmentation'
+        if with_bbox:
+            columns+=['bbox']
+            origin+=['bbox']
+            headers_string+=';bbox'
+        df_new = pd.DataFrame(columns=columns, 
+                              data=df[origin].values)
         if balance_by_min_category:
             g = df_new.groupby('target', group_keys=False)
             # balance-out too large categories with random selection:
@@ -925,10 +935,10 @@ class DBModule:
         if not isinstance(split_points, (list, tuple)) or len(split_points) != 2:
             raise ValueError('split_points must be a list of two elements')
         filename_dict = self._split_and_save(df_new, cur_experiment_dir + '/',
-                                             split_points, headers_string)
+                                             split_points, headers_string,with_bbox or with_segmentation)
         return df_new, filename_dict, av_width, av_height
 
-    def load_specific_categories_annotations(self, cat_names, with_segmentation=False, **kwargs):
+    def load_specific_categories_annotations(self, cat_names, with_segmentation=False,with_bbox=False, **kwargs):
         """
         Метод для загрузки аннотаций из конкретных категорий, заданных их ID.
 
@@ -942,15 +952,18 @@ class DBModule:
                - av_width, av_height - средняя ширина и высота изображений
         """
         if self.ds_filter is not None:
-            return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation, **kwargs)
+            return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation,with_bbox, **kwargs)
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height,
                                 self.Annotation.ID
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names))
         if with_segmentation:
             # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
-            query = query.filter(func.length(self.Annotation.segmentation) > 2)
-        return self._process_query(query, cat_names, with_segmentation, **kwargs)
+            query = query.filter(self.Annotation.segmentation.startswith('[['))#func.length(self.Annotation.segmentation) > 2)
+        if with_bbox:
+            # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
+            query = query.filter(func.length(self.Annotation.bbox) >0)
+        return self._process_query(query, cat_names, with_segmentation, with_bbox, **kwargs)
 
     def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
         """
@@ -1016,7 +1029,7 @@ class DBModule:
         if normalize_cats:
             result['target'] = result['target'].astype('category').cat.codes
         filename_dict = self._split_and_save(result, cur_experiment_dir + '/',
-                                             split_points, ','.join(list(result.columns)))
+                                             split_points, ';'.join(list(result.columns)))
         return result, filename_dict, sum_width / len(result.index), sum_height / len(result.index)
 
     def load_specific_images_annotations(self, image_names, normalize_cats=True) -> pd.DataFrame:
