@@ -173,13 +173,27 @@ class NNGui(object):
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
 
-        self.chatbot_helpmessage = '''Я помогу Вам в режиме диалога сконструировать
+        self.chatbot_startmessage = '''Я помогу Вам в режиме диалога сконструировать
         нейронную сеть с нужными параметрами для имеющихся в базе датасетов изображений.
-
-        Если Вам трубуется загрузить в базу новый датасет и/или осуществить
-        более тонкую настройку параметров, пожалуйста, перейдите в Расширенный режим.
+        Если Вам трубуется загрузить в базу новый датасет и/или Вы хотите иметь доступ
+        к тонким настройкам параметров при обучении нейронных сетей, пожалуйста, перейдите в Расширенный режим.
         '''
-        self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_helpmessage), spacing=10,
+        self.chatbot_helpmessage = '''
+        Перечень командных запросов и их назначение:
+        <p>/debug
+        активизирует логирование исполнения модуля в debug-режиме (сообщения печатаются в терминале)
+        <p>/ok
+        подтверждение структурированного запроса, возвращаемого ботом
+        <p>/target_accuracy
+        корректировка параметра точности обучения
+        <p>/time_limit
+        корректировка параметра времени обучения
+        <p>/classes
+        корректировка параметра целевых классов обучения
+        <p>/output_dir
+        корректировка параметра названия архива с моделью
+        '''
+        self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_startmessage), spacing=10,
                                             height=400, height_policy='fixed',
                                             width_policy = 'max',
                                             css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
