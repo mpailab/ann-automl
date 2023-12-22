@@ -29,11 +29,12 @@ from .params import hyperparameters, widget_type
 import ann_automl.gui.tensorboard as tensorboard
 import ann_automl.gui.qsl_label as qsl_label
 import ann_automl.core.smart_labeling as labeling
+from bot import LLMBot
 from .css_settings import *
 from .gui_params import gui_params
 from .modified_widgets import Box, Button, Delimiter, Table, AnswerBox, RequestBox
 from .param_widget import ParamWidget
-from .chatbot_server import Message
+from .message import Message
 
 HOST = "0.0.0.0"
 #HOST = "localhost"
@@ -55,12 +56,12 @@ pn.extension(raw_css=[
 ])
 pn.config.sizing_mode = 'stretch_width'
 
-# Запуск сервера для чатбота
-#TODO запускать сервер с флагами -h HOST -p PORT_CHATBOT_SERVER
-parsed_args = shlex.split("ann_automl/gui/chatbot_server.py", comments=True, posix=True)
-chatbot_server_process = subprocess.Popen(
-    ["python3"] + parsed_args
-)
+# # Запуск сервера для чатбота
+# #TODO запускать сервер с флагами -h HOST -p PORT_CHATBOT_SERVER
+# parsed_args = shlex.split("ann_automl/gui/chatbot_server.py", comments=True, posix=True)
+# chatbot_server_process = subprocess.Popen(
+#     ["python3"] + parsed_args
+# )
 
 class NNGui(object):
 

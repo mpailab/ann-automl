@@ -1,7 +1,8 @@
 import socket
 import time
-import json
-from typing import List
+
+from ann_automl.gui.message import Message
+from bot import LLMBot
 
 def my_test_lingvmodel(request):
     res = f"Ответ на {request}!"
@@ -9,24 +10,6 @@ def my_test_lingvmodel(request):
         time.sleep(int(request))
         res += f" Задержка {request} сек."
     return res
-
-class Message:
-    def __init__(self, requests : List[str] = []):
-        self.requests = requests
-
-    def __repr__(self):
-        return json.dumps(vars(self), separators=(',', ':'))
-    
-    def __str__(self):
-        return self.__repr__() + '\n'
-
-    @staticmethod
-    def unpack(string):
-        requests = []
-        for line in string.split('\n')[:-1]:
-            tmp_dict = json.loads(line)
-            requests += tmp_dict['requests']
-        return Message(requests)
 
 def server_program(host, port):
 
@@ -37,6 +20,9 @@ def server_program(host, port):
     server_socket.listen(2)
     conn, address = server_socket.accept()  # accept new connection
 
+    # LLM model init
+    bot = LLMBot()
+
     requests_to_client = []
     requests_from_client = []
     while True:
@@ -44,15 +30,12 @@ def server_program(host, port):
         message_from_client = Message.unpack(data)
         requests_from_client += message_from_client.requests
 
-        message_to_client = Message(requests_to_client)
-        conn.send(str(message_to_client).encode())
-        requests_to_client = []
-
         if requests_from_client:
             request = requests_from_client.pop(0)
-            to_client = my_test_lingvmodel(request)
-            requests_to_client.append(to_client)
-
+            for to_client in bot.request(request):
+                message_to_client = Message([to_client])
+                conn.send(str(message_to_client).encode())
+                
     conn.close()  # close the connection
 
 if __name__ == '__main__':
@@ -60,3 +43,4 @@ if __name__ == '__main__':
     host = "0.0.0.0"
     port = 5000
     server_program(host, port)
+    
