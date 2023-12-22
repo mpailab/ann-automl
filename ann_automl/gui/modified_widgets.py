@@ -6,13 +6,13 @@ def Box(*args, **kwargs):
                                margin=(10, 10, 10, 10))
 
 def AnswerBox(*args, **kwargs):
-    return bokeh.models.Div(*args, **kwargs, min_width=800, height_policy = "max", width_policy = 'max',
+    return bokeh.models.Div(*args, **kwargs, #min_width=800, height_policy = "max", width_policy = 'max',
                             sizing_mode='stretch_height',
                             css_classes=['answer-shadowbox'],
                             disabled=True)
 
 def RequestBox(*args, **kwargs):
-    return bokeh.models.Div(*args, **kwargs, min_width=800, height_policy = "max", width_policy = 'max',
+    return bokeh.models.Div(*args, **kwargs, #min_width=800, height_policy = "max", width_policy = 'max',
                             sizing_mode='stretch_height',
                             css_classes=['request-shadowbox'],
                             disabled=True)
