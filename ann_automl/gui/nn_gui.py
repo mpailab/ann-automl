@@ -241,10 +241,12 @@ class NNGui(object):
             with open(labels_file, "w") as outfile:
                 json.dump(labels_dict, outfile)
             print("ok")
-        except ValueError:
+        except ValueError as e:
             err = "Ошибка при загрузки изображений"
-        except FileNotFoundError:
+            print(e)
+        except FileNotFoundError as e:
             err = "Ошибка при загрузки изображений"
+            print(e)
         
         if err:
             self.dataset_error.text = f'<font color=red>{err}</font>'

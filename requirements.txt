@@ -28,3 +28,5 @@ pydot
 
 segmentation_models
 imagesize
+xmltodict
+param==1.13.0
