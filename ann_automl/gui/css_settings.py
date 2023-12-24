@@ -39,7 +39,7 @@ inactive_header_button_css = '''
 
 mode_header_button_css = '''
 .bk.ann-mode-head-btn button.bk.bk-btn.bk-btn-default {
-    color: black;
+    color: white;
     font-size: 16pt;
     background-color: #f57c00;
     border-color: #f57c00;
@@ -67,5 +67,14 @@ answer_shadowbox_css = '''
   box-shadow: 8px 8px 5px #444;
   padding: 8px 12px;
   background-image: linear-gradient(180deg, #fff, #ddd 40%, #ccc);
+}
+'''
+
+chut_input_css = '''
+.bk.ann-automl-scroll {
+    box-sizing: content-box;
+    height: auto;
+    border: solid #5B6DCD 10px;
+    box-shadow: 8px 8px 5px #444;
 }
 '''

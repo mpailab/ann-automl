@@ -1,5 +1,9 @@
 import os
 import sys
+import socket
+import selectors
+import shlex
+import subprocess
 import time
 import traceback
 import json
@@ -29,10 +33,12 @@ from .css_settings import *
 from .gui_params import gui_params
 from .modified_widgets import Box, Button, Delimiter, Table, AnswerBox, RequestBox
 from .param_widget import ParamWidget
+from .chatbot_server import Message
 
 HOST = "0.0.0.0"
 #HOST = "localhost"
 PORT_QSL = 8080
+PORT_CHATBOT_SERVER = 5000
 DATABASES_DIR = 'datasets'
 
 #Launch TensorBoard
@@ -48,6 +54,13 @@ pn.extension(raw_css=[
     request_shadowbox_css, answer_shadowbox_css
 ])
 pn.config.sizing_mode = 'stretch_width'
+
+# Запуск сервера для чатбота
+#TODO запускать сервер с флагами -h HOST -p PORT_CHATBOT_SERVER
+parsed_args = shlex.split("ann_automl/gui/chatbot_server.py", comments=True, posix=True)
+chatbot_server_process = subprocess.Popen(
+    ["python3"] + parsed_args
+)
 
 class NNGui(object):
 
@@ -99,14 +112,47 @@ class NNGui(object):
         return res
 
     def on_click_send_button(self):
-        request = self.chatbot_inputline.value.strip()
+        to_chatbot = self.chatbot_inputline.value.strip()
         self.chatbot_inputline.value = ""
-        answer = "Я внимательно Вас слушаю!"
-
-        request_box = RequestBox(text = request)
-        self.chatbot_output_area.children.append(request_box)
-        answer_box = AnswerBox(text = answer)
+        if to_chatbot:
+            self.requests_to_chatbot.append(to_chatbot)
+            request_box = RequestBox(text = to_chatbot)
+            self.chatbot_output_area.children.append(request_box)
+    
+    def on_click_help_button(self):
+        answer_box = AnswerBox(text = self.chatbot_helpmessage)
         self.chatbot_output_area.children.append(answer_box)
+
+    def update_chatbot_server(self):
+        events = self.sel.select()
+        for key, mask in events:
+            if mask & selectors.EVENT_WRITE:
+                message_to = Message(self.requests_to_chatbot)
+                self.client_socket.send(str(message_to).encode())
+                self.requests_to_chatbot = []
+            if mask & selectors.EVENT_READ:
+                message_from =  Message.unpack(self.client_socket.recv(1024).decode())
+                for answer in message_from.requests:
+                    answer_box = AnswerBox(text = answer)
+                    self.chatbot_output_area.children.append(answer_box)
+        # Альтернативный рабочий вариант
+        # self.client_socket.setblocking(False)
+        # message_to = Message(self.requests_to_chatbot)
+        # try:
+        #     self.client_socket.send(str(message_to).encode())
+        # except (BlockingIOError, BrokenPipeError):
+        #     pass
+        # else:
+        #     self.requests_to_chatbot = []
+
+        # try:
+        #     message_from =  Message.unpack(self.client_socket.recv(1024).decode())
+        # except (BlockingIOError, BrokenPipeError):
+        #     pass
+        # else:
+        #     for answer in message_from.requests:
+        #         answer_box = AnswerBox(text = answer)
+        #         self.chatbot_output_area.children.append(answer_box)
 
     def init_chatbot_interface(self):
         self.chatbot_logs = Div(align="start", visible=False)
@@ -114,26 +160,45 @@ class NNGui(object):
 
         self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
         self.chatbot_buttons = [self.chatbot_error]
+        
+        self.client_socket = socket.socket()
+        self.client_socket.connect((HOST, PORT_CHATBOT_SERVER))
+        print("Connection: success")
+        self.sel = selectors.DefaultSelector()
+        self.sel.register(self.client_socket, selectors.EVENT_READ | selectors.EVENT_WRITE)        
+        self.requests_to_chatbot = []
+        self.bokeh_timer = bokeh.io.curdoc().add_periodic_callback(self.update_chatbot_server, 1000)
 
-        self.chatbot_helpmessage = '''Вас приветствует чатбот Бла-бла-бла.
-        Я пока ничего не умею делать, но Вас не должно это беспокоить.'''
+        self.chatbot_send_button = Button('Отправить', self.on_click_send_button)
+        self.chatbot_buttons = [self.chatbot_error]
+
+        self.chatbot_helpmessage = '''Я помогу Вам в режиме диалога сконструировать
+        нейронную сеть с нужными параметрами для имеющихся в базе датасетов изображений.
+
+        Если Вам трубуется загрузить в базу новый датасет и/или осуществить
+        более тонкую настройку параметров, пожалуйста, перейдите в Расширенный режим.
+        '''
         self.chatbot_output_area = Column(AnswerBox(text=self.chatbot_helpmessage), spacing=10,
                                             height=400, height_policy='fixed',
                                             width_policy = 'max',
                                             css_classes=['ann-automl-shadow-border', 'ann-automl-scroll'],
                                             margin=(10, 10, 10, 10))
-                                        
-        self.chatbot_inputline = TextAreaInput(value = "", min_width=700, sizing_mode='stretch_both')
-        self.chatbot_left_panel = Column(self.chatbot_langmodel.interface)
+        self.chatbot_help_button = Button('Помощь', self.on_click_help_button)
+
+        self.chatbot_inputline = TextAreaInput(value = "", 
+                                               min_width=700, 
+                                               sizing_mode='stretch_both',
+                                               css_classes=['answer_shadowbox_css'])
+        #self.chatbot_left_panel = Column(self.chatbot_langmodel.interface)
+        self.chatbot_left_panel = Column(self.chatbot_help_button)
         self.chatbot_right_panel = Column(self.chatbot_output_area,
                               Row(self.chatbot_inputline, self.chatbot_send_button,
                               width_policy = 'max'
                               )
         )
         self.chatbot_interfaces = [
-            Column(Row(self.chatbot_left_panel,
-                       self.chatbot_right_panel),
-                    sizing_mode='stretch_both'
+            Column(Row(self.chatbot_left_panel, self.chatbot_right_panel),
+                   sizing_mode='stretch_both'
             )
         ]
                    
