@@ -117,7 +117,7 @@ class NNGui(object):
         self.chatbot_inputline.value = ""
         if to_chatbot:
             self.requests_to_chatbot.append(to_chatbot)
-            request_box = RequestBox(text = to_chatbot)
+            request_box = RequestBox(text = to_chatbot.replace("\n", "<br>"))
             self.chatbot_output_area.children.append(request_box)
     
     def on_click_help_button(self):
