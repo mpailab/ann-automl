@@ -29,5 +29,7 @@ yolov5
 eel
 pydot
 
+tensorflow_datasets
+keras_cv
 segmentation_models
 imagesize
