@@ -1,352 +1,180 @@
-import enum
 import os
-import threading
-from sys import argv
-from time import sleep
-from typing import Union
+from typing import Optional, List
 
-from origamibot import OrigamiBot as Bot
-from origamibot.listener import Listener
-
-from matplotlib import pyplot as plt
+from langchain.llms import LlamaCpp
+from langchain.chains import LLMChain
+from langchain.callbacks.manager import CallbackManager
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
 from ann_automl.core.nn_auto import create_classification_model
-from ann_automl.core.nnfuncs import StopFlag, ExperimentLog, multithreading_mode
-from ann_automl.lm.lm_funcs import LMWorker, get_params_from_request
-from ann_automl.utils.process import process
-from ann_automl.utils.thread_wrapper import ObjectWrapper
-from ann_automl.utils.time import time_as_str
+from ann_automl.utils.time import *
+
+import logging
 
 
-plt_lock = threading.RLock()
+class ParamsQualityChecker(object):
+    def __init__(self):
+        self.default_params = {
+            'target_accuracy': 0.9,
+            'time_limit': None,
+            'output_dir': 'model.zip',
+            'classes': ['dog', 'cat'],
+        }
+        self.parameters_mismatch = []
+
+    def type_check(
+        self,
+        target_accuracy: Optional[float] = None,
+        time_limit: Optional[int] = None,
+        output_dir: str = 'model.zip',
+        classes: Optional[List[str]] = None,
+    ):
+        if not isinstance(target_accuracy, (type(None), float)):
+            target_accuracy = self._mismatch('target_accuracy')
+        if not isinstance(time_limit, (type(None), int, float)):
+            time_limit = self._mismatch('time_limit')
+        if not isinstance(output_dir, (type(None), str)):
+            output_dir = self._mismatch('output_dir')
+        if not (isinstance(classes, list) and all(isinstance(elem, str) for elem in classes)):
+            classes = self._mismatch('classes')
+
+        self.parameters = locals()
+        del self.parameters['self']
+
+    def _mismatch(self, param_name: str):
+        self.parameters_mismatch.append(param_name)
+        return self.default_params[param_name]
 
 
-class ChatThread:
-    def __init__(self, bot: Bot, chat_id: int, lm_worker: Union[LMWorker, ObjectWrapper]):
-        self.bot = bot
-        self.chat_id = chat_id
-        self.training = False
-        self.lm_worker = lm_worker
-        self.stop_flag = StopFlag()
-        self.result_file_path = None
-        self.train_process = None
-        self.best_accuracy = 0
-        self.exp_log = None
-        # create directorty for logging information about experiments in this chat
-        self.exp_log_dir = f'data/bot/{chat_id}'
-        os.makedirs(self.exp_log_dir, exist_ok=True)
-        self._emulation = False
-        self._debug = False
-        self._processing = False
-        self.requests = f'{self.exp_log_dir}/requests.txt'
+class LLMBot(object):
+    def __init__(
+        self,
+        executions_limit=5,
+        prompt_data_path="data/lm/init_v0.txt",
+        model_path="codellama-7b-instruct.Q4_K_M.gguf",
+        temperature=1,
+        max_tokens=75,
+        n_ctx=2000,
+        top_p=1,
+        verbose=False,
+    ):
+        self.executions_limit = executions_limit
+        self.prompt_data_path = prompt_data_path
+        self.llm = self._llm_init(
+            model_path=model_path,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            n_ctx=n_ctx,
+            top_p=top_p,
+            verbose=verbose,
+        )
+        self.params_checker = None
 
-    def __del__(self):
-        self.lm_worker.join_thread()
+    def _llm_init(
+        self,
+        model_path,
+        temperature,
+        max_tokens,
+        n_ctx,
+        top_p,
+        verbose,
+    ):
+        logging.debug('LlamaCpp init ..')
+        self.state = 'bot llm init'
+        llm = LlamaCpp(
+            model_path=model_path,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            n_ctx=n_ctx,
+            top_p=top_p,
+            verbose=verbose,
+        )
+        return llm
 
-    def emulation(self, message, on_off):
-        if str(on_off).lower() in ['on', '1', 'true']:
-            self._emulation = True
-            self.bot.send_message(self.chat_id, 'Emulation mode is on')
-        elif str(on_off).lower() in ['off', '0', 'false']:
-            self._emulation = False
-            self.bot.send_message(self.chat_id, 'Emulation mode is off')
-        else:
-            self.bot.send_message(self.chat_id, 'Unknown parameter. Use /emulation on or /emulation off')
+    def request(self, text_request):
+        if text_request[0] != '/':
+            self.state = 'request processing'
+            yield self.state
+            self._text_to_executable_query(text_request)
+            
+            yield f"""
+                I understood the request with following parameters: {self.params_checker.parameters}.\n
+                If you want to start model training - type command /ok.\n
+                If you want to change some parameters - type command in following way: /parameter=value.
+            """
 
-    def debug(self, message, on_off):
-        if str(on_off).lower() in ['on', '1', 'true']:
-            self._debug = True
-            self.bot.send_message(self.chat_id, 'Debug mode is on')
-        elif str(on_off).lower() in ['off', '0', 'false']:
-            self._debug = False
-            self.bot.send_message(self.chat_id, 'Debug mode is off')
-        else:
-            self.bot.send_message(self.chat_id, 'Unknown parameter. Use /debug on or /debug off')
+        elif text_request.strip('/') == 'debug':
+            logging.getLogger().setLevel(level=logging.DEBUG)
+            logging.debug('debug mode activated')
+            yield 'debug mode activated'
 
-    def stop(self, message, return_result):
-        if self.training:
-            if not return_result:
-                self.result_file_path = None
-            self.stop_flag()
-            msg = self.bot.send_message(self.chat_id, 'Wait for training to stop...')
-            self.train_process.wait()
-            self.bot.edit_message_text(self.chat_id, 'Training stopped', msg.message_id)
-            self.training = False
-        else:
-            if self._emulation:
-                self.bot.send_message(message.chat.id, 'Stop command recieved (bot in emulation mode)')
+        elif text_request.strip('/') == 'help':
+            yield """
+                Formulate your request in the following ways:\n
+                "Please, create a model for pet classification and save the model in tflite format. You can optimize the model until tomorrow 12 pm";\n
+                "I want to create plant classifier to recognize plants and animals from iPhone camera with high accuracy. I want to get result until the end of the next week";\n
+                "Planes classification model in 10 hours";\n
+                "We need a classifier for wild animals. You can spend 1 week for it. Save as cl_animals.zip";\n
+            """
+
+        elif text_request.strip('/') != 'ok':
+            param_change = text_request.strip('/').split('=')
+            
+            if param_change[0]=='classes':
+                _value = param_change[1].split(', ')
+            elif param_change[0]=='output_dir':
+                _value = param_change[1]
             else:
-                self.bot.send_message(self.chat_id, 'Nothing to stop, no processes were started')
+                _value = float(param_change[1])
+            self.params_checker.parameters[param_change[0]] = _value
+            
+            yield f"""
+                I understood the request with following parameters: {self.params_checker.parameters}.\n
+                If you want to start model training - type command /ok.\n
+                If you want to change some parameters - type command in following way: /parameter=value.
+            """
+        
+        elif text_request.strip('/') == 'ok':
+            self.state = 'automl model training'
+            yield self.state
+            logging.getLogger().setLevel(level=logging.INFO)
+            output_model_path = create_classification_model(**self.params_checker.parameters)
+            yield os.path.abspath(output_model_path)
 
-    def accuracy(self, message):
-        if self.training:
-            if self.exp_log.best_val_acc > 0:
-                msg = f'Currently, best achieved accuracy is:\n' \
-                      f'  {self.exp_log.best_val_acc:.4f} on validation set'
-                if self.exp_log.best_acc > 0:
-                    msg += f'\n   {self.exp_log.best_acc:.4f} on test set'
-                self.bot.send_message(self.chat_id, msg)
-            else:
-                self.bot.send_message(self.chat_id, 'Currently, waiting for start training process')
-        elif self.best_accuracy > 0:
-            self.bot.send_message(self.chat_id, f'Accuracy achieved during last training process was {self.best_accuracy}')
-        else:
-            self.bot.send_message(self.chat_id, 'No training process was started after last bot server restart')
+    def _text_to_executable_query(
+        self,
+        text_request: str,
+    ):
+        executable = False
+        executions_count = 0
+        while (executable==False) and (executions_count <= self.executions_limit):
+            try:
+                params_checker = ParamsQualityChecker()
 
-    def _on_train_finished(self, *args, **kwargs):
-        self.training = False
-        self.best_accuracy = self.exp_log.best_acc
-        self.result_file_path = self.train_process.value
-        try:
-            if self.result_file_path is not None and os.path.exists(self.result_file_path):
-                with open(self.result_file_path, 'rb') as f:
-                    self.bot.send_document(self.chat_id, f, caption=f'Your model is ready. Best accuracy achieved: {self.best_accuracy}')
-            else:
-                self.bot.send_message(self.chat_id, 'Training finished, but no result was produced')
-        except Exception as e:
-            self.bot.send_message(self.chat_id, f'Training finished, but error occured while sending result: {e}')
+                logging.debug(f'execution try [{executions_count}]: llm model running ...')
+                query = self._llm_inference(text_request)
+                logging.debug(f'execution try [{executions_count}]: query: {query}')
 
-    def debug_msg(self, message):
-        if self._debug:
-            self.bot.send_message(self.chat_id, "Debug message:\n"+message)
+                query = self._query_parsing(query)
+                logging.debug(f'execution try [{executions_count}]: query after processing: {query}')
+                
+                exec(query)
+                self.params_checker = params_checker
+                executable = True
+            except:
+                executions_count += 1
+                logging.debug(f'execution try [{executions_count}]: retry')
+                pass
 
-    def _start_train(self, params):
-        self.result_file_path = os.path.join(self.exp_log_dir, f'{params["output_dir"]}')
-        params['output_dir'] = self.result_file_path
-        self.exp_log = ExperimentLog()
-        self.train_process = process(create_classification_model)(**params, start=False, stop_flag=self.stop_flag,
-                                                                  exp_log=self.exp_log)
-        self.train_process.set_handler('message', lambda msg: self.bot.send_message(self.chat_id, msg))
-        self.train_process.set_handler('print', lambda msg: self.debug_msg(msg))
-        self.train_process.on_finish = self._on_train_finished
-        self.train_process.start()
-        self.training = True
+    def _llm_inference(self, request):
+        prompt = self._prompt_parsing(self.prompt_data_path)
+        result = self.llm(prompt + "\nRequest: {" + request + "}")
+        return result
 
-    def plot(self, message):
-        if self._emulation:
-            self._emulate_plot(message)
-        with plt_lock:
-            if self.exp_log is not None:
-                curr = self.exp_log.current_run
-                if curr is not None:
-                    acc, val_acc = curr.acc, curr.val_acc
-                    loss, val_loss = curr.loss, curr.val_loss
-                    if len(acc) > 0:
-                        x = list(range(1, len(acc)+1))
-                        # plot accuracy (left axis) and loss (right axis)
-                        fig, (axacc, axloss) = plt.subplots(1, 2, figsize=(12, 6))
-                        axacc.plot(x, acc, label='train')
-                        axacc.plot(x, val_acc, label='val')
-                        axacc.set_xlabel('epoch')
-                        axacc.set_ylabel('accuracy')
-                        axacc.legend()
-                        axloss.plot(x, loss, label='train')
-                        axloss.plot(x, val_loss, label='val')
-                        axloss.set_xlabel('epoch')
-                        axloss.set_ylabel('loss')
-                        axloss.legend()
-                        plt.tight_layout()
-                        fig_path = os.path.join(self.exp_log_dir, 'plot.png')
-                        plt.savefig(fig_path)
-                        with open(fig_path, 'rb') as f:
-                            self.bot.send_photo(self.chat_id, f, caption='Current training process')
-                            return
-                if self.training:
-                    self.bot.send_message(self.chat_id, 'No information available to plot. Maybe first epoch is not finished yet?')
-                else:
-                    self.bot.send_message(self.chat_id, 'No active training processes now')
-            else:
-                self.bot.send_message(self.chat_id, 'No training processes were started after last bot server restart')
+    def _query_parsing(self, query):
+        return query.split('Code:')[1].split('{')[1].split('}')[0]
 
-    def _emulate_plot(self, message):
-        with plt_lock:
-            # draw plot with matplotlib and send it to user
-            epochs = list(range(1, 11))
-            train_loss = [0.5, 0.4, 0.3, 0.2, 0.1, 0.09, 0.1, 0.08, 0.07, 0.07]
-            val_loss = [0.6, 0.5, 0.4, 0.3, 0.2, 0.21, 0.22, 0.22, 0.24, 0.23]
-            train_acc = [0.5, 0.6, 0.7, 0.8, 0.9, 0.91, 0.92, 0.93, 0.94, 0.95]
-            val_acc = [0.4, 0.5, 0.6, 0.7, 0.8, 0.79, 0.78, 0.79, 0.76, 0.77]
-            # draw plot in 2 columns (left - loss, right - accuracy)
-            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-            fig.patch.set_facecolor('xkcd:white')
-            ax[0].plot(epochs, train_loss, label='train')
-            ax[0].plot(epochs, val_loss, label='val')
-            ax[0].set_title('Loss')
-            ax[0].set_xlabel('Epoch')
-            ax[0].set_ylabel('Loss')
-            ax[0].legend()
-            ax[1].plot(epochs, train_acc, label='train')
-            ax[1].plot(epochs, val_acc, label='val')
-            ax[1].set_title('Accuracy')
-            ax[1].set_xlabel('Epoch')
-            ax[1].set_ylabel('Accuracy')
-            ax[1].legend()
-            # save plot to file
-            plt.savefig('plot.png')
-            # send plot to user
-            with open('plot.png', 'rb') as f:
-                self.bot.send_photo(message.chat.id, f, caption='Training plot (bot in emulation mode)')
-
-    def process_message(self, message):
-        if self._processing:
-            self.bot.send_message(message.chat.id, 'Previous request is now processed. Wait and then try again')
-            return
-        try:
-            with open(self.requests, 'a') as f:
-                f.write("---\nRequest: {" + message.text + "}\n")
-            self._processing = True
-            if message.text[0] == '/':
-                return
-            if self.training:
-                self.bot.send_message(self.chat_id, 'Previous training process is still running.\n'
-                                                    'Wait for it to finish or stop it (/stop), then ask again.')
-                return
-
-            self.bot.send_message(self.chat_id, 'Processing request ...')
-            # parse message
-            params = self.lm_worker.run(get_params_from_request, message.text)
-            with open(self.requests, 'a') as f:
-                f.write("Params: {" + str(params) + "}\n")
-            if isinstance(params, str):
-                self.bot.send_message(self.chat_id, params)
-                return
-            text = "Parameters:\n"
-            text += f"classes = [{', '.join(params['classes'])}]\n"
-            text += f"time_limit = {time_as_str(params['time_limit'])}\n"
-            text += f"for_mobile = {params['for_mobile']}"
-            if params['optimize_over_target']:
-                text += f"\nstop criterion: by timeout"
-            else:
-                text += f"\nstop criterion: by timeout or when accuracy >= {params['target_accuracy']}"
-            self.bot.send_message(self.chat_id, text)
-            if self._emulation:
-                self.bot.send_message(self.chat_id, 'Emulation mode is on. Training process will not be started.')
-            else:
-                self._start_train(params)
-        except Exception as e:
-            self._processing = False
-            self.bot.send_message(self.chat_id, f'Error: {e}')
-        finally:
-            self._processing = False
-
-
-class BotsCommands:
-    def __init__(self, bot: Bot, lm_worker: Union[LMWorker, ObjectWrapper], chats):
-        self.bot = bot
-        self.lm_worker = lm_worker
-        self.chats = chats
-
-    def _chat(self, chat_id):
-        if chat_id not in self.chats:
-            self.chats[chat_id] = ChatThread(self.bot, chat_id, self.lm_worker)
-        return self.chats[chat_id]
-
-    def start(self, message):  # /start command
-        self.bot.send_message(message.chat.id,
-                              'Hello!\n'
-                              'This is bot for testing natural language interface of ANN-AutoML.\n'
-                              'You can ask me to create neural network for some image classification task.\n'
-                              'For example, you can ask me to create neural network for classification of animals.\n'
-                              'I will try to understand your request and create neural network for you.')
-
-    def echo(self, message, value: str):  # /echo [value: str] command
-        self.bot.send_message(message.chat.id, value)
-
-    def stop(self, message):
-        chat = self._chat(message.chat.id)
-        chat.stop(message, return_result=True)
-
-    def cancel(self, message):
-        chat = self._chat(message.chat.id)
-        chat.stop(message, return_result=False)
-
-    def plot(self, message):
-        chat = self._chat(message.chat.id)
-        chat.plot(message)
-
-    def accuracy(self, message):
-        chat = self._chat(message.chat.id)
-        chat.accuracy(message)
-
-    def emulation(self, message, value: str):
-        chat = self._chat(message.chat.id)
-        chat.emulation(message, value)
-
-    def debug(self, message, value: str):
-        chat = self._chat(message.chat.id)
-        chat.debug(message, value)
-
-
-class MessageListener(Listener):  # Event listener must inherit Listener
-    def __init__(self, bot, lm_worker, chats):
-        self.bot = bot
-        self.lm_worker = lm_worker
-        self.chats = chats
-        self.m_count = 0
-
-    def _chat(self, chat_id):
-        if chat_id not in self.chats:
-            self.chats[chat_id] = ChatThread(self.bot, chat_id, self.lm_worker)
-        return self.chats[chat_id]
-
-    def on_message(self, message):   # called on every message
-        self.m_count += 1
-        print(f'Recieved message from {message.chat.id} ({self.m_count} total)')
-        if message.text[0] == '/':
-            cmd = message.text.split()[0]
-            if cmd not in ['/start', '/stop', '/cancel', '/plot', '/accuracy', '/emulation', '/debug', '/echo']:
-                self.bot.send_message(message.chat.id, 'Unknown command ' + cmd)
-                return
-        self._chat(message.chat.id).process_message(message)
-        # self.bot.send_message(message.chat.id, f'Current message count (after bot restart): {self.m_count}, message: {message.text}')
-
-    def on_command_failure(self, message, err=None):  # When command fails
-        if err is None:
-            self.bot.send_message(message.chat.id, 'Command failed to bind arguments!')
-        else:
-            self.bot.send_message(message.chat.id, f'Error in command:\n{err}')
-
-
-def main():
-    # set torch default device to gpu 1
-    import torch
-    import tensorflow as tf
-
-    torch.cuda.set_device(0)
-
-    gpus = tf.config.list_physical_devices('GPU')
-    print(f"GPUs = {gpus}")
-    if gpus:
-        try:
-            tf.config.set_visible_devices(gpus[1:], 'GPU')
-            for gpu in gpus[1:]:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        except RuntimeError as e:
-            # Visible devices must be set before GPUs have been initialized
-            print(e)
-
-    try:
-        with open('token.txt', 'r') as f:
-            token = f.read().strip()
-    except FileNotFoundError:
-        token = input('Enter bot token: ')
-        with open('token.txt', 'w') as f:
-            f.write(token)
-
-    chats = {}
-    bot = Bot(token)
-    lm_worker = ObjectWrapper(LMWorker)
-    try:
-        bot.add_listener(MessageListener(bot, lm_worker, chats))
-        bot.add_commands(BotsCommands(bot, lm_worker, chats))
-        bot.start()   # start bot's threads
-        print('Bot started')
-        while True:
-            sleep(1)
-    finally:
-        lm_worker.join_thread()
-
-
-if __name__ == '__main__':
-    with multithreading_mode():
-        main()
+    def _prompt_parsing(self, txt_prompt_path):
+        with open(txt_prompt_path, "r", encoding='utf8') as f:
+            prompt = f.read()
+        return prompt

@@ -39,7 +39,7 @@ inactive_header_button_css = '''
 
 mode_header_button_css = '''
 .bk.ann-mode-head-btn button.bk.bk-btn.bk-btn-default {
-    color: black;
+    color: white;
     font-size: 16pt;
     background-color: #f57c00;
     border-color: #f57c00;
@@ -54,8 +54,10 @@ request_shadowbox_css = '''
   width: 15em;
   font-weight: bolder;
   border: 1px solid #333;
-  box-shadow: 8px 8px 5px #444;
+  border-radius: 20px;
+  box-shadow: 0 1px 5px grey;
   padding: 8px 12px;
+  right: 0;
   background-image: linear-gradient(180deg, #3f87a6, #ddd 40%, #3f87a6);
 }
 '''
@@ -64,7 +66,8 @@ answer_shadowbox_css = '''
 .bk.answer-shadowbox {
   width: 15em;
   border: 1px solid #333;
-  box-shadow: 8px 8px 5px #444;
+  border-radius: 20px;
+  box-shadow: 0 1px 5px grey;
   padding: 8px 12px;
   background-image: linear-gradient(180deg, #fff, #ddd 40%, #ccc);
 }
