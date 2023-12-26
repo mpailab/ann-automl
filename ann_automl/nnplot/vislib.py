@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tensorflow.keras.utils import plot_model
 from keras.models import Model
-
+from keras_cv import visualization
+from keras_cv import bounding_box
 
 def arch(model,
          to_file='model.png'
@@ -167,3 +168,29 @@ def show_image(filename):
     from IPython.core.display import display
     pil_img = Image(filename=filename)
     display(pil_img)
+
+def show_detections(images,y_pred,y_true=None,path=None):
+    """
+    Shows image with bounding boxes, classes and scores
+
+    Parameters
+    ----------
+    filename: str
+        Image file name
+    """
+    y_pred = bounding_box.to_ragged(y_pred)
+    y_true = bounding_box.to_ragged(y_true)
+    visualization.plot_bounding_box_gallery(
+        images,
+        value_range=(0, 255),
+        bounding_box_format="xywh",
+        y_true=y_true,
+        y_pred=y_pred,
+        scale=4,
+        rows=2,
+        cols=4,
+        show=False,
+        font_scale=0.7,
+        class_mapping=None,
+        path=path
+    )

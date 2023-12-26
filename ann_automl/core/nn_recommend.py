@@ -10,7 +10,7 @@ import tensorflow as tf
 import os
 
 from .hw_devices import tf_devices_memory
-from .nnfuncs import nn_hparams, nnDB, _data_dir, params_from_history, pretrained_models
+from .nnfuncs import nn_hparams, nnd_hparams, nns_hparams, nnDB, _data_dir, params_from_history, pretrained_models
 from .solver import Rule, rule, Task, printlog, SolverState, Recommender, RecommendTask
 from .nn_task import NNTask
 
@@ -27,14 +27,21 @@ class SelectHParamsTask(RecommendTask):
         """
         super().__init__(goals={})
         self.nn_task = nn_task
-        self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
-        self.hparams['model_arch'] = None
+        if self.nn_task.type == 'classification':
+            self.hparams = {param: nn_hparams[param]['default'] for param in nn_hparams}
+            self.hparams['model_arch'] = None
+        elif self.nn_task.type == 'detection':
+            self.hparams = {param: nnd_hparams[param]['default'] for param in nnd_hparams}
+        elif self.nn_task.type == 'segmentation':
+            self.hparams = {param: nns_hparams[param]['default'] for param in nns_hparams}
+        
         if fixed_hparams is not None:
             self.hparams.update(fixed_hparams)
             self.fixed = set(fixed_hparams.keys())
         else:
             self.fixed = set()
         self.recommendations = {}
+        
 
     def set_selected_options(self, options):
         """ Установка выбранных гиперпараметров """
@@ -52,7 +59,8 @@ def recommend_hparams(task: NNTask, fixed_params=None, **kwargs) -> dict:
         dict: рекомендованные гиперпараметры (включая и фиксированные)
     """
     htask = SelectHParamsTask(task, fixed_params)
-    htask.solve(global_params=kwargs)
+    if task.type == 'classification':
+        htask.solve(global_params=kwargs)
     return htask.hparams
 
 
