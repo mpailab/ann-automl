@@ -1,3 +1,4 @@
+import os
 from typing import Optional, List
 
 from langchain.llms import LlamaCpp
@@ -16,7 +17,8 @@ class ParamsQualityChecker(object):
         self.default_params = {
             'target_accuracy': 0.9,
             'time_limit': None,
-            'output_dir': 'model.zip'
+            'output_dir': 'model.zip',
+            'classes': ['dog', 'cat'],
         }
         self.parameters_mismatch = []
 
@@ -33,13 +35,8 @@ class ParamsQualityChecker(object):
             time_limit = self._mismatch('time_limit')
         if not isinstance(output_dir, (type(None), str)):
             output_dir = self._mismatch('output_dir')
-        if not isinstance(classes, (type(None), List)):
-            # TODO: более умную проверку классов в дереве датасета
-            # TODO: исключать исполнение в случае ошибки
-            pass
-
-        if len(self.parameters_mismatch) > 0:
-            self._mismatch_logging()
+        if not (isinstance(classes, list) and all(isinstance(elem, str) for elem in classes)):
+            classes = self._mismatch('classes')
 
         self.parameters = locals()
         del self.parameters['self']
@@ -84,16 +81,13 @@ class LLMBot(object):
     ):
         logging.debug('LlamaCpp init ..')
         self.state = 'bot llm init'
-        # callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
-        # TODO: убрать вывод логов при инициализации модели
         llm = LlamaCpp(
             model_path=model_path,
             temperature=temperature,
             max_tokens=max_tokens,
             n_ctx=n_ctx,
             top_p=top_p,
-            # callback_manager=callback_manager, 
-            verbose=verbose, # Verbose is required to pass to the callback manager
+            verbose=verbose,
         )
         return llm
 
@@ -103,12 +97,25 @@ class LLMBot(object):
             yield self.state
             self._text_to_executable_query(text_request)
             
-            yield f'I understood the request with following parameters: {self.params_checker.parameters}. If you want to start model training type command /ok. If you want to change some parameters type command in following way: /parameter=value.'
+            yield f"""
+                I understood the request with following parameters: {self.params_checker.parameters}.\n
+                If you want to start model training - type command /ok.\n
+                If you want to change some parameters - type command in following way: /parameter=value.
+            """
 
         elif text_request.strip('/') == 'debug':
-            logging.getLogger().setLevel(level=logging.DEBUG) # format='%(levelname)s:%(message)s', 
+            logging.getLogger().setLevel(level=logging.DEBUG)
             logging.debug('debug mode activated')
             yield 'debug mode activated'
+
+        elif text_request.strip('/') == 'help':
+            yield """
+                Formulate your request in the following ways:\n
+                "Please, create a model for pet classification and save the model in tflite format. You can optimize the model until tomorrow 12 pm";\n
+                "I want to create plant classifier to recognize plants and animals from iPhone camera with high accuracy. I want to get result until the end of the next week";\n
+                "Planes classification model in 10 hours";\n
+                "We need a classifier for wild animals. You can spend 1 week for it. Save as cl_animals.zip";\n
+            """
 
         elif text_request.strip('/') != 'ok':
             param_change = text_request.strip('/').split('=')
@@ -121,16 +128,18 @@ class LLMBot(object):
                 _value = float(param_change[1])
             self.params_checker.parameters[param_change[0]] = _value
             
-            return f'I understood the request with following parameters: {self.params_checker.parameters}. If you want to start model training type command /ok. If you want to change some parameters type command in following way: /parameter=value.'
+            yield f"""
+                I understood the request with following parameters: {self.params_checker.parameters}.\n
+                If you want to start model training - type command /ok.\n
+                If you want to change some parameters - type command in following way: /parameter=value.
+            """
         
         elif text_request.strip('/') == 'ok':
-            self.state = 'training'
-            logging.propagate = False
-            create_classification_model(**self.params_checker.parameters)
-            # TODO: отдать url до модели
-        
-        # else:
-        #     # TODO: падать: неизвестный запрос 
+            self.state = 'automl model training'
+            yield self.state
+            logging.getLogger().setLevel(level=logging.INFO)
+            output_model_path = create_classification_model(**self.params_checker.parameters)
+            yield os.path.abspath(output_model_path)
 
     def _text_to_executable_query(
         self,

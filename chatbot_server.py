@@ -26,7 +26,7 @@ def server_program(host, port):
     requests_to_client = []
     requests_from_client = []
     while True:
-        data = conn.recv(1024).decode()
+        data = conn.recv(4096).decode()
         message_from_client = Message.unpack(data)
         requests_from_client += message_from_client.requests
 

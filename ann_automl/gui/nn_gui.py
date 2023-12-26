@@ -127,12 +127,12 @@ class NNGui(object):
     def update_chatbot_server(self):
         events = self.sel.select()
         for key, mask in events:
-            if mask & selectors.EVENT_WRITE:
+            if (mask & selectors.EVENT_WRITE) and self.requests_to_chatbot:
                 message_to = Message(self.requests_to_chatbot)
                 self.client_socket.send(str(message_to).encode())
                 self.requests_to_chatbot = []
             if mask & selectors.EVENT_READ:
-                message_from =  Message.unpack(self.client_socket.recv(1024).decode())
+                message_from =  Message.unpack(self.client_socket.recv(4096).decode())
                 for answer in message_from.requests:
                     answer_box = AnswerBox(text = answer)
                     self.chatbot_output_area.children.append(answer_box)
