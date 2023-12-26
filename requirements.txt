@@ -15,6 +15,9 @@ tensorflow>=2.0
 tqdm
 scipy
 
+langchain==0.0.308
+llama-cpp-python==0.2.11
+
 panel==0.14.4
 bokeh==2.4.3
 holoviews
