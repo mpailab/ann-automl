@@ -938,13 +938,14 @@ class DBModule:
                                              split_points, headers_string,with_bbox or with_segmentation)
         return df_new, filename_dict, av_width, av_height
 
-    def load_specific_categories_annotations(self, cat_names, with_segmentation=False,with_bbox=False, **kwargs):
+    def load_specific_categories_annotations(self, cat_names, with_segmentation=False, with_bbox=False, **kwargs):
         """
         Метод для загрузки аннотаций из конкретных категорий, заданных их ID.
 
         Args:
             cat_names (list): список ID категорий, аннотации из которых нужно получить
             with_segmentation (bool): если True, будут возвращены только аннотации с сегментацией
+            with_bbox (bool): если True, будут возвращены только аннотации с ограничивающими прямоугольниками
         Returns:
             (DataFrame,dict,float,float): кортеж (df, filename_dict, av_width, av_height), где:
                - df - pandas dataframe с полными аннотациями для заданных cat_ids
@@ -952,7 +953,7 @@ class DBModule:
                - av_width, av_height - средняя ширина и высота изображений
         """
         if self.ds_filter is not None:
-            return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation,with_bbox, **kwargs)
+            return self.load_categories_datasets_annotations(cat_names, self.ds_filter, with_segmentation, with_bbox, **kwargs)
         query = self.sess.query(self.Image.file_name, self.Image.coco_url, self.Annotation.category_id,
                                 self.Annotation.bbox, self.Annotation.segmentation, self.Image.width, self.Image.height,
                                 self.Annotation.ID
@@ -965,7 +966,7 @@ class DBModule:
             query = query.filter(func.length(self.Annotation.bbox) >0)
         return self._process_query(query, cat_names, with_segmentation, with_bbox, **kwargs)
 
-    def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, **kwargs):
+    def load_categories_datasets_annotations(self, cat_names, datasets_ids, with_segmentation=False, with_bbox=False, **kwargs):
         """
         Метод для загрузки аннотаций из конкретных категорий и датасетов, заданных их ID.
 
@@ -973,6 +974,7 @@ class DBModule:
             cat_names (list): список ID категорий, аннотации из которых нужно получить
             datasets_ids (list): список ID датасетов, аннотации из которых нужно получить
             with_segmentation (bool): если True, будут возвращены только аннотации с сегментацией
+            with_bbox (bool): если True, будут возвращены только аннотации с ограничивающими прямоугольниками
         Returns:
             (DataFrame,dict,float,float): кортеж (df, filename_dict, av_width, av_height), где:
                 - df - pandas dataframe с полными аннотациями для заданных cat_ids
@@ -985,12 +987,15 @@ class DBModule:
                                 self.Annotation.ID
                                 ).join(self.Annotation).join(self.Category).filter(self.Category.name.in_(cat_names)).filter(self.Image.dataset_id.in_(datasets_ids))
         if with_segmentation:
-            # lengths 0 and 1 do not work since there are records with empty brackets
-            query = query.filter(func.length(self.Annotation.segmentation) > 2)
-        return self._process_query(query, cat_names, with_segmentation, **kwargs)
+            # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
+            query = query.filter(self.Annotation.segmentation.startswith('[['))#func.length(self.Annotation.segmentation) > 2)
+        if with_bbox:
+            # lengths 0 and 1 do not work because there may be strings with empty brackets in DB
+            query = query.filter(func.length(self.Annotation.bbox) >0)
+        return self._process_query(query, cat_names, with_segmentation, with_bbox, **kwargs)
 
     def load_specific_categories_from_specific_datasets_annotations(self, dataset_categories_dict, normalize_cats=False,
-                                                                    with_segmentation=False, split_points=(0.6, 0.8),
+                                                                    with_segmentation=False, with_bbox=False, split_points=(0.6, 0.8),
                                                                     cur_experiment_dir='.',
                                                                     **kwargs):
         """
@@ -1001,6 +1006,7 @@ class DBModule:
             dataset_categories_dict: словарь соответствия категорий, структура: {datasetID1 : [cat1,cat2], datasetID2: [cat1,cat2,cat3], ...}
             normalize_cats: если True, ID категорий будут нормализованы в диапазоне(0, num_cats)
             with_segmentation: если True, будут возвращены только аннотации с сегментацией
+            with_bbox: если True, будут возвращены только аннотации с ограничивающими прямоугольниками
             split_points: список из двух элементов, точки разделения train, val, test
             cur_experiment_dir: директория для сохранения файлов train, test, val
             kwargs: дополнительные параметры.
@@ -1018,7 +1024,7 @@ class DBModule:
             cat_names = dataset_categories_dict[key]
             datasets_ids = [key]
             result_vec = self.load_categories_datasets_annotations(cat_names, datasets_ids, normalize_cats=False,
-                                                                   with_segmentation=with_segmentation, **kwargs)
+                                                                   with_segmentation=with_segmentation, with_bbox=with_bbox, **kwargs)
             if result is None:
                 result = result_vec[0]
             else:
