@@ -95,6 +95,8 @@ class NNGui(object):
         self.task_params = []
         self.dataset_params = []
         self.train_params = []
+        self.segmentation_params = []
+        self.detection_params = []
         self.optimizer_params = []
         self.tune_params = []
         for par, desc in params.items():
@@ -103,12 +105,17 @@ class NNGui(object):
                 widget = ParamWidget(par, desc)
                 setattr(self, widget.name, widget)
                 getattr(self, f'{widget.group}_params').append(widget)
+        self.train_params_of = {
+            'classification' : self.train_params,
+            'segmentation': self.segmentation_params,
+            'detection' : self.detection_params
+        }
 
     def hparams(self):
         res = self.hparams_vals
         res.update({
                 self.hparams_desc[w.name]['param_key']: w.value
-                for w in [*self.train_params, *self.optimizer_params]
+                for w in [*self.train_params_of[self.task.type], *self.optimizer_params]
             })
         return res
 
@@ -568,11 +575,14 @@ class NNGui(object):
 
     def on_click_task_apply(self, event):
 
-        if len(self.task_objects.value) < 2:
+        if len(self.task_objects.value) < 1:
             self.task_error.text = \
-                '<font color=red>Выберите не менее двух категорий изображений</font>'
+                '<font color=red>Выберите хотя бы одну категорию изображений</font>'
             self.task_error.visible = True
-
+        elif len(self.task_objects.value) < 2 and self.task_type.value == 'classification':
+            self.task_error.text = \
+                '<font color=red>Для задачи классификации выберите не менее двух категорий изображений</font>'
+            self.task_error.visible = True 
         else:
             cur_db().ds_filter = list(self.datasets)
 
@@ -589,7 +599,7 @@ class NNGui(object):
 
             print("Getting recommended hyperparamters ... ", end='', flush=True)
             self.hparams_vals = recommend_hparams(self.task, trace_solution=True)
-            for widget in [*self.train_params, *self.optimizer_params]:
+            for widget in [*self.train_params_of[self.task.type], *self.optimizer_params]:
                 par = '_'.join(widget.name.split('_')[1:])
                 if par in self.hparams_vals:
                     widget.set_default(self.hparams_vals[par])
@@ -865,7 +875,18 @@ class NNGui(object):
         self.buttons_interface.children = self.train_buttons
         self.window_interface.children = self.train_interfaces
         self.logs_interface.children = []
-        for widget in [*self.train_params, *self.optimizer_params]:
+        self.train_params_box.children = [
+            Spacer(height=10),
+            *[w.interface for w in self.general_params],
+            Delimiter(),
+            *[w.interface for w in self.train_params_of[self.task.type]],
+            Delimiter(),
+            *[w.interface for w in self.optimizer_params],
+            Delimiter(),
+            *[w.interface for w in self.tune_params],
+            Spacer(height=10)
+        ]
+        for widget in [*self.optimizer_params, *self.train_params_of[self.task.type]]:
             widget.reset()
             widget.enable()
             widget.activate()
@@ -924,6 +945,8 @@ class NNGui(object):
 
         self.history_params_box = Box(Spacer(height=10),
                                       *[w.interface for w in self.train_params],
+                                      #*[w.interface for w in self.segmentation_params],
+                                      #*[w.interface for w in self.detection_params],
                                       Delimiter(),
                                       *[w.interface for w in self.optimizer_params],
                                       Spacer(height=10))

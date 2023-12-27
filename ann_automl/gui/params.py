@@ -2,7 +2,7 @@ from copy import copy, deepcopy
 
 import warnings
 
-from ..core.nnfuncs import nn_hparams, tune_hparams
+from ..core.nnfuncs import nn_hparams, nns_hparams, nnd_hparams, tune_hparams
 
 
 def update_params_deps(params):
@@ -41,6 +41,8 @@ def update_params_deps(params):
 
 all_hparams = {
     'train': update_params_deps(deepcopy(nn_hparams)),
+    'segmentation': update_params_deps(deepcopy(nns_hparams)),
+    'detection': update_params_deps(deepcopy(nnd_hparams)),
     'tune': update_params_deps(deepcopy(tune_hparams)),
 }
 
@@ -48,13 +50,21 @@ all_hparams = {
 param_groups = {
     'train': ['train.model_arch', 'train.transfer_learning',
               'train.epochs', 'train.optimizer', 'train.learning_rate', 'train.batch_size', 
-              # 'train.decay',
               'train.activation',
               'train.loss', 'train.metrics', 'train.dropout',
               'train.early_stopping', 'train.min_delta', 'train.patience',
-              # 'train.kernel_initializer', 'train.bias_initializer',
-              # 'train.kernel_regularizer', 'train.bias_regularizer', 'train.activity_regularizer',
-              # 'train.kernel_constraint', 'train.bias_constraint'
+             ],
+    'segmentation': ['segmentation.model_arch', 'segmentation.transfer_learning',
+                    'segmentation.epochs', 'segmentation.optimizer', 'segmentation.learning_rate', 'segmentation.batch_size', 
+                    'segmentation.activation',
+                    'segmentation.loss', 'segmentation.metrics', 'segmentation.dropout',
+                    'segmentation.early_stopping', 'segmentation.min_delta', 'segmentation.patience',
+             ],
+    'detection': ['detection.model_arch', 'detection.transfer_learning',
+                    'detection.epochs', 'detection.optimizer', 'detection.learning_rate', 'detection.batch_size', 
+                    'detection.activation',
+                    'detection.metrics', 'detection.dropout',
+                    'detection.early_stopping', 'detection.min_delta', 'detection.patience',
              ],
     'optimizer': ['train.nesterov', 'train.centered', 'train.amsgrad',
                   'train.momentum', 'train.rho', 'train.epsilon',
