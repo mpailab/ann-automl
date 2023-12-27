@@ -711,12 +711,14 @@ nnd_hparams = {
     'resize_min': {
         'type': 'float',
         'default': 0.75,
+        'step': 0.05,
         'range': [0,3],
         'title': 'scale_factor_min',
         'description': 'Параметры аугментации изображений.'},
     'resize_max': {
         'type': 'float',
         'default': 1.3,
+        'step': 0.05,
         'range': [0,3],
         'title': 'scale_factor_max',
         'description': 'Параметры аугментации изображений.'},
@@ -761,7 +763,7 @@ nnd_hparams = {
                'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
     'beta_2': {'type': 'float', 'range': [0.5, 0.9999], 'default': 0.999, 'title': 'beta_2 для Adam', 'cond': True,
                'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
-    'global_clipnorm': {'type': 'float', 'range': [0, 15.0], 'default': 10.0, 'title': 'global_clipnorm'},  # for allfor all
+    'global_clipnorm': {'type': 'float', 'range': [0, 15.0], 'step': 1, 'default': 10.0, 'title': 'global_clipnorm', 'cond': True},  # for allfor all
 
 
     #additional parameters
@@ -951,6 +953,7 @@ nns_hparams = {
     'ROTATION_FACTOR_min' :{
         'type': 'float',
         'default': -0.2,
+        'step': 0.1,
         'range': [-2,2],
         'title': 'ROTATION_FACTOR',
         'description': 'Параметры аугментации изображений.'
@@ -959,6 +962,7 @@ nns_hparams = {
     'ROTATION_FACTOR_max':{
         'type': 'float',
         'default': 0.2,
+        'step': 0.1,
         'range': [-2,2],
         'title': 'ROTATION_FACTOR_max',
         'description': 'Параметры аугментации изображений.'
@@ -982,6 +986,7 @@ nns_hparams = {
     'resize_min': {
         'type': 'float',
         'default': 0.75,
+        'step': 0.05,
         'range': [0,3],
         'title': 'scale_factor_min',
         'description': 'Параметры аугментации изображений.'
@@ -990,6 +995,7 @@ nns_hparams = {
     'resize_max': {
         'type': 'float',
         'default': 1.3,
+        'step': 0.05,
         'range': [0,3],
         'title': 'scale_factor_max',
         'description': 'Параметры аугментации изображений.'
@@ -1037,7 +1043,7 @@ nns_hparams = {
                'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
     'beta_2': {'type': 'float', 'range': [0.5, 0.9999], 'default': 0.999, 'title': 'beta_2 для Adam', 'cond': True,
                'step': 2**0.25, 'scale': '1-log'},  # для Adam, Nadam, Adamax
-    'global_clipnorm': {'type': 'float', 'range': [0, 15.0], 'default': 10.0, 'title': 'global_clipnorm'},  # for allfor all
+    'global_clipnorm': {'type': 'float', 'range': [0, 15.0], 'step': 1, 'default': 10.0, 'title': 'global_clipnorm', 'cond': True},  # for allfor all
 
 
     #additional parameters
@@ -1227,9 +1233,9 @@ def create_generators(model, data, augmen_params, preprocessing_function, batch_
     Returns:
         генераторы для train, val, test
     """
-    df_train = pd.read_csv(data['train'])
-    df_validate = pd.read_csv(data['validate'])
-    df_test = pd.read_csv(data['test'])
+    df_train = pd.read_csv(data['train'], delimiter=';')
+    df_validate = pd.read_csv(data['validate'], delimiter=';')
+    df_test = pd.read_csv(data['test'], delimiter=';')
     # Определяем размерность входных данных из модели
     flow_args = dict(target_size=model.input_shape[1:3], class_mode='raw', batch_size=batch_size)
 
